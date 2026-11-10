@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 import hashlib
@@ -126,6 +127,14 @@ def _event(case_id, revision, kind, content, previous):
     event = {'incident_id': case_id, 'revision': revision, 'kind': kind,
              'content': content, 'previous_sha256': previous}
     return event, sha(canonical(event))
+
+
+@dataclass(frozen=True)
+class RecordedSource:
+    incident_id: str
+    payload: bytes
+    report_json: bytes
+    engine_fingerprint: str
 
 
 class IncidentStore:
@@ -279,6 +288,13 @@ class IncidentStore:
     def read(self, case_id: str) -> dict:
         with self._connect() as connection:
             return self._load(connection, case_id)[0]
+
+    def source_snapshot(self, case_id: str) -> RecordedSource:
+        """Read verified source context for trusted local orchestration, not an API export."""
+        with self._connect() as connection:
+            record, payload = self._load(connection, case_id)
+        return RecordedSource(case_id, payload, canonical(record['report']),
+                              record['manifest']['engine_fingerprint'])
 
     def replay(self, case_id: str) -> dict:
         with self._connect() as connection:
