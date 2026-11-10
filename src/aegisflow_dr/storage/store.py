@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
 import hashlib
 from importlib.resources import files
 import json
@@ -18,8 +17,7 @@ from uuid import uuid4
 
 from ..pipeline import MAX_INPUT_BYTES, diagnose_csv
 
-APPLICATION_ID = 1095124051
-SCHEMA_VERSION = 1
+from .schema import APPLICATION_ID, SCHEMA_VERSION, schema_sql, validate_schema
 
 
 class StoreError(ValueError):
@@ -49,53 +47,6 @@ def engine_fingerprint() -> str:
                           'implementation': platform.python_implementation()}))
 
 
-def _schema() -> str:
-    ddl = '''
-CREATE TABLE incidents (
- id TEXT PRIMARY KEY, request_key TEXT NOT NULL UNIQUE,
- manifest BLOB NOT NULL, manifest_sha256 TEXT NOT NULL
-);
-CREATE TABLE evidence (
- incident_id TEXT NOT NULL REFERENCES incidents(id), id TEXT NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('source_csv','diagnostic_report')),
- content BLOB NOT NULL, sha256 TEXT NOT NULL,
- PRIMARY KEY(incident_id,id), UNIQUE(incident_id,kind)
-);
-CREATE TABLE claims (
- incident_id TEXT NOT NULL REFERENCES incidents(id), id TEXT NOT NULL,
- content BLOB NOT NULL, PRIMARY KEY(incident_id,id)
-);
-CREATE TABLE claim_evidence (
- incident_id TEXT NOT NULL, claim_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
- PRIMARY KEY(incident_id,claim_id,evidence_id),
- FOREIGN KEY(incident_id,claim_id) REFERENCES claims(incident_id,id),
- FOREIGN KEY(incident_id,evidence_id) REFERENCES evidence(incident_id,id)
-);
-CREATE TABLE events (
- incident_id TEXT NOT NULL REFERENCES incidents(id), revision INTEGER NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('RECEIVED','DIAGNOSED','CLOSED')),
- content BLOB NOT NULL, previous_sha256 TEXT, sha256 TEXT NOT NULL,
- PRIMARY KEY(incident_id,revision)
-);
-'''
-    for table in ('incidents', 'evidence', 'claims', 'claim_evidence', 'events'):
-        for operation in ('UPDATE', 'DELETE'):
-            ddl += (f'CREATE TRIGGER immutable_{table}_{operation.lower()} BEFORE {operation} '
-                    f"ON {table} BEGIN SELECT RAISE(ABORT,'immutable record'); END;\n")
-    return ddl
-
-
-def _schema_signature(connection) -> tuple:
-    return tuple(connection.execute("SELECT type,name,sql FROM sqlite_master "
-                                    "WHERE sql IS NOT NULL ORDER BY type,name"))
-
-
-@lru_cache(maxsize=1)
-def _expected_schema() -> tuple:
-    with closing(sqlite3.connect(':memory:')) as connection:
-        connection.executescript(_schema())
-        return _schema_signature(connection)
-
 
 def initialize(path: Path) -> None:
     """Create a new private database; never adopt or overwrite an existing file."""
@@ -104,7 +55,7 @@ def initialize(path: Path) -> None:
     os.close(descriptor)
     with closing(sqlite3.connect(path)) as connection:
         connection.execute('PRAGMA foreign_keys=ON')
-        connection.executescript('BEGIN IMMEDIATE;\n' + _schema()
+        connection.executescript('BEGIN IMMEDIATE;\n' + schema_sql()
                                  + f'PRAGMA application_id={APPLICATION_ID};\n'
                                  + f'PRAGMA user_version={SCHEMA_VERSION};\nCOMMIT;')
 
@@ -155,10 +106,10 @@ class IncidentStore:
         with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection:
             connection.execute('PRAGMA foreign_keys=ON')
             connection.execute('PRAGMA synchronous=FULL')
-            if (connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID
-                    or connection.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION
-                    or _schema_signature(connection) != _expected_schema()):
-                raise StoreError('Unsupported store schema')
+            try:
+                validate_schema(connection)
+            except ValueError as exc:
+                raise StoreError('Unsupported store schema') from exc
             if write:
                 connection.execute('BEGIN IMMEDIATE')
             else:

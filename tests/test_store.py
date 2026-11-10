@@ -117,10 +117,10 @@ class StoreTests(unittest.TestCase):
 
     def test_wrong_schema_version_and_missing_triggers_fail_closed(self):
         with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute('PRAGMA user_version=2')
+            connection.execute('PRAGMA user_version=3')
         with self.assertRaises(StoreError): self.store.read('anything')
         with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute('PRAGMA user_version=1')
+            connection.execute('PRAGMA user_version=2')
             connection.execute('DROP TRIGGER immutable_events_update')
         with self.assertRaises(StoreError): IncidentStore(self.path)
 

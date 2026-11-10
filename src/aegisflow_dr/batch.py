@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 from contextlib import closing
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 import hashlib
 from importlib.resources import files
@@ -87,7 +87,23 @@ class BatchReport:
         return json.dumps(asdict(self), indent=2, ensure_ascii=False, sort_keys=True)
 
 
+@dataclass(frozen=True)
+class BatchSnapshot:
+    name: str
+    content: bytes = field(repr=False)
+
+
+@dataclass(frozen=True)
+class BatchExecution:
+    report: BatchReport
+    snapshots: tuple[BatchSnapshot, ...]
+
+
 def run_batch(payload: bytes, *, transform: str = "clean") -> BatchReport:
+    return execute_batch(payload, transform=transform).report
+
+
+def execute_batch(payload: bytes, *, transform: str = "clean") -> BatchExecution:
     """Validate input, stage exact integer cents, run reviewed SQL, reconcile.
 
     SQLite is exclusively in memory. Only packaged SQL can run. All emitted
@@ -102,8 +118,8 @@ def run_batch(payload: bytes, *, transform: str = "clean") -> BatchReport:
     source_artifact = Artifact("source_orders", source.source_sha256, source.row_count,
                                None, None)
     if source.status != "PASS":
-        return BatchReport("BLOCKED", source, (source_artifact,), (), "source_orders",
-                           downstream("source_orders"), sql_hash)
+        return BatchExecution(BatchReport("BLOCKED", source, (source_artifact,), (), "source_orders",
+                           downstream("source_orders"), sql_hash), ())
 
     reader = csv.DictReader(io.StringIO(payload.decode("utf-8-sig"), newline=""))
     records = [
@@ -139,6 +155,9 @@ def run_batch(payload: bytes, *, transform: str = "clean") -> BatchReport:
                  Artifact("staging_orders", stage_hash, len(records),
                           source.source_sha256, stage_version),
                  Artifact("customer_sales", mart_hash, len(mart), stage_hash, sql_hash))
-    return BatchReport("FAIL" if failed else "PASS", source, artifacts, checks,
+    report = BatchReport("FAIL" if failed else "PASS", source, artifacts, checks,
                        "customer_sales" if failed else None,
                        downstream("customer_sales") if failed else (), sql_hash)
+    return BatchExecution(report, (
+        BatchSnapshot('staging_orders', stage_bytes), BatchSnapshot('customer_sales', mart_bytes),
+        BatchSnapshot('sql_transform', sql_bytes), BatchSnapshot('staging_contract', STAGING_CONTRACT)))

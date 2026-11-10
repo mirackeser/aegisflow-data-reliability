@@ -66,6 +66,19 @@ def main() -> None:
                           '--transform', 'exclude_first'])
         if faulted['assessment'] != 'TRANSFORMATION_RECONCILIATION_FAILURE':
             raise RuntimeError('Installed transformation investigation regression')
+        recorded = invoke(['record-investigation', '--db', database, '--incident', incident,
+                           '--key', 'durable', '--transform', 'exclude_first'])
+        run = recorded['run_id']
+        if len(recorded['manifest']['artifacts']) != 4 or recorded['trace']['assessment'] != 'TRANSFORMATION_RECONCILIATION_FAILURE':
+            raise RuntimeError('Installed durable evidence missing')
+        if invoke(['read-investigation', '--db', database, '--run', run]) != recorded:
+            raise RuntimeError('Installed run changed across processes')
+        if invoke(['replay-investigation', '--db', database, '--run', run])['outcome'] != 'MATCH':
+            raise RuntimeError('Installed run replay mismatch')
+        if invoke(['record-investigation', '--db', database, '--incident', incident,
+                   '--key', 'durable', '--transform', 'exclude_first']) != recorded:
+            raise RuntimeError('Installed run idempotency mismatch')
+        invoke(['store-migrate', '--db', database])
         evaluation = invoke(['evaluate-investigation'])
         if not evaluation['all_matched'] or evaluation['case_count'] != 10 or evaluation['held_out_benchmark']:
             raise RuntimeError('Installed development suite regression')

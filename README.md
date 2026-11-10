@@ -4,7 +4,7 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
-The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Dashboard execution, durable batch-stage snapshots and inferred root cause remain outside this increment. Source CSV diagnosis now supports the persistent local store described below.
+The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Versioned investigation runs now retain exact executed stage/mart CSV, SQL and staging-contract snapshots in the explicit local store. Dashboard execution and inferred root cause remain planned. Source CSV diagnosis now supports the persistent local store described below.
 
 
 The executable baseline generates synthetic orders and checks a CSV data contract. It detects renamed columns, missing values, duplicate order IDs and invalid amounts. Every report identifies the exact input with SHA-256 and uses logical CSV record numbers as evidence locators. Invalid input and exhausted input budgets fail explicitly.
@@ -86,4 +86,19 @@ PYTHONPATH=src python3 -m aegisflow_dr evaluate-investigation
 
 The investigator uses one policy/budget session, verifies the retained source version, then conditionally runs source diagnosis, batch reconciliation and declared impact lookup. It does not modify incident history. Results include ordered step reports, evidence hashes and scoped observations. Missing/invalid evidence or tool-policy failure returns INCONCLUSIVE rather than a guessed conclusion.
 
-Investigation exit 0 means COMPLETED, including a completed investigation that found data failure; exit 1 means INCONCLUSIVE; exit 2 means rejected input/command. NO_FAILURE_OBSERVED applies only to the checks performed. Workflow output and batch-stage bytes are not yet durably stored. The 10 labeled development regressions are not a held-out model benchmark and do not measure model accuracy. See [ADR-0006](docs/adr/0006-bounded-retained-source-investigation.md) and [suite scope](docs/research/investigation-development-suite.md).
+Investigation exit 0 means COMPLETED, including a completed investigation that found data failure; exit 1 means INCONCLUSIVE; exit 2 means rejected input/command. NO_FAILURE_OBSERVED applies only to the checks performed. This command remains transient; use the explicit durable commands below to retain workflow output and batch-stage bytes. The 10 labeled development regressions are not a held-out model benchmark and do not measure model accuracy. See [ADR-0006](docs/adr/0006-bounded-retained-source-investigation.md) and [suite scope](docs/research/investigation-development-suite.md).
+
+## Durable investigations and explicit schema migration
+
+New stores use schema V2. Existing V1 stores remain readable with unchanged source history; they are never upgraded on open. Back up an existing store using SQLite backup, stop writers and explicitly migrate before recording investigation runs:
+
+```sh
+PYTHONPATH=src python3 -m aegisflow_dr store-migrate --db work/incidents.db
+PYTHONPATH=src python3 -m aegisflow_dr record-investigation --db work/incidents.db --incident INCIDENT_ID --key run-001
+PYTHONPATH=src python3 -m aegisflow_dr read-investigation --db work/incidents.db --run RUN_ID
+PYTHONPATH=src python3 -m aegisflow_dr replay-investigation --db work/incidents.db --run RUN_ID
+```
+
+Recording returns 0 for a committed run, including INCONCLUSIVE; inspect trace.status and trace.assessment. Read and replay verify the parent source, trace, policy and artifact bindings. Replay returns 0 for MATCH, 1 for MISMATCH and 2 for rejected operations or unavailable implementation. Timing-dependent failures may replay differently; replay never overwrites the original. Exact replay requires matching code, packaged SQL, Python and SQLite versions.
+
+Run keys are scoped to an incident. Same-key/same-request retries return the original verified run without executing tools; changed policy or transform conflicts. The four batch snapshots come from the authorized execution itself. Source failures and denied batches do not trigger hidden batch execution. JSON and CLI output contain metadata and checksums; raw snapshot bytes are accessible only through the trusted local host interface. The database remains unencrypted synthetic research storage. See [ADR-0007](docs/adr/0007-durable-investigation-evidence.md) and [increment 06](docs/delivery/increment-06.md).
