@@ -20,11 +20,12 @@ jobs:
         env:
           COVERAGE_FILE: ${{ runner.temp }}/application.coverage
         run: python -m coverage run --branch --source=aegisflow_dr -m unittest discover -s tests -v
-      - name: Enforce coordination coverage and report application coverage
+      - name: Enforce coordination/workflow coverage and report application coverage
         env:
           COVERAGE_FILE: ${{ runner.temp }}/application.coverage
         run: |
           python -m coverage report --include="*/coordination/*.py" --fail-under=100
+          python -m coverage report --include="*/workflow/*.py" --fail-under=100
           python -m coverage report
       - name: Verify installed package outside the checkout
         working-directory: ${{ runner.temp }}

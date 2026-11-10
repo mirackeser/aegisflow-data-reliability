@@ -109,3 +109,12 @@ Run keys are scoped to an incident. Same-key/same-request retries return the ori
 The contract-first coordination package validates internal task/proposal/verdict/receipt messages, routes controlled capability tags through a bounded DAG, reads an existing run via the A26 local slice, and independently reviews a structured assessment via the A27 deterministic slice. This path makes no model calls, modifies no incident/run history and does not expose a network listener.
 
 Use `review-investigation --db work/incidents.db --proposal work/proposal.json` with the [v1 contract](docs/contracts/coordination-v1.md). Wrong assessments or citations reject; unavailable/incomplete evidence abstains. These local messages are not MCP/A2A protocol objects, role labels are not certificates, and the verifier is not an LLM-as-a-Judge. The [ten-component architecture and diagrams](docs/adr/0008-agent-coordination-boundaries.md) document planned MCP/A2A, model routing, RAG, CAG, mTLS and remote transport boundaries. [Increment 07](docs/delivery/increment-07.md) records measured tests and coverage.
+
+
+## Durable review queue
+
+The optional durable review path stores reservation/retry/cancellation state in a separate private SQLite queue, preserving immutable source/run storage. It dispatches the existing A26→A27 local slices, validates dependencies, rejects stale results, and recovers expired work with bounded exponential backoff. Worker reads run outside queue write transactions. Immediate review remains available.
+
+Start with `queue-init --queue work/reviews.db`, then `submit-review --queue work/reviews.db --db work/incidents.db --proposal work/proposal.json --key review-001`. Run `work-once` with both paths to process one task; inspect `read-job --queue work/reviews.db --job JOB_ID`. See the [operator/API contract](docs/contracts/durable-review-v1.md), [state and recovery decision](docs/adr/0009-durable-local-review-execution.md) and [increment 08 evidence](docs/delivery/increment-08.md).
+
+This is a trusted local, read-only execution baseline with at-least-once work and fenced result commits. It does not provide distributed identity, remote delivery, hard cancellation, exactly-once external effects or a background worker service. A completed review job may reject or abstain; inspect its Judge verdict. No model accuracy is claimed.

@@ -13,14 +13,7 @@ from .routing import TaskGraph
 def review_saved_run(runs: InvestigationRuns, payload: bytes) -> dict:
     """Read-only simulation: no network, retries, model calls or durable job state."""
     proposal = parse('proposal', payload)
-    tasks = [
-        {'version': '1', 'task_id': 'collect', 'incident_id': proposal['incident_id'],
-         'run_id': proposal['run_id'], 'capability': 'evidence.read',
-         'required_tags': ['read-only', 'retained-evidence'], 'depends_on': []},
-        {'version': '1', 'task_id': 'judge', 'incident_id': proposal['incident_id'],
-         'run_id': proposal['run_id'], 'capability': 'assessment.review',
-         'required_tags': ['read-only', 'verification'], 'depends_on': ['collect']},
-    ]
+    tasks = review_tasks(proposal)
     graph = TaskGraph(tasks)
     receipts = []
     record = None
@@ -50,3 +43,15 @@ def review_saved_run(runs: InvestigationRuns, payload: bytes) -> dict:
         receipts.append(parse('receipt', encode('receipt', receipt)))
     return {'version': '1', 'transport': 'in-process', 'durable_job': False,
             'tasks': [graph.task(key) for key in graph.order], 'receipts': receipts, 'verdict': verdict}
+
+
+def review_tasks(proposal: dict) -> list[dict]:
+    """Host-owned graph shared by immediate and durable review paths."""
+    return [
+        {'version': '1', 'task_id': 'collect', 'incident_id': proposal['incident_id'],
+         'run_id': proposal['run_id'], 'capability': 'evidence.read',
+         'required_tags': ['read-only', 'retained-evidence'], 'depends_on': []},
+        {'version': '1', 'task_id': 'judge', 'incident_id': proposal['incident_id'],
+         'run_id': proposal['run_id'], 'capability': 'assessment.review',
+         'required_tags': ['read-only', 'verification'], 'depends_on': ['collect']},
+    ]

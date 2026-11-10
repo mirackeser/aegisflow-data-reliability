@@ -13,10 +13,12 @@ from .batch import TRANSFORMS, run_batch
 from .gateway import ToolGateway, ToolPolicy, ToolRequest
 from .storage import IncidentStore, initialize, migrate
 from .storage.runs import InvestigationRuns
+from .storage.recovery import recover as recover_store
 from .investigation import default_policy, investigate
 from .evaluation import evaluate_development_suite
 from .coordination.contracts import MAX_MESSAGE_BYTES
 from .coordination.service import review_saved_run
+from .workflow import cli as workflow_cli
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser('evaluate-investigation', help='Run labeled development regressions, not a model benchmark')
     migration = commands.add_parser('store-migrate', help='Explicitly upgrade a verified local store to V2')
     migration.add_argument('--db', required=True)
+    recovery = commands.add_parser('store-recover', help='Explicitly recover an interrupted evidence transaction')
+    recovery.add_argument('--db', required=True)
     for command in ('record-investigation', 'read-investigation', 'replay-investigation'):
         operation = commands.add_parser(command, help='Persist or verify a bounded synthetic investigation')
         operation.add_argument('--db', required=True)
@@ -65,14 +69,23 @@ def main(argv: list[str] | None = None) -> int:
     review_command = commands.add_parser('review-investigation', help='Review a structured assessment against retained evidence')
     review_command.add_argument('--db', required=True)
     review_command.add_argument('--proposal', required=True)
+    workflow_cli.register(commands)
     args = parser.parse_args(argv)
     try:
+        if args.command in workflow_cli.COMMANDS:
+            result, code = workflow_cli.execute(args)
+            print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
+            return code
         if args.command == 'review-investigation':
             with open(args.proposal, 'rb') as stream:
                 payload = stream.read(MAX_MESSAGE_BYTES + 1)
             result = review_saved_run(InvestigationRuns(IncidentStore(Path(args.db))), payload)
             print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
             return 0 if result['verdict']['decision'] == 'ACCEPT' else 1
+        if args.command == 'store-recover':
+            recover_store(Path(args.db))
+            print('{"outcome": "STORE_RECOVERED"}')
+            return 0
         if args.command == 'store-migrate':
             migrate(Path(args.db))
             print('{"outcome": "SCHEMA_V2_READY"}')
