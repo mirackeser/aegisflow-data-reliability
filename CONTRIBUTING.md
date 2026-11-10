@@ -9,3 +9,5 @@ Keep domain logic independent of UI, connectors and model providers. Prefer dete
 Definition of done: observable behavior matches acceptance criteria; meaningful tests pass; installed-package behavior works; documentation and limitations match code; CI succeeds; a reviewer can assess a focused PR. Passing tests do not imply production acceptance or benchmark superiority.
 
 UI work must use restrained typography, consistent spacing, accessible contrast, clear evidence hierarchy and complete loading, empty and failure states. Visual polish must support investigation and decision making. Interface implementation follows functioning data and diagnostic contracts.
+
+Contributions are submitted under Apache-2.0 unless explicitly stated otherwise. See docs/licensing.md for scope and third-party attribution requirements.

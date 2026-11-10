@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A bounded, synthetic-only baseline for batch data quality diagnostics.
 
 Findings describe observed violations, not inferred root causes. No model calls,

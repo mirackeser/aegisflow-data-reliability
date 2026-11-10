@@ -43,3 +43,7 @@ The original Turkish design is an immutable reference archive. New engineering d
 ## History preservation
 
 The previous supply/SLA prototype remains separate and unchanged at https://github.com/aegisflow-ai-labs/Aegisflow-ai. This repository starts a distinct Data Reliability implementation; role identifiers must not be interpreted using the old catalog.
+
+## License
+
+Licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) and [licensing scope](docs/licensing.md). Third-party materials retain their original terms.
