@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegisflow:coordination:verdict:1",
+  "title": "AegisFlow verdict v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "run_id",
+    "decision",
+    "reason",
+    "assessment",
+    "reviewer",
+    "mode",
+    "record_sha256"
+  ],
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "decision": {
+      "enum": [
+        "ACCEPT",
+        "REJECT",
+        "ABSTAIN"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "MATCH",
+        "CONTRADICTION",
+        "EVIDENCE_MISMATCH",
+        "INCOMPLETE",
+        "INVALID_EVIDENCE",
+        "RUN_UNAVAILABLE"
+      ]
+    },
+    "assessment": {
+      "anyOf": [
+        {
+          "enum": [
+            "NO_FAILURE_OBSERVED",
+            "SOURCE_QUALITY_FAILURE",
+            "TRANSFORMATION_RECONCILIATION_FAILURE"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reviewer": {
+      "const": "A27"
+    },
+    "mode": {
+      "const": "deterministic"
+    },
+    "record_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "ACCEPT"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "MATCH"
+          },
+          "assessment": {
+            "type": "string"
+          },
+          "record_sha256": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "REJECT"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "enum": [
+              "CONTRADICTION",
+              "EVIDENCE_MISMATCH"
+            ]
+          },
+          "assessment": {
+            "type": "string"
+          },
+          "record_sha256": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "ABSTAIN"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "enum": [
+              "INCOMPLETE",
+              "INVALID_EVIDENCE",
+              "RUN_UNAVAILABLE"
+            ]
+          },
+          "assessment": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "RUN_UNAVAILABLE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "record_sha256": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegisflow:coordination:task:1",
+  "title": "AegisFlow task v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "task_id",
+    "incident_id",
+    "run_id",
+    "capability",
+    "required_tags",
+    "depends_on"
+  ],
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}(?![\\s\\S])",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "incident_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "capability": {
+      "enum": [
+        "evidence.read",
+        "assessment.review"
+      ]
+    },
+    "required_tags": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "read-only",
+          "deterministic",
+          "verification",
+          "retained-evidence"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.-]{1,64}(?![\\s\\S])",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "maxItems": 8,
+      "uniqueItems": true
+    }
+  }
+}

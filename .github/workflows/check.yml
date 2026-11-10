@@ -15,8 +15,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install .
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install ".[test]"
+      - name: Run unit, integration and local agent simulations
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/application.coverage
+        run: python -m coverage run --branch --source=aegisflow_dr -m unittest discover -s tests -v
+      - name: Enforce coordination coverage and report application coverage
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/application.coverage
+        run: |
+          python -m coverage report --include="*/coordination/*.py" --fail-under=100
+          python -m coverage report
       - name: Verify installed package outside the checkout
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_installed.py"
@@ -33,6 +42,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r tools/requirements-security.txt
       - run: python -m unittest discover -s tools/security_tests -v
+      - name: Audit resolved runtime dependencies
+        run: python -m pip_audit . --strict --progress-spinner off
       - name: Check tracked artifacts and extract historical PDF text
         run: python tools/check_repository_hygiene.py --pdf-text-dir "$RUNNER_TEMP/pdf-text"
       - name: Scan all fetched Git history and historical PDF text
