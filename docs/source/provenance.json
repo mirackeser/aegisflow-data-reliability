@@ -1,7 +1,7 @@
 {
-  "conversation_id": "6ae6684f-1da4-83ed-a4eb-e9f943bb5dc8",
-  "message_id": "69a0e0c4-aae5-4170-b8a5-f608735b8de9",
+  "source_title": "Proje fikirleri önerisi",
   "captured_at": "2026-11-10",
-  "scope": "Original complete response, 170 top-level blocks, 6 original rendered Mermaid diagrams and their source. UI controls removed from print.",
-  "editorial_note": "Original text preserved; source says at least four architectures but lists five B0-B4. ER illustration uses 1:N hypothesis/evidence while prose requires M:N; implementation must use junction table. These source inconsistencies are retained, not silently corrected."
+  "scope": "Complete original architecture text retained in docs/architecture.md and the PDF; six original Mermaid sources and normalized SVG diagrams retained.",
+  "privacy_cleanup": "Raw chat interface HTML, redundant print input and internal conversation/message identifiers removed from the current repository snapshot. Original conversation history remains unchanged. No credential was detected; Git history was preserved.",
+  "editorial_note": "Original source inconsistencies remain: the experiment text says at least four architectures but lists B0-B4; the ER illustration uses 1:N while the accompanying text requires an M:N claim-evidence junction."
 }
