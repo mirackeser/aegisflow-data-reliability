@@ -17,6 +17,7 @@ from .pipeline import Report, diagnose_csv
 DATASETS = ("source_orders", "staging_orders", "customer_sales", "sales_dashboard")
 EDGES = (("source_orders", "staging_orders"), ("staging_orders", "customer_sales"),
          ("customer_sales", "sales_dashboard"))
+STAGING_CONTRACT = b"stage-v1:logical-record-order;trim-identifiers;integer-cents"
 TRANSFORMS = {"clean": "customer_sales_v1.sql",
               "exclude_first": "customer_sales_exclude_first_v1.sql"}
 
@@ -114,7 +115,7 @@ def run_batch(payload: bytes, *, transform: str = "clean") -> BatchReport:
                              records)
     stage_hash = digest(stage_bytes)
     # Version the normalization contract independently of the SQL transformation.
-    stage_version = digest(b"stage-v1:logical-record-order;trim-identifiers;integer-cents")
+    stage_version = digest(STAGING_CONTRACT)
     with closing(sqlite3.connect(":memory:")) as connection:
         connection.execute("CREATE TABLE staging_orders (record_number INTEGER PRIMARY KEY, "
                            "order_id TEXT NOT NULL UNIQUE, customer_id TEXT NOT NULL, "

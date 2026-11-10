@@ -59,12 +59,22 @@ def main() -> None:
         replay = invoke(['replay-incident', '--db', database, '--incident', incident])
         if replay['outcome'] != 'MATCH':
             raise RuntimeError('Installed replay mismatch')
+        investigation = invoke(['investigate-incident', '--db', database, '--incident', incident])
+        if investigation['status'] != 'COMPLETED' or investigation['assessment'] != 'NO_FAILURE_OBSERVED':
+            raise RuntimeError('Installed investigation regression')
+        faulted = invoke(['investigate-incident', '--db', database, '--incident', incident,
+                          '--transform', 'exclude_first'])
+        if faulted['assessment'] != 'TRANSFORMATION_RECONCILIATION_FAILURE':
+            raise RuntimeError('Installed transformation investigation regression')
+        evaluation = invoke(['evaluate-investigation'])
+        if not evaluation['all_matched'] or evaluation['case_count'] != 10 or evaluation['held_out_benchmark']:
+            raise RuntimeError('Installed development suite regression')
         closed = invoke(['close-incident', '--db', database, '--incident', incident,
                          '--expected-revision', '2', '--actor', 'smoke'])
         retried = invoke(['record-source', '--db', database, '--source', str(source), '--key', 'smoke'])
         if closed['state'] != 'CLOSED' or retried != closed:
             raise RuntimeError('Installed lifecycle/idempotency regression')
-    print("Installed license, catalog, gateway, diagnostics and persistent incident replay passed.")
+    print("Installed licensing, diagnostics, persistence, bounded investigation and development evaluation passed.")
 
 
 if __name__ == "__main__":

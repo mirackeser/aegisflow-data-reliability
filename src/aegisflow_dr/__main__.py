@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """CLI for local synthetic diagnostics and the planned role catalog."""
 import argparse
+import json
 from importlib.resources import files
 import sys
 import sqlite3
@@ -11,6 +12,8 @@ from .registry import load_catalog
 from .batch import TRANSFORMS, run_batch
 from .gateway import ToolGateway, ToolPolicy, ToolRequest
 from .storage import IncidentStore, initialize
+from .investigation import default_policy, investigate
+from .evaluation import evaluate_development_suite
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,14 +43,27 @@ def main(argv: list[str] | None = None) -> int:
         if command == 'close-incident':
             operation.add_argument('--expected-revision', type=int, required=True)
             operation.add_argument('--actor', required=True)
+    investigation = commands.add_parser('investigate-incident', help='Run a bounded retained-source investigation')
+    investigation.add_argument('--db', required=True)
+    investigation.add_argument('--incident', required=True)
+    investigation.add_argument('--transform', choices=TRANSFORMS, default='clean')
+    commands.add_parser('evaluate-investigation', help='Run labeled development regressions, not a model benchmark')
     args = parser.parse_args(argv)
     try:
+        if args.command == 'evaluate-investigation':
+            result = evaluate_development_suite()
+            print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
+            return 0 if result['all_matched'] else 1
+        if args.command == 'investigate-incident':
+            result = investigate(IncidentStore(Path(args.db)), args.incident, default_policy(),
+                                 transform=args.transform)
+            print(result.to_json())
+            return 0 if result.status == 'COMPLETED' else 1
         if args.command == 'store-init':
             initialize(Path(args.db))
             print('{"outcome": "INITIALIZED"}')
             return 0
         if args.command in ('record-source', 'read-incident', 'replay-incident', 'close-incident'):
-            import json
             store = IncidentStore(Path(args.db))
             if args.command == 'record-source':
                 with open(args.source, 'rb') as stream:

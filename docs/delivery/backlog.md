@@ -6,6 +6,10 @@ Work in short, acceptance-driven increments. Estimate the next item after review
 2. **DR-002 — Real batch transformations and lineage:** implemented in increment 02. Introduce an explicit source/staging/mart fixture and lineage edges; identify downstream impact without pretending that a failing check proves its root cause.
 3. **DR-003 — Tool contracts and enforcement:** implemented in increment 03 for local trusted-host sessions; enterprise identity, hard isolation and durable quotas remain planned. Typed requests/results, allowed tool catalog, read-only policy, time/call budgets and negative authorization tests.
 4. **DR-004 — Incident and evidence persistence:** source-diagnosis slice implemented in increment 04; durable batch artifacts, model-claim verification and enterprise storage remain planned. Incident lifecycle, immutable snapshots, claim/evidence junctions, reproducible replay and version checks.
-5. **DR-005 — Bounded orchestration:** next, using retained source evidence and the local policy gateway. Implement deterministic baseline first, then optional model planning behind the same enforcement boundary; track each specialist's tested capability separately.
+5. **DR-005 — Bounded orchestration:** deterministic baseline implemented in increment 05; retained source evidence, one policy session, conditional tool routing and development regressions are working. Durable workflow/batch evidence and model planning remain planned. Implement deterministic baseline first, then optional model planning behind the same enforcement boundary; track each specialist's tested capability separately.
 6. **DR-006 — Investigation interface:** planned. Build the first premium, accessible investigation workspace on working API contracts.
 7. **DR-007 — Research evaluation:** planned. Separate development and held-out failure families; compare B0-B4 with controlled tools and budgets.
+
+## Infrastructure gates before interface work
+
+Next: persist versioned investigation runs and exact batch-stage artifacts without overwriting source incidents. Then add dependency/retry/cancellation contracts, model-provider and per-specialist contracts, semantic evidence verification, independent model evaluation and authenticated API/access boundaries. Do not advance to the web interface merely because the deterministic demo passes its development suite.

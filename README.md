@@ -73,3 +73,17 @@ PYTHONPATH=src python3 -m aegisflow_dr close-incident --db work/incidents.db --i
 Recording exits 0 when the transaction succeeds, even if the saved source-quality status is FAIL. Replay exits 0 for MATCH, 1 for MISMATCH and 2 for rejected/unsupported operations. Same-key/same-byte retries return the original verified record; different bytes conflict. All reads check retained evidence, claim links and event history. Exact replay requires matching diagnostic code and Python implementation/version.
 
 The database contains raw synthetic source snapshots and is not encrypted. Use only synthetic data; do not commit database files. Closure records a local actor label, not authenticated approval. This is not an agent-write tool or enterprise access-control layer. See [ADR-0005](docs/adr/0005-local-incident-and-evidence-store.md), [increment 04](docs/delivery/increment-04.md) and [model reliability gates](docs/research/reliability-gates.md). No model accuracy percentage is claimed.
+
+## Bounded investigations before model integration
+
+After recording a source incident, run:
+
+```sh
+PYTHONPATH=src python3 -m aegisflow_dr investigate-incident --db work/incidents.db --incident INCIDENT_ID
+PYTHONPATH=src python3 -m aegisflow_dr investigate-incident --db work/incidents.db --incident INCIDENT_ID --transform exclude_first
+PYTHONPATH=src python3 -m aegisflow_dr evaluate-investigation
+```
+
+The investigator uses one policy/budget session, verifies the retained source version, then conditionally runs source diagnosis, batch reconciliation and declared impact lookup. It does not modify incident history. Results include ordered step reports, evidence hashes and scoped observations. Missing/invalid evidence or tool-policy failure returns INCONCLUSIVE rather than a guessed conclusion.
+
+Investigation exit 0 means COMPLETED, including a completed investigation that found data failure; exit 1 means INCONCLUSIVE; exit 2 means rejected input/command. NO_FAILURE_OBSERVED applies only to the checks performed. Workflow output and batch-stage bytes are not yet durably stored. The 10 labeled development regressions are not a held-out model benchmark and do not measure model accuracy. See [ADR-0006](docs/adr/0006-bounded-retained-source-investigation.md) and [suite scope](docs/research/investigation-development-suite.md).

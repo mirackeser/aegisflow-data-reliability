@@ -12,3 +12,5 @@ All 36 specialists remain planned. Diagnostic functions are not claimed as full 
 Local L4/L6 foundation: gateway.py implements exact host-configured grants, closed tool requests, per-session atomic call budgets, byte limits and cooperative deadlines. It does not implement agents or enterprise identity enforcement.
 
 L5 local source-research foundation: storage/ atomically records source snapshots, diagnostic reports, generated claim/evidence links and append-only events. Explicit initialization, replay/version checks and revision-controlled local closure are implemented. Durable batch snapshots, model semantic verification, enterprise authorization and remediation approval remain planned.
+
+L4 bounded deterministic coordination: investigation.py uses verified source context and one ToolGateway session for conditional diagnosis/batch/impact execution. Source and report binding are checked before final observations. Workflow traces remain transient; no model planner or full specialist implementation is claimed.
