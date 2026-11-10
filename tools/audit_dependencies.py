@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Audit runtime and test requirements from one authoritative project manifest."""
+"""Audit runtime and all optional-profile requirements from one authoritative project manifest."""
 from pathlib import Path
 import subprocess
 import sys
@@ -10,12 +10,16 @@ import tomllib
 def requirements(path: Path) -> list[str]:
     project = tomllib.loads(path.read_text(encoding='utf-8'))['project']
     runtime = project['dependencies']
-    test = project['optional-dependencies']['test']
+    groups = project['optional-dependencies']
+    test = groups['test']
+    if any(type(group) is not list for group in groups.values()):
+        raise ValueError('Invalid optional dependency group')
+    optional = [item for group in groups.values() for item in group]
     if (type(runtime) is not list or type(test) is not list or not runtime or not test
             or any(type(item) is not str or not item.strip() or '\n' in item or '\r' in item
-                   for item in runtime + test)):
+                   for item in runtime + optional)):
         raise ValueError('Invalid project dependency declaration')
-    return sorted(set(runtime + test))
+    return sorted(set(runtime + optional))
 
 
 def audit(path: Path) -> int:

@@ -40,3 +40,15 @@ class DependencyAuditTests(unittest.TestCase):
             with patch('audit_dependencies.subprocess.run',side_effect=execute):
                 self.assertEqual(audit(project),1)
         self.assertFalse(observed[0].exists())
+
+    def test_all_optional_profiles_are_audited_without_duplicate_requirements(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'pyproject.toml'
+            path.write_text('[project]\ndependencies=["alpha==1"]\n[project.optional-dependencies]\ntest=["beta==2"]\na2a=["protocol-sdk==3","beta==2"]\n')
+            self.assertEqual(requirements(path),['alpha==1','beta==2','protocol-sdk==3'])
+
+    def test_malformed_optional_profile_is_not_silently_skipped(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'pyproject.toml'
+            path.write_text('[project]\ndependencies=["alpha==1"]\n[project.optional-dependencies]\ntest=["beta==2"]\na2a="protocol-sdk==3"\n')
+            with self.assertRaises(ValueError):requirements(path)

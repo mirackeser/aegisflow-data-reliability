@@ -13,3 +13,5 @@ References: https://www.apache.org/licenses/LICENSE-2.0 and https://packaging.py
 The runtime depends on separately installed jsonschema 4.26.0 ([upstream metadata](https://pypi.org/project/jsonschema/4.26.0/), MIT). It and its transitive dependencies retain their upstream licenses; their source is not vendored into this Apache-2.0 repository. Build/test/security tooling is likewise installed separately.
 
 The optional test extra uses cryptography 50.0.2 to generate short-lived certificates and keys in temporary directories. It is separately installed under its upstream Apache-2.0 OR BSD-3-Clause terms; no private key or certificate is vendored. Production TLS uses Python ssl/OpenSSL and introduces no new runtime dependency.
+
+The optional `a2a` extra separately installs the official [a2a-sdk 1.3.0](https://pypi.org/project/a2a-sdk/1.3.0/) under its Apache-2.0 terms. Generated protocol models are imported from that distribution, not copied into this repository. Its transitive dependencies retain their own licenses; no general relicensing or compatibility certification is asserted. Base installation remains independent of the SDK.
