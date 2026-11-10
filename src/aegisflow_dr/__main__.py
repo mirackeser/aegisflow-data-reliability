@@ -3,11 +3,14 @@
 import argparse
 from importlib.resources import files
 import sys
+import sqlite3
+from pathlib import Path
 
 from .pipeline import FAULTS, MAX_INPUT_BYTES, InputRejected, diagnose_csv, generate_orders
 from .registry import load_catalog
 from .batch import TRANSFORMS, run_batch
 from .gateway import ToolGateway, ToolPolicy, ToolRequest
+from .storage import IncidentStore, initialize
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,8 +29,39 @@ def main(argv: list[str] | None = None) -> int:
     batch.add_argument("--rows", type=int, default=24)
     commands.add_parser("gateway-demo", help="Run a host-authorized synthetic tool call")
     commands.add_parser("catalog", help="Validate the 36 planned design roles")
+    for command in ('store-init', 'record-source', 'read-incident', 'replay-incident', 'close-incident'):
+        operation = commands.add_parser(command, help="Operate on an explicit local synthetic store")
+        operation.add_argument('--db', required=True)
+        if command == 'record-source':
+            operation.add_argument('--source', required=True)
+            operation.add_argument('--key', required=True)
+        elif command != 'store-init':
+            operation.add_argument('--incident', required=True)
+        if command == 'close-incident':
+            operation.add_argument('--expected-revision', type=int, required=True)
+            operation.add_argument('--actor', required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == 'store-init':
+            initialize(Path(args.db))
+            print('{"outcome": "INITIALIZED"}')
+            return 0
+        if args.command in ('record-source', 'read-incident', 'replay-incident', 'close-incident'):
+            import json
+            store = IncidentStore(Path(args.db))
+            if args.command == 'record-source':
+                with open(args.source, 'rb') as stream:
+                    payload = stream.read(MAX_INPUT_BYTES + 1)
+                result = store.record(payload, request_key=args.key)
+            elif args.command == 'read-incident':
+                result = store.read(args.incident)
+            elif args.command == 'replay-incident':
+                result = store.replay(args.incident)
+            else:
+                result = store.close(args.incident, expected_revision=args.expected_revision,
+                                     actor=args.actor)
+            print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
+            return 1 if result.get('outcome') == 'MISMATCH' else 0
         if args.command in (None, "catalog"):
             roles = load_catalog(files("aegisflow_dr").joinpath("data/agent-catalog.json"))
             print(f"{len(roles)} planned specialist roles; runtime not implemented.")
@@ -45,9 +79,9 @@ def main(argv: list[str] | None = None) -> int:
                 payload = stream.read(MAX_INPUT_BYTES + 1)
         report = (run_batch(payload, transform=args.transform)
                   if args.command == "batch-demo" else diagnose_csv(payload))
-    except (ValueError, OSError, InputRejected):
+    except (ValueError, OSError, InputRejected, sqlite3.DatabaseError):
         # Never echo paths, raw rows or parsing exceptions into logs.
-        print("Input rejected: use a readable, bounded synthetic UTF-8 CSV and valid options.",
+        print("Input rejected: check synthetic input, store integrity/version and command options.",
               file=sys.stderr)
         return 2
     print(report.to_json())
