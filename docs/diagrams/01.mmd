@@ -1,0 +1,52 @@
+
+flowchart TB
+    U["Veri Mühendisi / Analist"] --> UI["L1: Web Investigation Console"]
+    UI <--> API["L5: Incident & Workflow API"]
+
+    subgraph SOURCES["L2: Data Integration & Observability"]
+        SRC["PostgreSQL / CSV / API"]
+        JOB["Pipeline Run & Log Events"]
+        META["Schema / Metadata / Lineage"]
+    end
+
+    subgraph DIAG["L3: Data Quality & Diagnostics"]
+        QC["Data Quality Engine"]
+        PROF["Profiling & Diagnostic Tools"]
+        LIN["Dependency / Lineage Engine"]
+    end
+
+    subgraph AGENT["L4: Agentic AI"]
+        SUP["Supervisor & Planner"]
+        ROUTE["Dynamic Agent Router"]
+        SPEC["36-role Specialist Registry"]
+        SUP --> ROUTE --> SPEC
+    end
+
+    subgraph CASE["L5: Evidence & Remediation"]
+        EV["Evidence & Incident Store"]
+        FIX["Remediation Proposal"]
+        TEST["Sandbox Validation"]
+        HITL["Human Approval"]
+        EV --> FIX --> TEST --> HITL
+    end
+
+    subgraph OPS["L6: Platform Operations"]
+        POL["Access Policy & Audit"]
+        OBS["Tracing & Evaluation"]
+    end
+
+    SRC --> QC
+    JOB --> PROF
+    META --> LIN
+    QC --> SUP
+    PROF --> SUP
+    LIN --> SUP
+    SPEC --> PROF
+    SPEC --> LIN
+    SPEC --> EV
+    API <--> EV
+    OPS ~~~ CASE
+    POL -.-> API
+    POL -.-> SPEC
+    OBS -.-> SUP
+    OBS -.-> TEST

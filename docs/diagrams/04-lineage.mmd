@@ -1,0 +1,33 @@
+
+flowchart LR
+    subgraph Source["Kaynak Sistemler"]
+        O["Orders"]
+        P["Payments"]
+        C["Customers"]
+        R["Returns"]
+    end
+
+    subgraph Processing["ETL / ELT"]
+        S["Staging"]
+        T["SQL Transformations"]
+        Q["Quality Checks"]
+    end
+
+    subgraph Warehouse["Analytics"]
+        F["Fact Sales"]
+        M["Daily Sales Mart"]
+        D["Sales Dashboard"]
+    end
+
+    O --> S
+    P --> S
+    C --> S
+    R --> S
+    S --> T
+    T --> Q
+    Q --> F
+    F --> M
+    M --> D
+
+    Q -.-> I["AegisFlow Incident"]
+    I -.-> A["Agentic Investigation"]

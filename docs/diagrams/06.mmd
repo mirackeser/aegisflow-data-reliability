@@ -1,0 +1,31 @@
+
+sequenceDiagram
+    autonumber
+    participant Q as Quality Engine
+    participant API as Incident API
+    participant S as Supervisor
+    participant R as Agent Router
+    participant T as Specialist Agents
+    participant E as Evidence Verifier
+    participant X as Sandbox
+    participant H as Human Analyst
+
+    Q->>API: Quality alert
+    API->>S: Open investigation
+    S->>R: Classify and route
+    R->>T: Activate selected specialists
+    T-->>S: Structured observations
+    S->>E: Verify evidence
+    alt Evidence insufficient
+        E-->>S: Missing evidence
+        S->>R: Replan investigation
+        R->>T: Additional safe probes
+        T-->>S: New observations
+        S->>E: Revalidate
+    end
+    E-->>S: Supported findings
+    S->>X: Validate remediation proposal
+    X-->>S: Test report
+    S->>H: Request review
+    H-->>API: Approve or reject
+    API-->>H: Store decision and audit

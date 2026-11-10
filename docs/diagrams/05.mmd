@@ -1,0 +1,77 @@
+
+erDiagram
+    DATA_SOURCE ||--o{ DATASET : contains
+    PIPELINE ||--o{ PIPELINE_RUN : executes
+    PIPELINE ||--o{ DATASET : produces
+    DATASET ||--o{ QUALITY_CHECK : monitored_by
+    PIPELINE_RUN ||--o{ INCIDENT : triggers
+    INCIDENT ||--o{ OBSERVATION : contains
+    INCIDENT ||--o{ HYPOTHESIS : investigates
+    INCIDENT ||--o{ AGENT_EXECUTION : records
+    HYPOTHESIS ||--o{ EVIDENCE : supported_by
+    INCIDENT ||--o{ REMEDIATION : proposes
+    REMEDIATION ||--o{ VALIDATION_RUN : tested_by
+    REMEDIATION ||--o{ APPROVAL : reviewed_by
+
+    DATA_SOURCE {
+        uuid id PK
+        string type
+        string name
+    }
+    DATASET {
+        uuid id PK
+        string schema_version
+        string name
+    }
+    PIPELINE {
+        uuid id PK
+        string name
+        string version
+    }
+    PIPELINE_RUN {
+        uuid id PK
+        string status
+        datetime started_at
+    }
+    QUALITY_CHECK {
+        uuid id PK
+        string check_type
+        string result
+    }
+    INCIDENT {
+        uuid id PK
+        string severity
+        string state
+    }
+    OBSERVATION {
+        uuid id PK
+        string source_ref
+        string finding
+    }
+    HYPOTHESIS {
+        uuid id PK
+        string statement
+        string status
+    }
+    EVIDENCE {
+        uuid id PK
+        string source_ref
+        string content_hash
+    }
+    AGENT_EXECUTION {
+        uuid id PK
+        string agent_id
+        string status
+    }
+    REMEDIATION {
+        uuid id PK
+        string proposal_status
+    }
+    VALIDATION_RUN {
+        uuid id PK
+        string test_result
+    }
+    APPROVAL {
+        uuid id PK
+        string decision
+    }

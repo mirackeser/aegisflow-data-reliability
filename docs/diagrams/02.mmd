@@ -1,0 +1,20 @@
+
+flowchart TD
+    A["Quality Alert / Incident"] --> B["Observe: Context Collection"]
+    B --> C["Plan: Investigation Goals"]
+    C --> D["Route: Select Specialists"]
+    D --> E["Act: Bounded Tool Calls"]
+    E --> F["Verify: Evidence & Contradictions"]
+    F --> G{"Evidence sufficient?"}
+    G -->|"No, budget remains"| H["Replan / Request More Data"]
+    H --> D
+    G -->|"Yes"| I["Root Cause Assessment"]
+    G -->|"No, budget exhausted"| J["Inconclusive Report"]
+    I --> K["Remediation Proposal"]
+    K --> L["Sandbox Validation"]
+    L --> M{"Tests pass?"}
+    M -->|"No"| N["Revise or Reject"]
+    M -->|"Yes"| O["Human Approval"]
+    N --> O
+    J --> O
+    O --> P["Case Closure & Audit"]

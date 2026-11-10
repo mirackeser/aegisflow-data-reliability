@@ -1,0 +1,254 @@
+[
+  {
+    "agent_id": "A01",
+    "name_priority": "Global Supervisor · P0",
+    "activation_conditions": "Her araştırmada",
+    "responsibility": "Tüm araştırmayı koordine eder, ajan sonuçlarını izler, iş akışının tamamlanmasına karar verir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A02",
+    "name_priority": "Investigation Planner · P0",
+    "activation_conditions": "Her yeni olayda",
+    "responsibility": "Olayı araştırma sorularına ve bağımlı alt görevlere böler; investigation_plan üretir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A03",
+    "name_priority": "Dynamic Agent Router · P0",
+    "activation_conditions": "Her görev seçiminde",
+    "responsibility": "Olay sinyallerine göre uygun uzmanları seçer; activation_plan üretir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A04",
+    "name_priority": "Dependency & Parallelism Planner · P1",
+    "activation_conditions": "Birden fazla bağımsız araştırma gerektiğinde",
+    "responsibility": "Hangi görevlerin paralel, hangilerinin sıralı çalışacağını belirler.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A05",
+    "name_priority": "Budget & Escalation Controller · P0",
+    "activation_conditions": "Bütün yürütmelerde",
+    "responsibility": "Maliyet ve süre sınırlarını takip eder; gerekirse durdurma veya insan incelemesi kararı oluşturur.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A06",
+    "name_priority": "Investigation Recovery Coordinator · P1",
+    "activation_conditions": "Araç hatası, eksik veri veya başarısız araştırmada",
+    "responsibility": "Yeniden deneme, alternatif araç veya güvenli sonlandırma planı oluşturur.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A07",
+    "name_priority": "Pipeline Run Explorer · P0",
+    "activation_conditions": "Job başarısızlığı veya çalışmanın gecikmesi",
+    "responsibility": "Çalışma kimliği, görev durumları ve run geçmişini araştırır; Run Metadata API kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A08",
+    "name_priority": "Schema Drift Investigator · P0",
+    "activation_conditions": "Kolon eklendiğinde, silindiğinde veya değiştiğinde",
+    "responsibility": "Önceki ve yeni şema sürümlerini karşılaştırır; Schema Diff kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A09",
+    "name_priority": "Data Contract Inspector · P1",
+    "activation_conditions": "Sözleşme veya alan kuralı ihlalinde",
+    "responsibility": "Sözleşme sürümü ile gözlemlenen verinin uyumunu inceler; Contract Registry kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A10",
+    "name_priority": "Data Profiling Specialist · P0",
+    "activation_conditions": "Null, duplicate veya veri profili uyarısında",
+    "responsibility": "Veri dağılımı, null oranı, benzersizlik ve tip profillerini inceler; Profiling API kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A11",
+    "name_priority": "Freshness & Volume Analyst · P1",
+    "activation_conditions": "Veri gecikmesi veya satır sayısı anomalisinde",
+    "responsibility": "Güncellik, kayıt hacmi ve zaman penceresi değişimlerini analiz eder; Metrics API kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A12",
+    "name_priority": "Log & Error Trace Analyst · P0",
+    "activation_conditions": "Hata mesajı veya istisna oluştuğunda",
+    "responsibility": "Log, stack trace ve çalışma hatalarını yorumlar; Redacted Log Search kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A13",
+    "name_priority": "Data Lineage & Impact Investigator · P0",
+    "activation_conditions": "Etkilenen tablo veya rapor bulunduğunda",
+    "responsibility": "Yukarı akış nedenlerini ve aşağı akış etkilerini araştırır; Lineage DAG kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A14",
+    "name_priority": "SQL Transformation Analyst · P0",
+    "activation_conditions": "Dönüşüm hatası veya yanlış sonuçta",
+    "responsibility": "SQL dönüşümlerini, kolon referanslarını ve filtre mantığını inceler; SQL Parser/AST kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A15",
+    "name_priority": "Incremental Load Investigator · P1",
+    "activation_conditions": "Kayıp, gecikmiş veya yinelenen batch durumunda",
+    "responsibility": "Watermark, checkpoint ve artımlı yükleme kurallarını analiz eder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A16",
+    "name_priority": "CDC & Replication Investigator · P2",
+    "activation_conditions": "CDC veya replikasyon kaynaklı olaylarda",
+    "responsibility": "Değişiklik yakalama gecikmelerini, offset ve replication durumunu inceler.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A17",
+    "name_priority": "Data Type & Casting Investigator · P0",
+    "activation_conditions": "Tip uyuşmazlığı, boş dönüşüm veya cast hatasında",
+    "responsibility": "Tip dönüşümlerini, ayrıştırma ve hassasiyet kayıplarını araştırır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A18",
+    "name_priority": "Join & Cardinality Investigator · P1",
+    "activation_conditions": "Beklenmeyen duplicate veya satır artışında",
+    "responsibility": "Join anahtarları, çoktan çoğa eşleşmeleri ve kardinaliteyi analiz eder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A19",
+    "name_priority": "Reconciliation Investigator · P1",
+    "activation_conditions": "Kaynak ve hedef toplamları uyuşmadığında",
+    "responsibility": "Kayıt sayıları, tutar toplamları ve kontrol toplamlarını karşılaştırır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A20",
+    "name_priority": "Statistical Drift Investigator · P2",
+    "activation_conditions": "Veri dağılımında beklenmeyen değişimde",
+    "responsibility": "Tarihsel profiller ve istatistiksel testlerle değişim örüntülerini inceler.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A21",
+    "name_priority": "Cross-Source Consistency Investigator · P1",
+    "activation_conditions": "İki veri kaynağı çeliştiğinde",
+    "responsibility": "Kaynaklar arası eşleşme, bütünlük ve zamanlama farklarını araştırır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A22",
+    "name_priority": "Incident Similarity & Knowledge Agent · P2",
+    "activation_conditions": "Benzer geçmiş olaylar bulunduğunda",
+    "responsibility": "Geçmiş olay raporlarını ve çözüm sonuçlarını getirir; RAG/Incident Search kullanır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A23",
+    "name_priority": "Root Cause Hypothesis Generator · P0",
+    "activation_conditions": "İlk uzman gözlemleri toplandığında",
+    "responsibility": "Olası kök nedenleri ve bunları sınamak için gerekli kanıtları oluşturur.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A24",
+    "name_priority": "Counter-Hypothesis Agent · P0",
+    "activation_conditions": "Güçlü bir ilk hipotez oluştuğunda",
+    "responsibility": "Alternatif nedenleri araştırır; doğrulama yanlılığını azaltmaya çalışır.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A25",
+    "name_priority": "Active Probe Planner · P1",
+    "activation_conditions": "Kanıt eksik veya çelişkili olduğunda",
+    "responsibility": "Belirsizliği azaltacak bir sonraki güvenli sorgu veya testi önerir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A26",
+    "name_priority": "Evidence Collector · P0",
+    "activation_conditions": "Uzmanlar bulgu ürettiğinde",
+    "responsibility": "İlgili log, test sonucu, şema farkı ve sorgu çıktısını kanıt havuzuna kaydeder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A27",
+    "name_priority": "Evidence Verification Agent · P0",
+    "activation_conditions": "Bir iddia rapora alınmadan önce",
+    "responsibility": "İddia–kanıt eşleşmesini, sürümünü, kaynağını ve tutarlılığını kontrol eder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A28",
+    "name_priority": "Root Cause Ranking & Uncertainty Reviewer · P1",
+    "activation_conditions": "Birden fazla neden adayı varsa",
+    "responsibility": "Kanıt gücünü değerlendirir, nedenleri sıralar ve çözülmemiş belirsizlikleri belirtir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A29",
+    "name_priority": "Remediation Strategy Planner · P0",
+    "activation_conditions": "Yeterli kök neden kanıtı bulunduğunda",
+    "responsibility": "Düzeltme seçenekleri, riskler, ön koşullar ve geri alma yaklaşımı hazırlar.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A30",
+    "name_priority": "Patch Proposal Agent · P2",
+    "activation_conditions": "Kod veya SQL düzeltmesi gerektiğinde",
+    "responsibility": "İncelemeye açık SQL/Python değişiklik taslağı (diff) üretir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A31",
+    "name_priority": "Sandbox Validation Orchestrator · P0",
+    "activation_conditions": "Bir çözüm planı oluşturulduğunda",
+    "responsibility": "İzole ortamda ilgili testleri çalıştırır ve sonuçlarını toplar.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A32",
+    "name_priority": "Regression & Backfill Validator · P1",
+    "activation_conditions": "Düzeltme geçmiş veriyi veya sonraki tabloları etkiliyorsa",
+    "responsibility": "Regresyon, veri tutarlılığı ve backfill etkisini test eder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A33",
+    "name_priority": "Human Approval Coordinator · P0",
+    "activation_conditions": "Çözüm önerisi ve test sonucu hazır olduğunda",
+    "responsibility": "İnsan incelemesini başlatır, onay/red kararını kaydeder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A34",
+    "name_priority": "Policy & Data Access Reviewer · P0",
+    "activation_conditions": "Hassas veri veya riskli araç talebinde",
+    "responsibility": "Talebi politika ve veri sınıflandırmaları açısından değerlendirir.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A35",
+    "name_priority": "AgentOps & Cost Analyst · P1",
+    "activation_conditions": "Araştırma tamamlandığında veya sapma oluştuğunda",
+    "responsibility": "Maliyet, gecikme, hata, retry ve araç kullanım örüntülerini analiz eder.",
+    "implementation_status": "planned"
+  },
+  {
+    "agent_id": "A36",
+    "name_priority": "Evaluation & Feedback Curator · P2",
+    "activation_conditions": "Deney çalıştırıldığında veya kullanıcı geri bildirimi geldiğinde",
+    "responsibility": "Değerlendirme kayıtlarını, hata türlerini ve insan tarafından onaylanan etiketleri düzenler.",
+    "implementation_status": "planned"
+  }
+]

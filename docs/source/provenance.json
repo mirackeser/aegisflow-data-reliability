@@ -1,0 +1,7 @@
+{
+  "conversation_id": "6ae6684f-1da4-83ed-a4eb-e9f943bb5dc8",
+  "message_id": "69a0e0c4-aae5-4170-b8a5-f608735b8de9",
+  "captured_at": "2026-11-10",
+  "scope": "Original complete response, 170 top-level blocks, 6 original rendered Mermaid diagrams and their source. UI controls removed from print.",
+  "editorial_note": "Original text preserved; source says at least four architectures but lists five B0-B4. ER illustration uses 1:N hypothesis/evidence while prose requires M:N; implementation must use junction table. These source inconsistencies are retained, not silently corrected."
+}

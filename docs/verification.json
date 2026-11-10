@@ -1,0 +1,13 @@
+{
+  "pages": 46,
+  "source_top_level_blocks": 170,
+  "agent_roles": 36,
+  "original_mermaid_sources": 6,
+  "all_original_paragraphs_checked": true,
+  "all_original_table_cells_checked": true,
+  "replacement_glyphs": 0,
+  "pdf_sha256": "1572cc2d559a224930b6dd0b31c822021e0d6e32aa9cf254993ddcc4bb2d7f98",
+  "visual_review": "all pages rendered; 46-page contact sheets and detailed architecture/ER/sequence inspections; light print theme applied",
+  "scaffold_tests": "2 passed; planned-role CLI passed",
+  "limitations": "Architecture only; 36 agent implementations not delivered. Citation pill targets not recovered; original labels preserved."
+}

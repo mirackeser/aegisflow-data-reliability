@@ -1,0 +1,15 @@
+
+flowchart TD
+    A["Incident & Initial Signals"] --> B["Signal Classifier"]
+    B --> C["Mandatory Agent Set"]
+    B --> D["Candidate Specialist Set"]
+    C --> E["Supervisor & Planner"]
+    D --> E
+    E --> F["Permission / Budget Filter"]
+    F --> G["Parallel & Sequential Tasks"]
+    G --> H["Tool Execution"]
+    H --> I["Evidence & Verification"]
+    I --> J{"Need more investigation?"}
+    J -->|"Yes"| K["Update Hypotheses"]
+    K --> D
+    J -->|"No"| L["Finalize RCA / Remediation"]
