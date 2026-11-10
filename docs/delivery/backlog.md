@@ -12,7 +12,7 @@ Work in short, acceptance-driven increments. Estimate the next item after review
 
 ## Infrastructure gates before interface work
 
-The local two-task dependency/reservation/retry/cancellation slice is implemented in increment 08. Next establish identity/egress contracts and one authenticated protocol adapter before remote work, then add model-provider and per-specialist contracts, semantic evidence verification, independent model evaluation and authenticated API/access boundaries. Do not advance to the web interface merely because the deterministic demo passes its development suite.
+The local two-task dependency/reservation/retry/cancellation slice is implemented in increment 08. Certificate/resource/egress foundations are implemented in increment 09. Next integrate one version-pinned official protocol adapter before remote deployment, then add model-provider and per-specialist contracts, semantic evidence verification, independent model evaluation and authenticated API/access boundaries. Do not advance to the web interface merely because the deterministic demo passes its development suite.
 
 
 ## Multi-agent integration sequence
@@ -21,3 +21,6 @@ Increment 07 adds local task/proposal/verdict/receipt schemas, controlled capabi
 
 
 Increment 08 implements a separate durable queue for the A26→A27 retained-run review, bounded reservations/renewals, fenced result commits, retry/backoff, cancellation and crash recovery. Next: workload identity/authorization and one protocol adapter, with negative certificate/token/egress tests before remote enablement. The current queue is local and trusted-host only; external idempotency, outbox/inbox, retention/quotas and distributed operations remain future gates. Model services and interface work remain deferred.
+
+
+Increment 09 implements mutual TLS, exact certificate/resource grants and bounded pinned-IP HTTPS for the private read-only review binding. Production identity/issuer deployment, revocation/audit/rate controls, tenant isolation and official MCP/A2A interoperability remain gated. Next implement a version-pinned adapter from official generated models and test interoperability over the verified boundary. Do not call the private JSON binding A2A/MCP compatible or equate it with a deployed Zero Trust system.

@@ -14,3 +14,8 @@ Tool reference: https://github.com/gitleaks/gitleaks
 
 
 Runtime dependencies are now audited with pinned pip-audit 2.10.1: `python -m pip_audit . --strict --progress-spinner off`. The audit resolves the declared runtime dependency graph and queries the public advisory service; it does not scan project behavior or provisioned credentials, and a clean result is limited to known advisories at scan time. CI fails when collection/auditing fails or a known vulnerability is found. The JSON Schema runtime validator is pinned in pyproject.toml. Transitive dependencies are resolved by pip; a cross-platform lockfile and full build-tool supply-chain hardening remain future delivery work.
+
+
+CI now audits both runtime and optional test dependencies using `python tools/audit_dependencies.py`. The script derives both groups from pyproject.toml, rejects malformed/multiline declarations and propagates pip-audit failure. Certificate generation is test-only (cryptography extra); keys/certificates live in TemporaryDirectory and never enter the tracked candidate set. Live TLS tests and installed checks use loopback only and close their fixtures. Runtime TLS adds no new dependency. Repository public visibility does not remove the existing full-history, extracted-PDF, key-file or log hygiene checks.
+
+The public workflow pins actions/checkout v7.0.1 and actions/setup-python v7.1.0 to their verified full commit SHAs (Node 24). Keep permissions at contents:read and persist-credentials:false. Version comments identify the reviewed releases; updates require normal PR/CI validation.
