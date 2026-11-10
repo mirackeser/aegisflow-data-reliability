@@ -94,6 +94,29 @@ def main() -> None:
                                  capture_output=True, text=True, timeout=20)
         if rejected.returncode != 1 or json.loads(rejected.stdout)['verdict']['decision'] != 'REJECT':
             raise RuntimeError('Installed contradictory proposal was not rejected')
+        queue = str(root / 'queue.db')
+        invoke(['queue-init', '--queue', queue])
+        arguments = ['submit-review', '--queue', queue, '--db', database,
+                     '--proposal', str(proposal_file), '--key', 'durable-review']
+        job = invoke(arguments)
+        if invoke(arguments) != job:
+            raise RuntimeError('Installed queue idempotency regression')
+        for expected in ('collect', 'judge'):
+            applied = invoke(['work-once', '--queue', queue, '--db', database])
+            if applied['outcome'] != 'APPLIED' or applied['task_id'] != expected:
+                raise RuntimeError('Installed durable dependency dispatch regression')
+        saved_job = invoke(['read-job', '--queue', queue, '--job', job['job_id']])
+        if saved_job['status'] != 'SUCCEEDED' or saved_job['tasks']['judge']['result']['decision'] != 'REJECT':
+            raise RuntimeError('Installed durable Judge result regression')
+        if invoke(['work-once', '--queue', queue, '--db', database])['outcome'] != 'IDLE':
+            raise RuntimeError('Installed terminal job was dispatched again')
+        arguments[-1] = 'cancelled-review'
+        cancelled_job = invoke(arguments)
+        cancelled = invoke(['cancel-job', '--queue', queue, '--job', cancelled_job['job_id']])
+        if cancelled['status'] != 'CANCELLED' or invoke(['recover-job', '--queue', queue,
+                                                      '--job', cancelled_job['job_id']]) != cancelled:
+            raise RuntimeError('Installed cancellation/recovery regression')
+        invoke(['store-recover', '--db', database])
         invoke(['store-migrate', '--db', database])
         evaluation = invoke(['evaluate-investigation'])
         if not evaluation['all_matched'] or evaluation['case_count'] != 10 or evaluation['held_out_benchmark']:
@@ -103,7 +126,7 @@ def main() -> None:
         retried = invoke(['record-source', '--db', database, '--source', str(source), '--key', 'smoke'])
         if closed['state'] != 'CLOSED' or retried != closed:
             raise RuntimeError('Installed lifecycle/idempotency regression')
-    print("Installed licensing, diagnostics, persistence, bounded investigation and development evaluation passed.")
+    print("Installed licensing, diagnostics, evidence, coordination and durable queue checks passed.")
 
 
 if __name__ == "__main__":
