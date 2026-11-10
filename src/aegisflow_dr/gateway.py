@@ -2,14 +2,14 @@
 """A local tool boundary for trusted host-configured permissions and budgets."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 import json
 import math
 from threading import Lock
 from time import monotonic
 from typing import Callable
 
-from .batch import DATASETS, TRANSFORMS, downstream, run_batch
+from .batch import DATASETS, TRANSFORMS, downstream, execute_batch, BatchSnapshot
 from .pipeline import MAX_INPUT_BYTES, InputRejected, diagnose_csv
 
 TOOLS = frozenset({"diagnose_csv", "run_batch", "query_lineage"})
@@ -75,9 +75,10 @@ class ToolPolicy:
 class ToolResult:
     outcome: str
     report: dict | None = None
+    snapshots: tuple[BatchSnapshot, ...] = field(default=(), repr=False)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), sort_keys=True, indent=2, ensure_ascii=False)
+        return json.dumps({'outcome': self.outcome, 'report': self.report}, sort_keys=True, indent=2, ensure_ascii=False)
 
 
 class ToolGateway:
@@ -127,6 +128,7 @@ class ToolGateway:
             if self._calls >= self._policy.max_calls:
                 return ToolResult("BUDGET_EXCEEDED")
             self._calls += 1
+        snapshots = ()
         try:
             if validated.tool == "query_lineage":
                 report = {"dataset": validated.dataset,
@@ -135,8 +137,10 @@ class ToolGateway:
             elif validated.tool == "diagnose_csv":
                 report = json.loads(diagnose_csv(payload).to_json())
             else:
-                report = json.loads(run_batch(payload, transform=validated.transform).to_json())
-            result = ToolResult("OK", report)
+                execution = execute_batch(payload, transform=validated.transform)
+                report = json.loads(execution.report.to_json())
+                snapshots = execution.snapshots
+            result = ToolResult("OK", report, snapshots)
         except InputRejected:
             result = ToolResult("INPUT_REJECTED")
         except Exception:

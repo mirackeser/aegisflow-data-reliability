@@ -2,4 +2,6 @@
 """Transactional local incident and source-evidence persistence."""
 from .store import IncidentStore, IntegrityFailure, StoreError, VersionMismatch, initialize
 
-__all__ = ['IncidentStore', 'IntegrityFailure', 'StoreError', 'VersionMismatch', 'initialize']
+__all__ = ['IncidentStore', 'IntegrityFailure', 'StoreError', 'VersionMismatch', 'initialize', 'migrate']
+
+from .schema import migrate

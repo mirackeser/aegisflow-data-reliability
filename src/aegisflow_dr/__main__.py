@@ -11,7 +11,8 @@ from .pipeline import FAULTS, MAX_INPUT_BYTES, InputRejected, diagnose_csv, gene
 from .registry import load_catalog
 from .batch import TRANSFORMS, run_batch
 from .gateway import ToolGateway, ToolPolicy, ToolRequest
-from .storage import IncidentStore, initialize
+from .storage import IncidentStore, initialize, migrate
+from .storage.runs import InvestigationRuns
 from .investigation import default_policy, investigate
 from .evaluation import evaluate_development_suite
 
@@ -48,8 +49,33 @@ def main(argv: list[str] | None = None) -> int:
     investigation.add_argument('--incident', required=True)
     investigation.add_argument('--transform', choices=TRANSFORMS, default='clean')
     commands.add_parser('evaluate-investigation', help='Run labeled development regressions, not a model benchmark')
+    migration = commands.add_parser('store-migrate', help='Explicitly upgrade a verified local store to V2')
+    migration.add_argument('--db', required=True)
+    for command in ('record-investigation', 'read-investigation', 'replay-investigation'):
+        operation = commands.add_parser(command, help='Persist or verify a bounded synthetic investigation')
+        operation.add_argument('--db', required=True)
+        if command == 'record-investigation':
+            operation.add_argument('--incident', required=True)
+            operation.add_argument('--key', required=True)
+            operation.add_argument('--transform', choices=TRANSFORMS, default='clean')
+        else:
+            operation.add_argument('--run', required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == 'store-migrate':
+            migrate(Path(args.db))
+            print('{"outcome": "SCHEMA_V2_READY"}')
+            return 0
+        if args.command in ('record-investigation', 'read-investigation', 'replay-investigation'):
+            runs = InvestigationRuns(IncidentStore(Path(args.db)))
+            if args.command == 'record-investigation':
+                result = runs.execute(args.incident, default_policy(), request_key=args.key, transform=args.transform)
+            elif args.command == 'read-investigation':
+                result = runs.read(args.run)
+            else:
+                result = runs.replay(args.run)
+            print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
+            return 1 if result.get('outcome') == 'MISMATCH' else 0
         if args.command == 'evaluate-investigation':
             result = evaluate_development_suite()
             print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))

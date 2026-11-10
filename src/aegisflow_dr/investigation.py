@@ -2,7 +2,7 @@
 """Bounded deterministic investigations over retained source evidence."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from importlib.resources import files
 import json
@@ -11,7 +11,7 @@ import sqlite3
 from time import monotonic
 from typing import Callable
 
-from .batch import STAGING_CONTRACT, TRANSFORMS, downstream
+from .batch import STAGING_CONTRACT, TRANSFORMS, BatchSnapshot, downstream
 from .gateway import ToolGateway, ToolPolicy, ToolRequest, ToolResult
 from .storage import IncidentStore, StoreError
 from .storage.store import canonical, engine_fingerprint, sha
@@ -57,9 +57,12 @@ class Investigation:
     policy_sha256: str
     implementation_sha256: str
     workflow_version: str = VERSION
+    snapshots: tuple[BatchSnapshot, ...] = field(default=(), repr=False)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), ensure_ascii=False, sort_keys=True, indent=2)
+        value = asdict(self)
+        value.pop('snapshots')
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2)
 
 
 def _require(condition: bool) -> None:
@@ -122,22 +125,18 @@ def investigate(store: IncidentStore, incident_id: str, policy: ToolPolicy, *,
             or not re.fullmatch(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}', incident_id)
             or type(policy) is not ToolPolicy or type(transform) is not str or transform not in TRANSFORMS):
         raise ValueError('Invalid investigation request')
-    policy_hash = sha(canonical({'grants': sorted(policy.grants), 'max_calls': policy.max_calls,
-                                 'max_input_bytes': policy.max_input_bytes,
-                                 'timeout_seconds': policy.timeout_seconds}))
-    module_hashes = {name: sha(files('aegisflow_dr').joinpath(name).read_bytes())
-                     for name in ('investigation.py', 'batch.py', 'gateway.py', 'storage/store.py')}
+    policy_hash = sha(canonical(policy_manifest(policy)))
     transform_hash = sha(files('aegisflow_dr').joinpath('sql', TRANSFORMS[transform]).read_bytes())
-    implementation_hash = sha(canonical({**module_hashes, 'source_engine': engine_fingerprint(),
-                                         'sql': transform_hash}))
+    implementation_hash = implementation_fingerprint(transform)
     steps: list[Step] = []
+    captured_snapshots = []
     source_hash = None
     gateway = ToolGateway(policy, clock=clock)
 
     def finish(assessment=None, reason=None, observations=()):
         return Investigation(incident_id, source_hash, 'INCONCLUSIVE' if reason else 'COMPLETED',
                              assessment, reason, gateway.calls_used, tuple(steps), tuple(observations),
-                             policy_hash, implementation_hash)
+                             policy_hash, implementation_hash, snapshots=tuple(captured_snapshots))
 
     try:
         snapshot = store.source_snapshot(incident_id)
@@ -168,9 +167,15 @@ def investigate(store: IncidentStore, incident_id: str, policy: ToolPolicy, *,
             report_bytes = canonical(result.report)
             report = json.loads(report_bytes)
             validator(report)
+            if tool == 'run_batch':
+                validate_snapshots(report, result.snapshots)
+            elif result.snapshots:
+                raise ValueError('Unexpected snapshots')
         except (ValueError, TypeError, KeyError, IndexError, ArithmeticError):
             steps.append(Step(tool, dataset, 'INVALID_EVIDENCE'))
             return None
+        if tool == 'run_batch':
+            captured_snapshots.extend(result.snapshots)
         steps.append(Step(tool, dataset, 'OK', sha(report_bytes), report))
         return report
 
@@ -202,3 +207,32 @@ def investigate(store: IncidentStore, incident_id: str, policy: ToolPolicy, *,
     observations.append(Observation(affected, 'declared_potential_impact',
                                      (source_hash, steps[-1].report_sha256)))
     return finish(assessment=assessment, observations=observations)
+
+
+def policy_manifest(policy: ToolPolicy) -> dict:
+    return {'grants': sorted(policy.grants), 'max_calls': policy.max_calls,
+            'max_input_bytes': policy.max_input_bytes, 'timeout_seconds': policy.timeout_seconds}
+
+
+def implementation_fingerprint(transform: str) -> str:
+    module_hashes = {name: sha(files('aegisflow_dr').joinpath(name).read_bytes()) for name in (
+        'investigation.py', 'batch.py', 'gateway.py', 'storage/store.py', 'storage/schema.py', 'storage/runs.py')}
+    return sha(canonical({**module_hashes, 'source_engine': engine_fingerprint(),
+                          'sqlite_version': sqlite3.sqlite_version,
+                          'sql': sha(files('aegisflow_dr').joinpath('sql', TRANSFORMS[transform]).read_bytes())}))
+
+
+def validate_snapshots(report: dict, snapshots: tuple[BatchSnapshot, ...]) -> None:
+    _require(type(snapshots) is tuple and len(snapshots) == 4)
+    expected = {'staging_orders': report['artifacts'][1]['sha256'],
+                'customer_sales': report['artifacts'][2]['sha256'],
+                'sql_transform': report['transform_sha256'],
+                'staging_contract': report['artifacts'][1]['transform_sha256']}
+    found = {}
+    for snapshot in snapshots:
+        _require(type(snapshot) is BatchSnapshot and type(snapshot.name) is str
+                 and snapshot.name in expected and snapshot.name not in found
+                 and type(snapshot.content) is bytes and len(snapshot.content) <= 2_000_000)
+        _require(sha(snapshot.content) == expected[snapshot.name])
+        found[snapshot.name] = snapshot.content
+    _require(set(found) == set(expected) and sum(len(data) for data in found.values()) <= 4_000_000)
