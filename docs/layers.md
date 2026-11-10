@@ -10,3 +10,5 @@
 All 36 specialists remain planned. Diagnostic functions are not claimed as full agent implementations. Module boundaries can be split when real dependencies justify it.
 
 Local L4/L6 foundation: gateway.py implements exact host-configured grants, closed tool requests, per-session atomic call budgets, byte limits and cooperative deadlines. It does not implement agents or enterprise identity enforcement.
+
+L5 local source-research foundation: storage/ atomically records source snapshots, diagnostic reports, generated claim/evidence links and append-only events. Explicit initialization, replay/version checks and revision-controlled local closure are implemented. Durable batch snapshots, model semantic verification, enterprise authorization and remediation approval remain planned.

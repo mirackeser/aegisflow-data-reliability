@@ -4,7 +4,7 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
-The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Dashboard execution, durable snapshots and inferred root cause remain outside this increment.
+The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Dashboard execution, durable batch-stage snapshots and inferred root cause remain outside this increment. Source CSV diagnosis now supports the persistent local store described below.
 
 
 The executable baseline generates synthetic orders and checks a CSV data contract. It detects renamed columns, missing values, duplicate order IDs and invalid amounts. Every report identifies the exact input with SHA-256 and uses logical CSV record numbers as evidence locators. Invalid input and exhausted input budgets fail explicitly.
@@ -51,3 +51,25 @@ Licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) and [licensing scope]
 ## Local tool gateway
 
 `PYTHONPATH=src python3 -m aegisflow_dr gateway-demo` executes one synthetic batch through an exact host-configured tool/dataset grant. The closed request contract cannot supply policies, file paths or arbitrary SQL. Calls and UTF-8 input bytes are bounded; deadlines are checked before/after dispatch. See [ADR-0004](docs/adr/0004-local-tool-policy-and-budgets.md). This local control layer does not provide authentication, OS isolation, hard cancellation or durable quotas.
+
+## Persistent source investigations
+
+Create a synthetic research store explicitly; existing files are never overwritten:
+
+```sh
+mkdir -p work
+PYTHONPATH=src python3 -m aegisflow_dr store-init --db work/incidents.db
+PYTHONPATH=src python3 -m aegisflow_dr record-source --db work/incidents.db --source fixtures/orders-clean.csv --key demo-001
+```
+
+Use the returned incident_id as INCIDENT_ID in these examples:
+
+```sh
+PYTHONPATH=src python3 -m aegisflow_dr read-incident --db work/incidents.db --incident INCIDENT_ID
+PYTHONPATH=src python3 -m aegisflow_dr replay-incident --db work/incidents.db --incident INCIDENT_ID
+PYTHONPATH=src python3 -m aegisflow_dr close-incident --db work/incidents.db --incident INCIDENT_ID --expected-revision 2 --actor local-operator
+```
+
+Recording exits 0 when the transaction succeeds, even if the saved source-quality status is FAIL. Replay exits 0 for MATCH, 1 for MISMATCH and 2 for rejected/unsupported operations. Same-key/same-byte retries return the original verified record; different bytes conflict. All reads check retained evidence, claim links and event history. Exact replay requires matching diagnostic code and Python implementation/version.
+
+The database contains raw synthetic source snapshots and is not encrypted. Use only synthetic data; do not commit database files. Closure records a local actor label, not authenticated approval. This is not an agent-write tool or enterprise access-control layer. See [ADR-0005](docs/adr/0005-local-incident-and-evidence-store.md), [increment 04](docs/delivery/increment-04.md) and [model reliability gates](docs/research/reliability-gates.md). No model accuracy percentage is claimed.

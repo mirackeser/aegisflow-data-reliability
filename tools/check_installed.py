@@ -3,6 +3,8 @@
 import json
 from importlib.metadata import distribution
 import subprocess
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import sys
 
 SCENARIOS = [
@@ -39,7 +41,30 @@ def main() -> None:
                                 capture_output=True, text=True, timeout=20)
         if result.returncode != exit_code or json.loads(result.stdout)["status"] != status:
             raise RuntimeError(f"Installed CLI regression: {arguments}")
-    print("Installed license, catalog, gateway and seven diagnostic/batch scenarios passed.")
+    def invoke(arguments):
+        completed = subprocess.run([sys.executable, '-m', 'aegisflow_dr', *arguments],
+                                   capture_output=True, text=True, check=True, timeout=20)
+        return json.loads(completed.stdout)
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        database = str(root / 'research.db')
+        source = root / 'synthetic.csv'
+        source.write_bytes(b'order_id,customer_id,order_total\na,c,1.25\n')
+        invoke(['store-init', '--db', database])
+        saved = invoke(['record-source', '--db', database, '--source', str(source), '--key', 'smoke'])
+        incident = saved['incident_id']
+        restored = invoke(['read-incident', '--db', database, '--incident', incident])
+        if restored != saved:
+            raise RuntimeError('Installed history changed across processes')
+        replay = invoke(['replay-incident', '--db', database, '--incident', incident])
+        if replay['outcome'] != 'MATCH':
+            raise RuntimeError('Installed replay mismatch')
+        closed = invoke(['close-incident', '--db', database, '--incident', incident,
+                         '--expected-revision', '2', '--actor', 'smoke'])
+        retried = invoke(['record-source', '--db', database, '--source', str(source), '--key', 'smoke'])
+        if closed['state'] != 'CLOSED' or retried != closed:
+            raise RuntimeError('Installed lifecycle/idempotency regression')
+    print("Installed license, catalog, gateway, diagnostics and persistent incident replay passed.")
 
 
 if __name__ == "__main__":
