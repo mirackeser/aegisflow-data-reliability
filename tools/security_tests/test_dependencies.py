@@ -31,9 +31,12 @@ class DependencyAuditTests(unittest.TestCase):
         observed=[]
         def execute(args,**kwargs):
             path=Path(args[-1]);observed.append(path)
-            self.assertIn('cryptography==50.0.2',path.read_text())
+            self.assertIn('beta==2',path.read_text())
             self.assertIn('--strict',args)
             return type('Result',(),{'returncode':1})()
-        with patch('audit_dependencies.subprocess.run',side_effect=execute):
-            self.assertEqual(audit(Path('pyproject.toml')),1)
+        with tempfile.TemporaryDirectory() as temporary:
+            project=Path(temporary)/'pyproject.toml'
+            project.write_text('[project]\ndependencies=["alpha==1"]\n[project.optional-dependencies]\ntest=["beta==2"]\n')
+            with patch('audit_dependencies.subprocess.run',side_effect=execute):
+                self.assertEqual(audit(project),1)
         self.assertFalse(observed[0].exists())
