@@ -13,10 +13,10 @@ The executable baseline generates synthetic orders and checks a CSV data contrac
 
 ## Try locally
 
-Python 3.11+; install the declared JSON Schema validator and test tooling:
+Python 3.11+; install the validator, test tooling and optional official A2A SDK to run the complete suite:
 
 ```sh
-python3 -m pip install ".[test]"
+python3 -m pip install ".[test,a2a]"
 python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m aegisflow_dr catalog
 PYTHONPATH=src python3 -m aegisflow_dr demo
@@ -124,4 +124,10 @@ This is a trusted local, read-only execution baseline with at-least-once work an
 
 The integration foundation now supports TLS 1.3 mutual authentication, explicit leaf-certificate pins, exact incident/run grants and pinned-IP egress for a private read-only review binding. Proposal inputs cannot supply identity, policy or endpoint configuration. Real loopback TLS tests cover certificate failures, default denial, cross-resource access, rotation, response budgets and shared network deadlines.
 
-Use the [secure review host contract](docs/contracts/secure-review-v1.md) and [ADR-0010](docs/adr/0010-mtls-resource-and-egress-boundaries.md). No production listener or external service is configured. This private binding is not an MCP/A2A adapter; official protocol integration follows these security gates. Existing evidence/queue history and the original Turkish architecture remain preserved. [Increment 09](docs/delivery/increment-09.md) records measured validation.
+Use the [secure review host contract](docs/contracts/secure-review-v1.md) and [ADR-0010](docs/adr/0010-mtls-resource-and-egress-boundaries.md). No production listener or external service is configured. The private JSON binding remains available independently of the A2A profile below. Existing evidence/queue history and the original Turkish architecture remain preserved. [Increment 09](docs/delivery/increment-09.md) records its validation.
+
+## Official A2A stateless review profile
+
+The optional `a2a` extra pins `a2a-sdk==1.3.0`. An A2A 1.0 HTTP+JSON client and host callback wrap the existing read-only review using official generated protobuf models. Only synchronous `POST /message:send` with one JSON proposal and one direct verdict message is supported. Fixed endpoints, mutual TLS, exact certificate/resource grants, strict input/output contracts and bounded transport remain enforced before SDK compatibility decoding. No discovery, remote task lifecycle, streaming, files, push delivery or automatic protocol fallback is enabled.
+
+Base installation does not require the SDK; install `".[a2a]"` to use `integration.a2a_client.review_a2a`. The host supplies private TLS files, pinned endpoint and resource grants. Tests exercise the real SDK over temporary local TLS channels; no production A2A HTTP server is shipped. See [profile contract](docs/contracts/a2a-review-v1.md), [ADR-0011](docs/adr/0011-official-a2a-stateless-review.md) and [Increment 10](docs/delivery/increment-10.md). This profile adds transport interoperability, with no model calls or new accuracy claim.

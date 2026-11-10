@@ -63,7 +63,7 @@ class TestCertificates:
 
 
 @contextmanager
-def review_server(certificates, runs, policy, *, material=None, context=None, response=None):
+def review_server(certificates, runs, policy, *, material=None, context=None, response=None, handler=None):
     """response(peer, request_bytes) -> raw HTTP bytes, for hostile response tests."""
     class Server(ThreadingHTTPServer):
         daemon_threads = True
@@ -84,8 +84,11 @@ def review_server(certificates, runs, policy, *, material=None, context=None, re
                     response(self.connection, body)
                     self.close_connection = True
                     return
-                data = handle_review(self.connection, body, runs, self.server.access_policy)
-                status = 200
+                if handler is not None:
+                    status, data = handler(self.connection, body, self.headers, self.path, self.server.access_policy)
+                else:
+                    data = handle_review(self.connection, body, runs, self.server.access_policy)
+                    status = 200
             except SecurityError:
                 data, status = b'{"error":"denied"}', 403
             self.send_response(status)

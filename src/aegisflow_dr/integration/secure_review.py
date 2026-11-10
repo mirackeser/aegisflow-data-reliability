@@ -66,17 +66,31 @@ class _HTTPChannel:
 
     def close(self):
         # HTTPConnection can close its handle before HTTPResponse finishes reading.
-        # review_https owns the borrowed TLS socket and closes it in its finally block.
+        # post_json owns the borrowed TLS socket and closes it in its finally block.
         return None
 
 
 def review_https(payload: bytes, *, endpoint: EgressPolicy, material: TLSFiles, timeout=5.0) -> dict:
     """One connection, no DNS/proxy/redirect/fallback and no persistent credentials."""
-    if (type(endpoint) is not EgressPolicy or type(timeout) not in (int, float)
-            or not math.isfinite(timeout) or not 0 < timeout <= 10):
-        raise TransportError('Secure review configuration rejected')
     proposal = parse('proposal', payload)
-    body = encode('proposal', proposal)
+    content = post_json(encode('proposal', proposal), endpoint=endpoint, material=material, timeout=timeout)
+    try:
+        verdict = parse('verdict', content)
+        if verdict['run_id'] != proposal['run_id']:
+            raise TransportError('Review context mismatch')
+        return verdict
+    except ValueError:
+        raise TransportError('Secure review exchange rejected') from None
+
+
+def post_json(body: bytes, *, endpoint: EgressPolicy, material: TLSFiles, timeout=5.0,
+              a2a_version: str | None = None) -> bytes:
+    """Shared bounded mTLS JSON exchange; only the explicit A2A 1.0 header is optional."""
+    if (type(endpoint) is not EgressPolicy or type(timeout) not in (int, float)
+            or not math.isfinite(timeout) or not 0 < timeout <= 10
+            or type(body) is not bytes or len(body) > MAX_MESSAGE_BYTES
+            or a2a_version not in (None, '1.0')):
+        raise TransportError('Secure review configuration rejected')
     connection = None
     response = None
     peer = None
@@ -95,8 +109,10 @@ def review_https(payload: bytes, *, endpoint: EgressPolicy, material: TLSFiles, 
             raise SecurityError('Server identity denied')
         connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port)
         connection.sock = _HTTPChannel(peer, deadline)
-        connection.request('POST', endpoint.path, body=body,
-                           headers={'Content-Type': 'application/json', 'Accept': 'application/json', 'Connection': 'close'})
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Connection': 'close'}
+        if a2a_version:
+            headers['A2A-Version'] = a2a_version
+        connection.request('POST', endpoint.path, body=body, headers=headers)
         response = connection.getresponse()
         lengths = response.headers.get_all('Content-Length', [])
         if (response.status != 200 or response.getheader('Content-Type') != 'application/json'
@@ -105,13 +121,12 @@ def review_https(payload: bytes, *, endpoint: EgressPolicy, material: TLSFiles, 
                 or not lengths[0].isascii() or not lengths[0].isdigit() or len(lengths[0]) > 5
                 or int(lengths[0]) > MAX_MESSAGE_BYTES):
             raise TransportError('Review response rejected')
+        if a2a_version and response.getheader('A2A-Version') not in (None, a2a_version):
+            raise TransportError('Response protocol version rejected')
         content = response.read(int(lengths[0]))
         if len(content) != int(lengths[0]):
             raise TransportError('Incomplete review response')
-        verdict = parse('verdict', content)
-        if verdict['run_id'] != proposal['run_id']:
-            raise TransportError('Review context mismatch')
-        return verdict
+        return content
     except (OSError, ValueError, http.client.HTTPException):
         raise TransportError('Secure review exchange rejected') from None
     finally:

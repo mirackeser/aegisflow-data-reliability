@@ -60,7 +60,8 @@ class EgressPolicy:
                     or not re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', self.hostname)
                     or type(self.port) is not int or not 1 <= self.port <= 65535
                     or type(self.address) is not str or not valid_pin(self.server_sha256)
-                    or type(self.path) is not str or not re.fullmatch(r'/[A-Za-z0-9/_-]{0,127}', self.path)
+                    or type(self.path) is not str or not (re.fullmatch(r'/[A-Za-z0-9/_-]{0,127}', self.path)
+                        or self.path == '/message:send')
                     or self.path.startswith('//') or type(self.allow_loopback) is not bool):
                 raise ValueError('Invalid egress configuration')
             address = ip_address(self.address)
