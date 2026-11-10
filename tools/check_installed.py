@@ -1,5 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
 """Exercise the installed CLI from a directory outside the source checkout."""
 import json
+from importlib.metadata import distribution
 import subprocess
 import sys
 
@@ -15,6 +17,14 @@ SCENARIOS = [
 
 
 def main() -> None:
+    dist = distribution("aegisflow-data-reliability")
+    if dist.metadata.get("License-Expression") != "Apache-2.0":
+        raise RuntimeError("Installed license metadata is inconsistent")
+    for filename in ("LICENSE", "NOTICE"):
+        matches = [entry for entry in dist.files or ()
+                   if str(entry).endswith(".dist-info/licenses/" + filename)]
+        if len(matches) != 1 or not dist.locate_file(matches[0]).is_file():
+            raise RuntimeError("Installed license file missing: " + filename)
     catalog = subprocess.run([sys.executable, "-m", "aegisflow_dr", "catalog"],
                              capture_output=True, text=True, check=True)
     if "36 planned specialist roles" not in catalog.stdout:

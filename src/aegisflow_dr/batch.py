@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """In-memory batch transformations and declared dataset-level impact analysis."""
 from __future__ import annotations
 

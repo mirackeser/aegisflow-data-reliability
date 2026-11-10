@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CLI for local synthetic diagnostics and the planned role catalog."""
 import argparse
 from importlib.resources import files

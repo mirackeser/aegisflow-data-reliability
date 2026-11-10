@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Validate design metadata without pretending to execute agents."""
 import json
 from pathlib import Path
