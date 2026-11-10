@@ -25,6 +25,11 @@ def main() -> None:
                    if str(entry).endswith(".dist-info/licenses/" + filename)]
         if len(matches) != 1 or not dist.locate_file(matches[0]).is_file():
             raise RuntimeError("Installed license file missing: " + filename)
+    gateway = subprocess.run([sys.executable, "-m", "aegisflow_dr", "gateway-demo"],
+                             capture_output=True, text=True, check=True, timeout=20)
+    result = json.loads(gateway.stdout)
+    if result["outcome"] != "OK" or result["report"]["status"] != "PASS":
+        raise RuntimeError("Installed gateway demo failed")
     catalog = subprocess.run([sys.executable, "-m", "aegisflow_dr", "catalog"],
                              capture_output=True, text=True, check=True)
     if "36 planned specialist roles" not in catalog.stdout:
@@ -34,7 +39,7 @@ def main() -> None:
                                 capture_output=True, text=True, timeout=20)
         if result.returncode != exit_code or json.loads(result.stdout)["status"] != status:
             raise RuntimeError(f"Installed CLI regression: {arguments}")
-    print("Installed catalog and seven diagnostic/batch scenarios passed.")
+    print("Installed license, catalog, gateway and seven diagnostic/batch scenarios passed.")
 
 
 if __name__ == "__main__":

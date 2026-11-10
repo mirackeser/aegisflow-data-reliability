@@ -47,3 +47,7 @@ The previous supply/SLA prototype remains separate and unchanged at https://gith
 ## License
 
 Licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) and [licensing scope](docs/licensing.md). Third-party materials retain their original terms.
+
+## Local tool gateway
+
+`PYTHONPATH=src python3 -m aegisflow_dr gateway-demo` executes one synthetic batch through an exact host-configured tool/dataset grant. The closed request contract cannot supply policies, file paths or arbitrary SQL. Calls and UTF-8 input bytes are bounded; deadlines are checked before/after dispatch. See [ADR-0004](docs/adr/0004-local-tool-policy-and-budgets.md). This local control layer does not provide authentication, OS isolation, hard cancellation or durable quotas.

@@ -7,6 +7,7 @@ import sys
 from .pipeline import FAULTS, MAX_INPUT_BYTES, InputRejected, diagnose_csv, generate_orders
 from .registry import load_catalog
 from .batch import TRANSFORMS, run_batch
+from .gateway import ToolGateway, ToolPolicy, ToolRequest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     batch.add_argument("--transform", choices=TRANSFORMS, default="clean")
     batch.add_argument("--seed", type=int, default=42)
     batch.add_argument("--rows", type=int, default=24)
+    commands.add_parser("gateway-demo", help="Run a host-authorized synthetic tool call")
     commands.add_parser("catalog", help="Validate the 36 planned design roles")
     args = parser.parse_args(argv)
     try:
@@ -30,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
             roles = load_catalog(files("aegisflow_dr").joinpath("data/agent-catalog.json"))
             print(f"{len(roles)} planned specialist roles; runtime not implemented.")
             return 0
+        if args.command == "gateway-demo":
+            policy = ToolPolicy(frozenset({("run_batch", "source_orders")}), max_calls=1)
+            request = ToolRequest("run_batch", "source_orders", generate_orders().decode("utf-8"))
+            result = ToolGateway(policy).execute(request)
+            print(result.to_json())
+            return 0 if result.outcome == "OK" and result.report["status"] == "PASS" else 1
         if args.command in ("demo", "batch-demo"):
             payload = generate_orders(seed=args.seed, rows=args.rows, fault=args.fault)
         else:
