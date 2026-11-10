@@ -11,3 +11,20 @@ dist/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Credentials, sessions and local-only exports
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.log
+*.har
+.aws/
+.ssh/
+.kube/
+.security-reports/

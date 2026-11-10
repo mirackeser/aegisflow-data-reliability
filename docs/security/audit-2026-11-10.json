@@ -1,0 +1,13 @@
+{
+  "scope": "mirackeser/aegisflow-data-reliability",
+  "baseline_commit": "6859834ef14e25f40c0fd70c85e37c6d7c3de8b1",
+  "reachable_commits_inspected": 12,
+  "branch_heads_covered": 6,
+  "unique_historical_file_versions": 97,
+  "scanner": "Gitleaks 8.30.1; redacted output",
+  "matched_secret_findings": 0,
+  "additional_checks": ["commit messages", "historical PDF text", "personal absolute paths", "tracked generated/private files", "chat renderer metadata"],
+  "cleanup": ["remove redundant raw chat and print HTML", "remove internal chat identifiers from current provenance and PDF appendix", "normalize SVG renderer identifiers", "extend ignore rules and CI checks"],
+  "history_rewritten": false,
+  "limits": "No guarantee of detecting all secret formats; external accounts, legacy repository and unreachable objects are outside this audit."
+}

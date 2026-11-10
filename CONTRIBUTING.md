@@ -11,3 +11,5 @@ Definition of done: observable behavior matches acceptance criteria; meaningful 
 UI work must use restrained typography, consistent spacing, accessible contrast, clear evidence hierarchy and complete loading, empty and failure states. Visual polish must support investigation and decision making. Interface implementation follows functioning data and diagnostic contracts.
 
 Contributions are submitted under Apache-2.0 unless explicitly stated otherwise. See docs/licensing.md for scope and third-party attribution requirements.
+
+Before publishing, run redacted secret scanning and the tracked-file/PDF hygiene checks described in docs/security/repository-hygiene.md. Keep live credentials in runtime secret storage; do not include them in fixtures, screenshots or diagnostic logs.

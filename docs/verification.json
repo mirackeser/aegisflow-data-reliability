@@ -6,8 +6,10 @@
   "all_original_paragraphs_checked": true,
   "all_original_table_cells_checked": true,
   "replacement_glyphs": 0,
-  "pdf_sha256": "1572cc2d559a224930b6dd0b31c822021e0d6e32aa9cf254993ddcc4bb2d7f98",
+  "pdf_sha256": "99f5e3e161ea4f2d75b64427e65a50bb3efb828c93ff616c4432e7f79a3096a8",
   "visual_review": "all pages rendered; 46-page contact sheets and detailed architecture/ER/sequence inspections; light print theme applied",
   "scaffold_tests": "2 passed; planned-role CLI passed",
-  "limitations": "Architecture only; 36 agent implementations not delivered. Citation pill targets not recovered; original labels preserved."
+  "limitations": "Architecture only; 36 agent implementations not delivered. Citation pill targets not recovered; original labels preserved.",
+  "privacy_cleanup": "2026-11-10: removed internal chat identifiers from appendix and cleared generator metadata; all original architecture text and six diagrams retained; first 45 pages have identical extracted text.",
+  "privacy_visual_validation": "First 45 rendered pages pixel-identical to original; revised appendix page visually checked."
 }
