@@ -1,0 +1,4 @@
+order_id,customer_id,order_total
+ORD-00001,CUS-001,10.10
+ORD-00002,CUS-002,20.20
+ORD-00003,CUS-001,5.45

@@ -1,3 +1,3 @@
-# Planlanan modül
+# Module scope
 
-Sorumluluklar için docs/layers.md ve mimari belgeye bakın. Henüz uygulanmamıştır.
+See docs/layers.md and the delivery backlog for implemented and planned responsibilities.

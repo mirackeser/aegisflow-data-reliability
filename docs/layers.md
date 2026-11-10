@@ -1,10 +1,10 @@
-# Altı katman ve kaynak sahipliği
+# Layer ownership
 
-L1: apps/web — araştırma arayüzü (planlandı).
-L2: src/aegisflow_dr/integration — bağlayıcı ve telemetri (planlandı).
-L3: src/aegisflow_dr/diagnostics — deterministik kalite ve teşhis (planlandı).
-L4: src/aegisflow_dr/orchestration — araç geçidi, registry ve yürütme (yalnız katalog doğrulaması mevcut).
-L5: src/aegisflow_dr/workflow — kanıt, onarım, sandbox ve insan onayı (planlandı).
-L6: infrastructure — erişim politikası, izleme, değerlendirme ve dağıtım (planlandı).
+- L1 — Presentation: `apps/web`; planned.
+- L2 — Integration and observability: `integration`; synthetic input generation is the current local baseline.
+- L3 — Quality and diagnostics: `pipeline.py`; deterministic CSV contract checks implemented.
+- L4 — Agentic orchestration: `orchestration`; planned. `registry.py` validates design metadata only.
+- L5 — Evidence, remediation and workflow: `workflow`; persistence and approvals planned. Current reports bind local observations to exact byte hashes.
+- L6 — Security and operations: `infrastructure`; enterprise enforcement planned. Local diagnostic input/output budgets and CI are implemented.
 
-36 rollerin hepsi için özgün görev ve etkinleşme tanımları agent-catalog.json içindedir. Bunlar yürütülebilir sözleşme değildir; input/output şemaları ve araç izinleri geliştirme aşamasında tamamlanacaktır.
+All 36 specialists remain planned. Diagnostic functions are not claimed as full agent implementations. Module boundaries can be split when real dependencies justify it.

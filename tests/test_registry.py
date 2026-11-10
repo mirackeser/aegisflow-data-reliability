@@ -17,3 +17,7 @@ class RegistryTests(unittest.TestCase):
             p = Path(d) / "bad.json"
             p.write_text(json.dumps(roles))
             with self.assertRaises(ValueError): load_catalog(p)
+
+    def test_packaged_catalog_matches_architecture_catalog(self):
+        self.assertEqual(Path("docs/agent-catalog.json").read_bytes(),
+                         Path("src/aegisflow_dr/data/agent-catalog.json").read_bytes())
