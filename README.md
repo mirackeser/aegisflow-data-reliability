@@ -9,7 +9,7 @@ The batch demo now executes source validation → normalized staging → SQL cus
 
 The executable baseline generates synthetic orders and checks a CSV data contract. It detects renamed columns, missing values, duplicate order IDs and invalid amounts. Every report identifies the exact input with SHA-256 and uses logical CSV record numbers as evidence locators. Invalid input and exhausted input budgets fail explicitly.
 
-**This is a deterministic diagnostic foundation, not an agent runtime or root-cause inference system.** The full 36 specialist roles remain planned; two bounded local capability slices (A26 retained evidence read and A27 deterministic verification) are implemented separately. No model calls, external connectors, automatic repair or production writes are implemented.
+**This is a deterministic diagnostic foundation, not an agent runtime or root-cause inference system.** The full 36 specialist roles remain planned; two bounded local capability slices (A26 retained evidence read and A27 deterministic verification) are implemented separately. No model calls, third-party data connectors, automatic repair or production writes are enabled.
 
 ## Try locally
 
@@ -118,3 +118,10 @@ The optional durable review path stores reservation/retry/cancellation state in 
 Start with `queue-init --queue work/reviews.db`, then `submit-review --queue work/reviews.db --db work/incidents.db --proposal work/proposal.json --key review-001`. Run `work-once` with both paths to process one task; inspect `read-job --queue work/reviews.db --job JOB_ID`. See the [operator/API contract](docs/contracts/durable-review-v1.md), [state and recovery decision](docs/adr/0009-durable-local-review-execution.md) and [increment 08 evidence](docs/delivery/increment-08.md).
 
 This is a trusted local, read-only execution baseline with at-least-once work and fenced result commits. It does not provide distributed identity, remote delivery, hard cancellation, exactly-once external effects or a background worker service. A completed review job may reject or abstain; inspect its Judge verdict. No model accuracy is claimed.
+
+
+## Certificate identity and bounded HTTPS review
+
+The integration foundation now supports TLS 1.3 mutual authentication, explicit leaf-certificate pins, exact incident/run grants and pinned-IP egress for a private read-only review binding. Proposal inputs cannot supply identity, policy or endpoint configuration. Real loopback TLS tests cover certificate failures, default denial, cross-resource access, rotation, response budgets and shared network deadlines.
+
+Use the [secure review host contract](docs/contracts/secure-review-v1.md) and [ADR-0010](docs/adr/0010-mtls-resource-and-egress-boundaries.md). No production listener or external service is configured. This private binding is not an MCP/A2A adapter; official protocol integration follows these security gates. Existing evidence/queue history and the original Turkish architecture remain preserved. [Increment 09](docs/delivery/increment-09.md) records measured validation.

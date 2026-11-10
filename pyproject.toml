@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 readme = "README.md"
 
 [project.optional-dependencies]
-test = ["coverage==7.17.2"]
+test = ["coverage==7.17.2", "cryptography==50.0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
