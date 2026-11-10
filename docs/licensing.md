@@ -9,3 +9,5 @@ Contributions intentionally submitted for inclusion are under Apache-2.0 unless 
 Repository visibility remains private. This change establishes reuse terms; it does not publish a release, register a trademark or change repository access.
 
 References: https://www.apache.org/licenses/LICENSE-2.0 and https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license-and-license-files
+
+The runtime depends on separately installed jsonschema 4.26.0 ([upstream metadata](https://pypi.org/project/jsonschema/4.26.0/), MIT). It and its transitive dependencies retain their upstream licenses; their source is not vendored into this Apache-2.0 repository. Build/test/security tooling is likewise installed separately.

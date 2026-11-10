@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegisflow:coordination:receipt:1",
+  "title": "AegisFlow receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "task_id",
+    "agent_id",
+    "state",
+    "result_sha256",
+    "reason"
+  ],
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}(?![\\s\\S])",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "agent_id": {
+      "enum": [
+        "A26",
+        "A27"
+      ]
+    },
+    "state": {
+      "enum": [
+        "COMPLETED",
+        "FAILED",
+        "BLOCKED"
+      ]
+    },
+    "result_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "enum": [
+        null,
+        "RUN_UNAVAILABLE",
+        "DEPENDENCY_FAILED"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "COMPLETED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "result_sha256": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "result_sha256": {
+            "type": "null"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "FAILED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "RUN_UNAVAILABLE"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "BLOCKED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "DEPENDENCY_FAILED"
+          }
+        }
+      }
+    }
+  ]
+}

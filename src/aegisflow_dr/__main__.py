@@ -15,6 +15,8 @@ from .storage import IncidentStore, initialize, migrate
 from .storage.runs import InvestigationRuns
 from .investigation import default_policy, investigate
 from .evaluation import evaluate_development_suite
+from .coordination.contracts import MAX_MESSAGE_BYTES
+from .coordination.service import review_saved_run
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,8 +62,17 @@ def main(argv: list[str] | None = None) -> int:
             operation.add_argument('--transform', choices=TRANSFORMS, default='clean')
         else:
             operation.add_argument('--run', required=True)
+    review_command = commands.add_parser('review-investigation', help='Review a structured assessment against retained evidence')
+    review_command.add_argument('--db', required=True)
+    review_command.add_argument('--proposal', required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == 'review-investigation':
+            with open(args.proposal, 'rb') as stream:
+                payload = stream.read(MAX_MESSAGE_BYTES + 1)
+            result = review_saved_run(InvestigationRuns(IncidentStore(Path(args.db))), payload)
+            print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
+            return 0 if result['verdict']['decision'] == 'ACCEPT' else 1
         if args.command == 'store-migrate':
             migrate(Path(args.db))
             print('{"outcome": "SCHEMA_V2_READY"}')
@@ -106,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if result.get('outcome') == 'MISMATCH' else 0
         if args.command in (None, "catalog"):
             roles = load_catalog(files("aegisflow_dr").joinpath("data/agent-catalog.json"))
-            print(f"{len(roles)} planned specialist roles; runtime not implemented.")
+            print(f"{len(roles)} planned specialist roles; 2 local deterministic capability slices available.")
             return 0
         if args.command == "gateway-demo":
             policy = ToolPolicy(frozenset({("run_batch", "source_orders")}), max_calls=1)

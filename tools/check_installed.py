@@ -78,6 +78,22 @@ def main() -> None:
         if invoke(['record-investigation', '--db', database, '--incident', incident,
                    '--key', 'durable', '--transform', 'exclude_first']) != recorded:
             raise RuntimeError('Installed run idempotency mismatch')
+        proposal = {'version': '1', 'run_id': run, 'incident_id': incident,
+                    'assessment': recorded['trace']['assessment'],
+                    'evidence_sha256': sorted({recorded['trace']['source_sha256'],
+                        *(step['report_sha256'] for step in recorded['trace']['steps'])})}
+        proposal_file = root / 'proposal.json'
+        proposal_file.write_text(json.dumps(proposal))
+        reviewed = invoke(['review-investigation', '--db', database, '--proposal', str(proposal_file)])
+        if reviewed['verdict']['decision'] != 'ACCEPT' or [r['agent_id'] for r in reviewed['receipts']] != ['A26', 'A27']:
+            raise RuntimeError('Installed coordination/Judge regression')
+        proposal['assessment'] = 'NO_FAILURE_OBSERVED'
+        proposal_file.write_text(json.dumps(proposal))
+        rejected = subprocess.run([sys.executable, '-m', 'aegisflow_dr', 'review-investigation',
+                                  '--db', database, '--proposal', str(proposal_file)],
+                                 capture_output=True, text=True, timeout=20)
+        if rejected.returncode != 1 or json.loads(rejected.stdout)['verdict']['decision'] != 'REJECT':
+            raise RuntimeError('Installed contradictory proposal was not rejected')
         invoke(['store-migrate', '--db', database])
         evaluation = invoke(['evaluate-investigation'])
         if not evaluation['all_matched'] or evaluation['case_count'] != 10 or evaluation['held_out_benchmark']:

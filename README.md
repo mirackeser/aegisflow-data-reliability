@@ -9,13 +9,14 @@ The batch demo now executes source validation → normalized staging → SQL cus
 
 The executable baseline generates synthetic orders and checks a CSV data contract. It detects renamed columns, missing values, duplicate order IDs and invalid amounts. Every report identifies the exact input with SHA-256 and uses logical CSV record numbers as evidence locators. Invalid input and exhausted input budgets fail explicitly.
 
-**This is a deterministic diagnostic foundation, not an agent runtime or root-cause inference system.** All 36 specialist roles remain planned. No model calls, external connectors, automatic repair or production writes are implemented.
+**This is a deterministic diagnostic foundation, not an agent runtime or root-cause inference system.** The full 36 specialist roles remain planned; two bounded local capability slices (A26 retained evidence read and A27 deterministic verification) are implemented separately. No model calls, external connectors, automatic repair or production writes are implemented.
 
 ## Try locally
 
-Python 3.11+; no runtime dependencies:
+Python 3.11+; install the declared JSON Schema validator and test tooling:
 
 ```sh
+python3 -m pip install ".[test]"
 python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m aegisflow_dr catalog
 PYTHONPATH=src python3 -m aegisflow_dr demo
@@ -102,3 +103,9 @@ PYTHONPATH=src python3 -m aegisflow_dr replay-investigation --db work/incidents.
 Recording returns 0 for a committed run, including INCONCLUSIVE; inspect trace.status and trace.assessment. Read and replay verify the parent source, trace, policy and artifact bindings. Replay returns 0 for MATCH, 1 for MISMATCH and 2 for rejected operations or unavailable implementation. Timing-dependent failures may replay differently; replay never overwrites the original. Exact replay requires matching code, packaged SQL, Python and SQLite versions.
 
 Run keys are scoped to an incident. Same-key/same-request retries return the original verified run without executing tools; changed policy or transform conflicts. The four batch snapshots come from the authorized execution itself. Source failures and denied batches do not trigger hidden batch execution. JSON and CLI output contain metadata and checksums; raw snapshot bytes are accessible only through the trusted local host interface. The database remains unencrypted synthetic research storage. See [ADR-0007](docs/adr/0007-durable-investigation-evidence.md) and [increment 06](docs/delivery/increment-06.md).
+
+## Multi-agent integration foundation
+
+The contract-first coordination package validates internal task/proposal/verdict/receipt messages, routes controlled capability tags through a bounded DAG, reads an existing run via the A26 local slice, and independently reviews a structured assessment via the A27 deterministic slice. This path makes no model calls, modifies no incident/run history and does not expose a network listener.
+
+Use `review-investigation --db work/incidents.db --proposal work/proposal.json` with the [v1 contract](docs/contracts/coordination-v1.md). Wrong assessments or citations reject; unavailable/incomplete evidence abstains. These local messages are not MCP/A2A protocol objects, role labels are not certificates, and the verifier is not an LLM-as-a-Judge. The [ten-component architecture and diagrams](docs/adr/0008-agent-coordination-boundaries.md) document planned MCP/A2A, model routing, RAG, CAG, mTLS and remote transport boundaries. [Increment 07](docs/delivery/increment-07.md) records measured tests and coverage.

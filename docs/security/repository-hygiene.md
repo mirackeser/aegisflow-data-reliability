@@ -11,3 +11,6 @@ Cleanup scope: redundant chat-interface and print HTML were removed from the cur
 Limits: pattern-based scans do not prove that every possible credential is absent. The checks do not inspect account-side secret settings, unreachable Git objects, external repositories or previously downloaded copies. Historical renderer metadata remains recoverable in prior commits; no credential was detected that required rotation or a history rewrite. Legitimate AI product terminology and original design content are retained.
 
 Tool reference: https://github.com/gitleaks/gitleaks
+
+
+Runtime dependencies are now audited with pinned pip-audit 2.10.1: `python -m pip_audit . --strict --progress-spinner off`. The audit resolves the declared runtime dependency graph and queries the public advisory service; it does not scan project behavior or provisioned credentials, and a clean result is limited to known advisories at scan time. CI fails when collection/auditing fails or a known vulnerability is found. The JSON Schema runtime validator is pinned in pyproject.toml. Transitive dependencies are resolved by pip; a cross-platform lockfile and full build-tool supply-chain hardening remain future delivery work.
