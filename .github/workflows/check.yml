@@ -17,6 +17,4 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - name: Verify installed package outside the checkout
         working-directory: ${{ runner.temp }}
-        run: |
-          python -m aegisflow_dr catalog
-          python -m aegisflow_dr demo
+        run: python "${{ github.workspace }}/tools/check_installed.py"
