@@ -156,4 +156,10 @@ Host-owned AdvisorySession binds metadata-only requests to verified retained evi
 
 PreparedAdvisory now builds a versioned prompt from allowlisted diagnostic summaries, excluding raw source/business identifiers, monetary values and arbitrary report/header text. Host-owned context/full-prompt byte limits reject overflow; context/schema/policy/record/input hashes bind the prepared snapshot to the existing advisory response gate. Accessors return detached objects. No provider is contacted, and counts/hashes/operational metadata still require data-policy review before external use.
 
-See [context contract](docs/contracts/evidence-context-v1.md), [ADR-0015](docs/adr/0015-allowlisted-evidence-context.md) and [Increment 14](docs/delivery/increment-14.md). Byte budgets are not token/cost/deadline accounting; provider-neutral usage admission is the next infrastructure gate.
+See [context contract](docs/contracts/evidence-context-v1.md), [ADR-0015](docs/adr/0015-allowlisted-evidence-context.md) and [Increment 14](docs/delivery/increment-14.md). Byte budgets remain separate from usage admission below.
+
+## Durable usage admission before model dispatch
+
+The trusted host can reserve token/cost capacity in a separate local SQLite ledger using an approved quote bound to the exact prepared input and model. Atomic reservations, one-shot start, original request deadlines, bounded attempts and idempotent settlement survive reopening. Unknown usage retains the entire hold and blocks retry for that request; timeouts never imply a free call. Costs use integer nano-US dollars with explicit host rates, not floating-point estimates.
+
+See [usage contract](docs/contracts/usage-ledger-v1.md), [ADR-0016](docs/adr/0016-durable-usage-admission.md) and [Increment 15](docs/delivery/increment-15.md). This adds local accounting without a provider, tokenizer or dispatch scheduler. Next implement the simulated adapter boundary and bounded retry/backoff; actual payload tokenization, transport deadlines, output limits, shared fallback budgets and approved live evaluation remain activation gates.

@@ -1,4 +1,4 @@
-# Implementation status after increment 11
+# Implementation status after increment 15
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -20,7 +20,7 @@ This record distinguishes delivered capabilities from the original target archit
 
 - MCP: local official SDK tools implemented; authenticated remote transport and operational quotas pending.
 - A2A: official stateless review implemented; remote durable Task lifecycle, delivery and production hosting pending.
-- LLM: provider-neutral contracts, routing, prompt versioning, token/cost controls and fallback are planned; no provider calls enabled.
+- LLM: offline advisory contracts, minimized versioned prompts and durable trusted-host token/cost/deadline admission are implemented. Actual provider tokenization, dispatch/routing, transport enforcement and fallback remain planned; no provider calls enabled.
 - RAG: retrieval adapters, tenant/source filtering, provenance/citation checks and retrieval evaluation are planned.
 - CAG: bounded context caching, identity-aware keys, invalidation, confidentiality and prompt-version isolation are planned.
 - Contracts: existing business JSON Schemas, official protocol models and MCP tool schemas implemented; specialist/model-specific contracts pending.
@@ -40,9 +40,9 @@ This record distinguishes delivered capabilities from the original target archit
 
 ## Accuracy and operational decisions
 
-Current evaluation consists of ten labeled development scenarios and deterministic checks with zero LLM calls. No held-out benchmark or measured model accuracy exists yet. Passing tests and code coverage do not establish real-world root-cause inference quality.
+Current evaluation consists of ten labeled development and eight public synthetic validation scenarios with zero LLM calls. No independently sealed held-out benchmark or measured model accuracy exists yet. Passing tests and code coverage do not establish real-world root-cause inference quality.
 
-No approval is needed for the next local evaluation-contract increment. Provider/model selection, data residency, live API spending, production certificate issuer/hosting and access to enterprise datasets require concrete choices before activation. Production exposure and remediation writes remain separately gated. No shared history rewrite or repository archive/rename is required for this work.
+No approval is needed for the next offline simulated adapter increment. Provider/model selection, data residency, live API spending, production certificate issuer/hosting and access to enterprise datasets require concrete choices before activation. Production exposure and remediation writes remain separately gated. No shared history rewrite or repository archive/rename is required for this work.
 
 ## Update after increment 12
 
@@ -61,3 +61,9 @@ The agent connection/state map in docs/agents/README.md describes implemented A2
 Allowlisted evidence context and versioned offline prompt preparation are implemented around the existing advisory gate. Raw source/business identifiers/amounts and arbitrary report/header text are excluded, with host byte limits, context/schema/policy/input hashes and cross-read record binding. Counts, operational IDs and digests remain intentional metadata. 359 distinct tests pass; advisory statement/branch coverage remains 100%. No provider calls or model accuracy are measured.
 
 Next: provider-neutral usage reservation/accounting, token/cost/time admission and bounded retry/fallback before approved provider activation and sealed evaluation. Byte limits do not replace provider tokenization/billing or runtime deadlines. Agent scheduling, production identity/operations and interface gates remain unchanged.
+
+## Update after increment 15
+
+Durable usage admission/accounting now uses a separate local SQLite database with host-owned lifetime scope, exact input/model/quote binding, atomic token/cost holds, one-shot start, original request deadlines, bounded attempts and exact integer settlement. UNKNOWN or crash-left in-flight reservations stay held and block another attempt for that request. 387 distinct tests pass; usage and combined advisory statement/branch coverage are 100%. No model calls or accuracy measurements are introduced.
+
+Next: offline simulated provider-neutral dispatch, typed adapter results, remaining transport deadline/output-cap enforcement and bounded retry/backoff. Cross-model fallback needs a shared logical-operation budget and newly bound prepared request; it is not silently enabled by per-request accounting. Provider tokenization/pricing validation, sealed evaluation, production identity/operations and interface gates remain pending.

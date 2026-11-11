@@ -58,6 +58,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_context_installed.py"
 
+      - name: Verify installed durable usage admission
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_usage_installed.py"
+
   repository-hygiene:
     runs-on: ubuntu-latest
     steps:

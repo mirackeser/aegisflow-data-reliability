@@ -19,6 +19,9 @@ flowchart LR
   A2A[Official stateless A2A over mTLS] --> A26
   Offline[Offline advisory response contract] --> A27
   Context[Allowlisted evidence context and versioned prompt] --> Offline
+  Context --> Usage[Durable local usage admission and accounting]
+  Usage -.-> Adapter[Future approved model dispatcher]
+  Adapter -.-> Offline
   Planned[Other catalog roles: planned] -.-> Future[Future specialist workflows]
 ```
 
