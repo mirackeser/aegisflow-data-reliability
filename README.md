@@ -151,3 +151,9 @@ Open the [agent connection/state map](docs/agents/README.md) to see the implemen
 ## Offline model-advisory contracts
 
 Host-owned AdvisorySession binds metadata-only requests to verified retained evidence, model/prompt hashes and a unique request digest. Strict structured advice is checked against the current record and existing deterministic Judge. It cannot authorize tools or writes. No provider, complete generation prompt or model confidence is enabled. See [ADR-0014](docs/adr/0014-offline-advisory-boundary.md), [security review](docs/security/review-2026-11-11.md) and [Increment 13](docs/delivery/increment-13.md).
+
+## Minimized evidence context and bounded prompts
+
+PreparedAdvisory now builds a versioned prompt from allowlisted diagnostic summaries, excluding raw source/business identifiers, monetary values and arbitrary report/header text. Host-owned context/full-prompt byte limits reject overflow; context/schema/policy/record/input hashes bind the prepared snapshot to the existing advisory response gate. Accessors return detached objects. No provider is contacted, and counts/hashes/operational metadata still require data-policy review before external use.
+
+See [context contract](docs/contracts/evidence-context-v1.md), [ADR-0015](docs/adr/0015-allowlisted-evidence-context.md) and [Increment 14](docs/delivery/increment-14.md). Byte budgets are not token/cost/deadline accounting; provider-neutral usage admission is the next infrastructure gate.

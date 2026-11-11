@@ -55,3 +55,9 @@ Current fixture agreement is 10/10 development and 8/8 public validation with ze
 Repository security/hygiene review and known-vulnerability dependency audit are complete within the documented scope. Offline provider-neutral metadata/response contracts now bind advice to a unique host request and verified retained evidence; the deterministic Judge controls scoped acceptance. 341 distinct tests pass; new advisory statement/branch coverage is 100%. No live model or calibrated model accuracy is introduced.
 
 The agent connection/state map in docs/agents/README.md describes implemented A26/A27 capability slices, current queue snapshots and the future authenticated live observer. Next: bounded evidence-context selection/redaction, prompt assembly, provider-neutral accounting/timeout/cost admission and acceptance/sealed-evaluation rules before live provider activation.
+
+## Update after increment 14
+
+Allowlisted evidence context and versioned offline prompt preparation are implemented around the existing advisory gate. Raw source/business identifiers/amounts and arbitrary report/header text are excluded, with host byte limits, context/schema/policy/input hashes and cross-read record binding. Counts, operational IDs and digests remain intentional metadata. 359 distinct tests pass; advisory statement/branch coverage remains 100%. No provider calls or model accuracy are measured.
+
+Next: provider-neutral usage reservation/accounting, token/cost/time admission and bounded retry/fallback before approved provider activation and sealed evaluation. Byte limits do not replace provider tokenization/billing or runtime deadlines. Agent scheduling, production identity/operations and interface gates remain unchanged.

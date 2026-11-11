@@ -18,6 +18,7 @@ flowchart LR
   MCP[Official local MCP profile] --> Tools
   A2A[Official stateless A2A over mTLS] --> A26
   Offline[Offline advisory response contract] --> A27
+  Context[Allowlisted evidence context and versioned prompt] --> Offline
   Planned[Other catalog roles: planned] -.-> Future[Future specialist workflows]
 ```
 

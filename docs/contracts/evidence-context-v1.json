@@ -1,0 +1,184 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "source_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "summaries": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "checks": {
+                "items": {
+                  "enum": [
+                    "missing_column",
+                    "unexpected_column",
+                    "not_null",
+                    "unique",
+                    "amount_format",
+                    "nonempty_dataset"
+                  ]
+                },
+                "maxItems": 6,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "finding_count": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "findings_truncated": {
+                "type": "boolean"
+              },
+              "kind": {
+                "const": "source"
+              },
+              "report_sha256": {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "row_count": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "report_sha256",
+              "status",
+              "row_count",
+              "finding_count",
+              "findings_truncated",
+              "checks"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "check": {
+                      "enum": [
+                        "order_count",
+                        "amount_cents"
+                      ]
+                    },
+                    "passed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "check",
+                    "passed"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "kind": {
+                "const": "reconciliation"
+              },
+              "report_sha256": {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "report_sha256",
+              "status",
+              "checks"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "dataset": {
+                "enum": [
+                  "source_orders",
+                  "staging_orders",
+                  "customer_sales",
+                  "sales_dashboard"
+                ]
+              },
+              "kind": {
+                "const": "declared_impact"
+              },
+              "lineage_kind": {
+                "const": "declared_dataset_dag"
+              },
+              "potential_downstream": {
+                "items": {
+                  "enum": [
+                    "source_orders",
+                    "staging_orders",
+                    "customer_sales",
+                    "sales_dashboard"
+                  ]
+                },
+                "maxItems": 3,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "report_sha256": {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "report_sha256",
+              "dataset",
+              "lineage_kind",
+              "potential_downstream"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxItems": 3,
+      "minItems": 2,
+      "type": "array"
+    },
+    "version": {
+      "const": "retained-assessment-context-v1"
+    }
+  },
+  "required": [
+    "version",
+    "source_sha256",
+    "summaries"
+  ],
+  "type": "object"
+}
