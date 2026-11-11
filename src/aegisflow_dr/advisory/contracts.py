@@ -48,7 +48,10 @@ ROUTE_EVENT = closed({'index': {'type': 'integer', 'minimum': 0, 'maximum': 7},
 ROUTE_EVENT.update({'if': {'properties': {'status': {'const': 'REVIEWED'}}},
     'then': {'properties': {'review_status': {'enum': REVIEW_STATUSES}}},
     'else': {'properties': {'review_status': {'type': 'null'}}}})
-SCHEMAS = {'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
+RECOVERY_REVIEW = closed({'version': {'const': '1'}, 'review_id': UUID, 'operator_id': UUID,
+    'operation_sha256': HASH, 'snapshot_sha256': HASH, 'assessment_sha256': HASH,
+    'action': {'enum': ['KEEP_BLOCKED', 'REQUEST_USAGE_ATTESTATION']}})
+SCHEMAS = {'recovery-review': RECOVERY_REVIEW, 'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
            'route-plan': ROUTE_PLAN, 'route-event': ROUTE_EVENT}
 
 

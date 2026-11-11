@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import aegisflow_dr
 from aegisflow_dr.advisory.demo import run_demo
 from aegisflow_dr.advisory.operation import bind_operation
-from aegisflow_dr.advisory.recovery import assess_recovery
+from aegisflow_dr.advisory.recovery import assess_recovery, prepare_recovery_review, verify_recovery_review
 from aegisflow_dr.advisory.routing import RouteCandidate, execute_route
 from uuid import uuid4
 from aegisflow_dr.advisory.retry import retry_dispatch
@@ -131,6 +131,17 @@ with TemporaryDirectory() as temporary:
         raise RuntimeError('Installed recovery assessment failed')
     if saved != recovery_path.read_bytes() or recovery['automatic_resend_allowed']:
         raise RuntimeError('Installed recovery assessment changed state or authorized resend')
+    review_path = Path(temporary) / 'review.db'
+    initialize_usage(review_path, UsagePolicy(max_total_attempts=1), operation=binding, routing=True)
+    review_ledger = UsageLedger(review_path, operation_id=operation_id, clock_ms=lambda:1000)
+    unknown_adapter = Adapter(quote.adapter_id, lambda _:None)
+    execute_route(review_ledger,(RouteCandidate(prepared,quote,unknown_adapter),))
+    packet = prepare_recovery_review(review_ledger, review_id=str(uuid4()), operator_id=str(uuid4()),
+                                     action='REQUEST_USAGE_ATTESTATION')
+    if verify_recovery_review(review_ledger,packet)['action'] != 'REQUEST_USAGE_ATTESTATION':
+        raise RuntimeError('Installed bound review packet failed')
+    if review_ledger.snapshot()['held_tokens'] != 15:
+        raise RuntimeError('Installed review packet released an unknown hold')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')

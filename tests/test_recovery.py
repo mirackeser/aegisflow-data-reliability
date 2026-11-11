@@ -122,3 +122,67 @@ class RecoveryTests(unittest.TestCase):
     def test_hashing_failure_does_not_expose_details(self):
         with patch('aegisflow_dr.advisory.recovery.canonical',side_effect=ValueError('private detail')):
             with self.assertRaisesRegex(AdvisoryError,'^Recovery assessment unavailable$'):self.assessment()
+
+    def test_event_model_request_and_attempt_bindings_cannot_report_clean(self):
+        execute_route(self.route,self.candidates)
+        with closing(sqlite3.connect(self.route_path)) as connection:
+            raw=connection.execute('SELECT event FROM route_events WHERE position=1').fetchone()[0]
+        event=decode('route-event',raw)
+        for field,value in (('model_id','offline/unrelated'),('request_sha256','0'*64)):
+            self.sql('UPDATE route_events SET event=? WHERE position=1',(encode('route-event',{**event,field:value}),))
+            with self.assertRaises(AdvisoryError):self.assessment()
+        self.sql('UPDATE route_events SET event=? WHERE position=1',(raw,))
+        for field in ('model_id','request_sha256','input_sha256','quote_sha256'):
+            with closing(sqlite3.connect(self.route_path)) as connection:
+                original=connection.execute('SELECT '+field+' FROM attempts WHERE attempt_id=?',(event['attempt_id'],)).fetchone()[0]
+            self.sql('UPDATE attempts SET '+field+'=? WHERE attempt_id=?',('0'*64,event['attempt_id']))
+            with self.assertRaises(AdvisoryError):self.assessment()
+            self.sql('UPDATE attempts SET '+field+'=? WHERE attempt_id=?',(original,event['attempt_id']))
+
+    def test_settled_result_cannot_refer_to_unknown_usage(self):
+        execute_route(self.route,self.candidates)
+        self.sql("UPDATE attempts SET status='UNKNOWN'")
+        with self.assertRaises(AdvisoryError):self.assessment()
+
+    def test_unknown_result_cannot_claim_settled_usage(self):
+        execute_route(self.route,(self.candidate('offline/test','unknown'),))
+        self.sql("UPDATE attempts SET status='SETTLED'")
+        with self.assertRaises(AdvisoryError):self.assessment()
+
+    def test_terminal_event_cannot_precede_another_model(self):
+        execute_route(self.route,self.candidates)
+        with closing(sqlite3.connect(self.route_path)) as connection:
+            event=decode('route-event',connection.execute('SELECT event FROM route_events WHERE position=0').fetchone()[0])
+        event['status']='KNOWN_TERMINAL_FAILURE'
+        self.sql('UPDATE route_events SET event=? WHERE position=0',(encode('route-event',event),))
+        with self.assertRaises(AdvisoryError):self.assessment()
+
+    def test_event_count_cannot_exceed_plan(self):
+        execute_route(self.route,self.candidates)
+        with closing(sqlite3.connect(self.route_path)) as connection:
+            plan=decode('route-plan',connection.execute('SELECT plan FROM route').fetchone()[0])
+        plan['steps']=plan['steps'][:1]
+        self.sql('UPDATE route SET plan=?',(encode('route-plan',plan),))
+        with self.assertRaises(AdvisoryError):self.assessment()
+
+    def test_review_packets_bind_exact_snapshot_and_do_not_mutate_state(self):
+        from uuid import uuid4
+        from aegisflow_dr.advisory.recovery import prepare_recovery_review,verify_recovery_review
+        self.claim_dispatch()
+        before=self.route_path.read_bytes()
+        for action in ('KEEP_BLOCKED','REQUEST_USAGE_ATTESTATION'):
+            packet=prepare_recovery_review(self.route,review_id=str(uuid4()),operator_id=str(uuid4()),action=action)
+            self.assertEqual(verify_recovery_review(self.open_route(),packet)['action'],action)
+        self.assertEqual(before,self.route_path.read_bytes())
+        self.sql('UPDATE metadata SET observed_ms=observed_ms+1')
+        with self.assertRaises(AdvisoryError):verify_recovery_review(self.route,packet)
+
+    def test_invalid_or_unneeded_reviews_fail_closed(self):
+        from uuid import uuid4
+        from aegisflow_dr.advisory.recovery import prepare_recovery_review,verify_recovery_review
+        values=dict(review_id=str(uuid4()),operator_id=str(uuid4()),action='KEEP_BLOCKED')
+        with self.assertRaises(AdvisoryError):prepare_recovery_review(self.route,**values)
+        self.claim_dispatch()
+        for changes in ({'review_id':'invalid'},{'operator_id':None},{'action':'REFUND'}):
+            with self.assertRaises(AdvisoryError):prepare_recovery_review(self.route,**{**values,**changes})
+        with self.assertRaises(AdvisoryError):verify_recovery_review(self.route,b'{}')
