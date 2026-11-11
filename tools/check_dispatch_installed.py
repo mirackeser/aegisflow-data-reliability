@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import aegisflow_dr
 from aegisflow_dr.advisory.context import PreparedAdvisory
-from aegisflow_dr.advisory.dispatch import Adapter, AdapterResult, dispatch
+from aegisflow_dr.advisory.dispatch import Adapter, AdapterResult, AdapterFailure, dispatch
 from aegisflow_dr.advisory.contracts import decode, encode
 from aegisflow_dr.storage.store import sha
 from aegisflow_dr.advisory.contracts import AdvisoryError
@@ -46,6 +46,13 @@ with TemporaryDirectory() as temporary:
     snapshot = UsageLedger(usage).snapshot()
     if (snapshot['held_tokens'], snapshot['charged_tokens'], snapshot['charged_cost_nusd']) != (0, 10, 22):
         raise RuntimeError('Installed usage accounting mismatch')
+    failure_path = Path(temporary) / 'failure.db'
+    initialize_usage(failure_path)
+    failure_ledger = UsageLedger(failure_path, clock_ms=lambda:1000)
+    failure_adapter = Adapter('fixture-v1', lambda request: AdapterFailure('RETRYABLE',0,0))
+    failed = dispatch(prepared,quote,failure_ledger,failure_adapter,attempt_key='failure',deadline_ms=2000)
+    if failed['status'] != 'KNOWN_RETRYABLE_FAILURE' or failure_ledger.snapshot()['held_tokens'] != 0:
+        raise RuntimeError('Installed known failure accounting failed')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
