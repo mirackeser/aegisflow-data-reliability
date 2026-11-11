@@ -143,3 +143,11 @@ This increment validates SDK client/server calls in process. It does not expose 
 `python -m aegisflow_dr.benchmark` runs a frozen synthetic suite with 10 development and 8 public validation cases. Closed suite/prediction/report schemas, cross-split leakage checks, label-free execution and per-family confusion/precision/recall/F1, abstention/error/coverage metrics make failures visible. Exact label and tool-sequence matching is a deterministic regression gate. The new cases are public and were inspected during development; their 8/8 agreement is not a blind holdout or model accuracy. Zero model calls are made.
 
 See [ADR-0013](docs/adr/0013-versioned-public-validation.md), [versioned contracts](docs/contracts/benchmark-v1.md) and [Increment 12](docs/delivery/increment-12.md). Next define provider-neutral prediction/evidence contracts and predeclared acceptance/sealed-evaluation rules before live model calls. Production identity, deployment operations and interface work remain gated.
+
+## Agent connections and current visibility
+
+Open the [agent connection/state map](docs/agents/README.md) to see the implemented A26 → A27 dependency and surrounding tool/protocol components. The existing read-job command provides a verified local queue snapshot and recorded history. Other catalog roles remain planned; a continuous authenticated live observer is future work.
+
+## Offline model-advisory contracts
+
+Host-owned AdvisorySession binds metadata-only requests to verified retained evidence, model/prompt hashes and a unique request digest. Strict structured advice is checked against the current record and existing deterministic Judge. It cannot authorize tools or writes. No provider, complete generation prompt or model confidence is enabled. See [ADR-0014](docs/adr/0014-offline-advisory-boundary.md), [security review](docs/security/review-2026-11-11.md) and [Increment 13](docs/delivery/increment-13.md).

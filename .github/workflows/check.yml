@@ -28,6 +28,7 @@ jobs:
           python -m coverage report --include="*/workflow/*.py" --fail-under=100
           python -m coverage report --include="*/security/*.py,*/integration/*.py" --fail-under=100
           python -m coverage report --include="*/benchmark/core.py,*/benchmark/runner.py,*/benchmark/report.py" --fail-under=100
+          python -m coverage report --include="*/advisory/*.py" --fail-under=100
           python -m coverage report
       - name: Verify installed package outside the checkout
         working-directory: ${{ runner.temp }}
@@ -48,6 +49,10 @@ jobs:
       - name: Verify installed benchmark contracts and frozen baseline
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_benchmark_installed.py"
+
+      - name: Verify installed offline advisory contracts
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_advisory_installed.py"
 
   repository-hygiene:
     runs-on: ubuntu-latest

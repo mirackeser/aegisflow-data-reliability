@@ -1,0 +1,78 @@
+{
+  "additionalProperties": false,
+  "else": {
+    "properties": {
+      "assessment": {
+        "enum": [
+          "NO_FAILURE_OBSERVED",
+          "SOURCE_QUALITY_FAILURE",
+          "TRANSFORMATION_RECONCILIATION_FAILURE"
+        ]
+      },
+      "evidence_sha256": {
+        "minItems": 1
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "decision": {
+        "const": "ABSTAIN"
+      }
+    }
+  },
+  "properties": {
+    "assessment": {
+      "enum": [
+        "NO_FAILURE_OBSERVED",
+        "SOURCE_QUALITY_FAILURE",
+        "TRANSFORMATION_RECONCILIATION_FAILURE",
+        null
+      ]
+    },
+    "decision": {
+      "enum": [
+        "PROPOSE",
+        "ABSTAIN"
+      ]
+    },
+    "evidence_sha256": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 4,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "request_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "version",
+    "request_sha256",
+    "decision",
+    "assessment",
+    "evidence_sha256"
+  ],
+  "then": {
+    "properties": {
+      "assessment": {
+        "type": "null"
+      },
+      "evidence_sha256": {
+        "maxItems": 0
+      }
+    }
+  },
+  "type": "object"
+}

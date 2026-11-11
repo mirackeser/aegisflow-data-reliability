@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "evidence_sha256": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "incident_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "model_id": {
+      "maxLength": 64,
+      "not": {
+        "pattern": "\\s"
+      },
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+      "type": "string"
+    },
+    "prompt_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "record_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "run_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "version",
+    "request_id",
+    "run_id",
+    "incident_id",
+    "record_sha256",
+    "prompt_sha256",
+    "model_id",
+    "evidence_sha256"
+  ],
+  "type": "object"
+}
