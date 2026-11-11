@@ -38,6 +38,7 @@ Exit codes: `0` = checks pass; `1` = quality/reconciliation failure or blocked b
 - [Engineering workflow](CONTRIBUTING.md), [active backlog](docs/delivery/backlog.md) and [source diagnostic evidence](docs/delivery/increment-01.md) and [batch evidence](docs/delivery/increment-02.md)
 - [Baseline design decision](docs/adr/0002-deterministic-diagnostics.md) and [batch/lineage decision](docs/adr/0003-batch-transforms-and-lineage.md)
 - [Source provenance](docs/source/provenance.json)
+- [Complete delivered inventory, verification and target roadmap](docs/delivery/implementation-and-roadmap.md)
 
 The original Turkish design is an immutable reference archive. New engineering documentation, code and GitHub collaboration use English. Its roadmap and experimental targets are not measured results.
 
