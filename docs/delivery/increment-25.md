@@ -1,0 +1,9 @@
+# Increment 25 — Executable model-quality acceptance policy
+
+Prioritized the C03 first slice at user request while preserving the B08 backlog. Add provider-neutral exact-count PASS/BLOCK evaluation with frozen dataset/model/policy, class/family support, overall and per-class/family thresholds, zero errors/unsupported claims and fail-closed provenance. Add the recurring engineering-review procedure and record the architectural/self-review decisions in ADR-0025.
+
+Validation: 523 application + 13 security/hygiene methods = 536 distinct tests, including 12 new quality tests and 12 registration tests. The new gate has 100% statement/branch coverage; existing critical/installed/security gates remain required. Installed checks demonstrate that perfect public fixtures cannot establish model acceptance. No actual model or sealed evaluation has been run.
+
+Next: independent dataset/label/claim review and enforceable preregistration, plus the still-pending B08 authenticated operator/durable decisions/provider attestations. Actual activation must wire this gate to the approved model revision and deployment process. See [ADR-0025](../adr/0025-measurable-model-quality-acceptance.md).
+
+Continuation while CI is pending: added immutable local protocol registration and append-only PASS/BLOCK history with exact run identity, conflict rejection and atomic rollback. The scope remains increment 25 until PR #28 and main CI complete. No new increment or production acceptance is claimed prematurely.

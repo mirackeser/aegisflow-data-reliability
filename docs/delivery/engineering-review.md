@@ -1,0 +1,7 @@
+# Engineering review at every increment
+
+Each increment records its requirement, failure invariants, trust boundaries, acceptance evidence and unresolved limits before merge. Review existing behavior before adding authority. Use adversarial counterexamples (missing, duplicate, contradictory, stale and corrupted data), not only examples expected to pass. Reproduce defects, add regression checks and rerun affected/full required gates. Statement/branch coverage measures execution, not completeness of requirements.
+
+Review model/evaluation changes for label leakage, denominator choices, per-class/family failures, missing coverage, unsupported claims and provenance. Keep operational test results separate from model acceptance measurements. Archive the exact dataset/model/policy/prediction hashes and failed evaluations. Never relabel development fixtures as independent holdout data. Record findings and rationale in the increment/ADR, including an explicit no-new-finding result when applicable. Authentication and approval claims require implemented enforcement.
+
+A routine self-review is required at every increment; broader architecture review occurs at phase boundaries and before new external access, execution authority or model activation. Existing security, installed-package and exact-revision CI checks remain merge gates. No manual review or test suite establishes absence of all defects.

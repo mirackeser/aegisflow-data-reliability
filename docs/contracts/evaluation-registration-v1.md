@@ -1,0 +1,9 @@
+# Local evaluation registration v1
+
+`register_protocol(path, protocol)` exclusively creates a private local SQLite file and stores canonical validated protocol bytes. Existing files are never overwritten. It returns the registered digest. `EvaluationRegistry(path, expected_protocol_sha256=...)` binds every evaluation/history read to that exact registration.
+
+`evaluate(cases, predictions, run_id=canonical_uuid, model_revision_sha256=...)` executes the gate with the stored protocol, retains PASS and BLOCK results and commits atomically. Exact repeats return the historical result; changed input/result under an existing run ID fails. Invalid contracts do not become valid failed-model results and are rejected without insertion. Sequence numbers preserve local registration/evaluation order. UPDATE/DELETE triggers protect registration and result rows; concurrent connections serialize through SQLite transactions. No model request or deployment occurs.
+
+This provides immutable local registration and history, not independent timestamping, authenticated operator approval or proof that predictions did not exist before registration. The host must approve dataset/label/claim provenance and preregister before examining outcomes. A privileged database owner can remove triggers or replace the database; hashes and triggers do not provide cryptographic attestation. Expected digests must come from the trusted host, not an evaluated model. Failed initialization may leave a reserved empty database file that fails closed; no implicit repair or overwrite occurs.
+
+Result rows contain hashes and aggregate counts, not source data, credentials or prediction text. Retention/backup, authenticated protocol registry, signed attestations and live activation enforcement remain pending. An exact replay is historical acceptance evidence, not a fresh model execution.
