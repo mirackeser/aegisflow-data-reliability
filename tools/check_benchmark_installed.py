@@ -45,3 +45,20 @@ with TemporaryDirectory() as temporary:
     if result['decision'] != 'BLOCK' or len(registry.history()) != 1:
         raise RuntimeError('Installed registration lost blocked result or duplicated replay')
 print('Installed immutable registration and blocked-result history passed.')
+
+# Agreement is a preparation artifact; independent provenance still needs host approval.
+from hashlib import sha256
+from aegisflow_dr.benchmark.curation import prepare_manifest, reconcile_annotations
+development=canonical([{'case_id':'development','family':'development','group_id':'development',
+                        'csv_text':'id,value\n1,100\n','transform':'clean'}])
+candidate=canonical([{'case_id':'candidate','family':'candidate','group_id':'candidate',
+                      'csv_text':'id,value\n2,200\n','transform':'clean'}])
+manifest=prepare_manifest(development,candidate)
+digest=sha256(manifest).hexdigest()
+reviewers=('reviewer-a','reviewer-b')
+annotations=tuple(canonical({'version':'1','reviewer_id':reviewer,'manifest_sha256':digest,
+                            'labels':[{'case_id':'candidate','label':LABELS[0]}]}) for reviewer in reviewers)
+consensus=reconcile_annotations(manifest,annotations,expected_manifest_sha256=digest,reviewer_ids=reviewers)
+if consensus['status'] != 'AGREED' or len(consensus['cases']) != 1:
+    raise RuntimeError('Installed curation consensus failed')
+print('Installed label-free manifest and exact dual-review reconciliation passed.')

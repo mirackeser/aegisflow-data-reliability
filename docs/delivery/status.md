@@ -1,4 +1,6 @@
-# Implementation status after increment 15
+# Implementation status and increment history
+
+Current merge boundary: increment 24 is on main. PR #28 (increment 25) is awaiting GitHub execution; increment 26 curation tooling is prepared as a dependent change. Local validation does not close either increment's exact-revision CI and post-merge gates. See the current PRs for live delivery status.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -113,3 +115,7 @@ Self-review reproduced and corrected missing event/plan/attempt correlation in r
 ## Update after increment 25
 
 C03 first slice prioritized: executable strict quality gate with candidate 95% overall/class/family targets, sample support, independent provenance and zero error/unsupported-claim rules. 536 distinct tests pass; no live model result is claimed. See [increment 25](increment-25.md) and [recurring engineering review](engineering-review.md). B08 remains partial; real sealed data, independent annotation and activation enforcement remain pending.
+
+## Increment 26 prepared — pending dependency and CI
+
+C01/C02 now have offline label-free source manifests, known split-overlap/repeated-group checks and exact dual-review annotation reconciliation. Disagreement exports no quality cases; agreement does not approve provenance or activate a model. 550 distinct tests pass locally, including 14 new curation tests; critical statement/branch gates remain 100%. See [increment 26](increment-26.md) and [curation data flow](../contracts/evaluation-curation-v1.md). PR #28 and this dependent change must pass CI before delivery. Authenticated independent curators, protected sealed storage/access, adjudication and real model measurements remain pending.
