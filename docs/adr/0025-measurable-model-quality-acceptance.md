@@ -17,3 +17,7 @@ The module supplies no model calls, credentials, auto-deployment or live accurac
 Reviewed for threshold rounding, class/family imbalance, selective-accuracy inflation, provenance defaults and spoofed aggregate percentages. Added explicit integer checks after noticing JSON Schema treats integral floats as integers. Include exact 95% boundary and one-case-below, all-abstain, rare-family failure despite high overall accuracy, separate precision/recall failure, unsupported claims/errors, changed hashes and missing/duplicate cases. Installed checks prove a perfect tiny public fixture is BLOCKED. No new model-performance claim is made.
 
 The strict parser bounds each document to 1 MB; schemas additionally bound arrays to 10,000 cases and 64 families. This local gate is for bounded evaluation batches. Larger datasets and uncertainty estimates require a later version, not silent truncation.
+
+## Local preregistration extension before merge
+
+The pending quality PR now includes an exclusively created local registration store, expected protocol digest checks, immutable registration/result rows, exact run-id replay and retained failed evaluations. Local transaction ordering is enforced; independent preregistration timing and authenticated provenance are still pending. Twelve additional tests cover storage rollback, concurrency, history preservation, altered registration, exact/conflicting replay and both passing/blocked fixtures. See [registration contract](../contracts/evaluation-registration-v1.md).

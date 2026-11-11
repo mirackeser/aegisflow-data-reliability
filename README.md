@@ -200,3 +200,5 @@ Recovery assessment now checks event/plan/attempt correlation and known/unknown 
 ### Model quality acceptance
 
 The provider-neutral quality gate computes exact-count PASS/BLOCK against a frozen dataset/model/policy. Candidate defaults require 95% overall accuracy, per-class precision/recall and per-family accuracy, with minimum samples, independent provenance and zero errors/unsupported claims. Perfect public fixtures remain blocked. See [ADR-0025](docs/adr/0025-measurable-model-quality-acceptance.md). Actual sealed evaluation and activation enforcement remain pending.
+
+Quality evaluations can now run through an immutable local protocol registration and append-only result history. Both accepted and blocked runs are retained, and a repeated run ID cannot substitute new results. See [registration contract](docs/contracts/evaluation-registration-v1.md).

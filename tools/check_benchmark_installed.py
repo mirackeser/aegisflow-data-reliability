@@ -31,3 +31,17 @@ gate=evaluate_quality(protocol,canonical(cases),canonical(outputs),model_revisio
 if gate['decision'] != 'BLOCK' or 'PROVENANCE_NOT_APPROVED' not in gate['reasons']:
     raise RuntimeError('Installed quality gate accepted public fixture evidence')
 print('Installed quality gate blocks unapproved fixture evidence.')
+
+from tempfile import TemporaryDirectory
+from uuid import uuid4
+from aegisflow_dr.benchmark.protocol_store import EvaluationRegistry,register_protocol
+with TemporaryDirectory() as temporary:
+    path=Path(temporary)/'evaluation.db'
+    digest=register_protocol(path,protocol)
+    registry=EvaluationRegistry(path,expected_protocol_sha256=digest)
+    run_id=str(uuid4())
+    result=registry.evaluate(canonical(cases),canonical(outputs),run_id=run_id,model_revision_sha256='a'*64)
+    registry.evaluate(canonical(cases),canonical(outputs),run_id=run_id,model_revision_sha256='a'*64)
+    if result['decision'] != 'BLOCK' or len(registry.history()) != 1:
+        raise RuntimeError('Installed registration lost blocked result or duplicated replay')
+print('Installed immutable registration and blocked-result history passed.')
