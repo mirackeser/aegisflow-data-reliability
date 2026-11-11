@@ -1,0 +1,41 @@
+{
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 10000,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "case_id": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      },
+      "family": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      },
+      "group_id": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      },
+      "csv_text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16384
+      },
+      "transform": {
+        "enum": [
+          "clean",
+          "exclude_first"
+        ]
+      }
+    },
+    "required": [
+      "case_id",
+      "family",
+      "group_id",
+      "csv_text",
+      "transform"
+    ]
+  }
+}

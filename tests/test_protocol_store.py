@@ -60,7 +60,7 @@ class ProtocolStoreTests(unittest.TestCase):
         self.assertFalse(path.exists())
 
     def test_wrong_model_dataset_and_invalid_run_cannot_append(self):
-        for run in (None,'bad',str(uuid4()).upper()):
+        for run in (None,'bad','AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'):
             with self.assertRaises(BenchmarkError):self.evaluate(run_id=run)
         with self.assertRaises(BenchmarkError):self.evaluate(model_revision_sha256='b'*64)
         self.cases+=b' '
