@@ -1,0 +1,11 @@
+# Statistical quality protocol v2
+
+Use `freeze_statistical_protocol(cases, ..., familywise_alpha_bps=500, sampling_assumptions_approved=False)` for new statistically qualified evaluations. Other arguments match `freeze_protocol`. Its closed [v2 schema](quality-protocol-v2.json) includes the existing dataset/model/policy/provenance fields plus `statistics`. The method is fixed; the integer significance budget is bounded to 1–500 basis points. Unknown versions/methods/fields and missing statistics are rejected. Version 1 remains supported without changing its original contract or score.
+
+Register the resulting bytes through `register_protocol`; `EvaluationRegistry` retains v2 PASS/BLOCK results with the exact protocol hash. Changes to significance, targets, model or data require separately registered, independently governed evaluation. The library does not approve repeated holdout reuse.
+
+`evaluate_quality` recomputes all counts from complete case/prediction inputs. For v2 it returns `version: "2"` and `statistics` containing the registered settings, the number of comparisons and a `metrics` map. Each metric contains integer `successes`, `trials`, `target_bps` and boolean `supported`. Precision uses predicted-class count; recall uses actual-class support; accuracy includes abstentions/errors in its denominator. No external p-value or aggregate percentage is accepted.
+
+Unsatisfied support adds `STATISTICAL_SUPPORT:<metric>` to BLOCK reasons. Missing host sampling approval adds `STATISTICAL_ASSUMPTIONS_NOT_APPROVED`. Sample/provenance and deterministic safety failures still block even if statistical comparisons succeed. Default sampling approval is false. Neither a numeric support result nor a passing test fixture grants model access or production release.
+
+With one 95% target test at 5% significance, 58/58 observations are insufficient, while 59/59 satisfy the exact tail test. With ten simultaneous comparisons the respective boundary is 103/103 versus 104/104. These arithmetic examples assume independent, appropriately sampled observations; they do not establish real model performance. See [ADR-0027](../adr/0027-exact-statistical-quality-support.md) for inference limits and sources.

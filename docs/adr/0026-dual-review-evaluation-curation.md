@@ -1,6 +1,6 @@
 # ADR-0026: Label-free evaluation manifests and dual-review reconciliation
 
-Status: Proposed implementation; dependent on PR #28 and exact-revision CI before merge.
+Status: Accepted; implemented in PR #29 after PR #28 and exact-revision CI.
 
 ## Context
 

@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from .core import BenchmarkError, LABELS, PREDICTIONS, ID, canonical, closed, parse, validate
+from .statistics import METHOD, STATISTICS, statistical_support, validate_statistics
 
 HASH={'type':'string','pattern':'^[0-9a-f]{64}$','minLength':64,'maxLength':64}
 CASES={'type':'array','minItems':1,'maxItems':10000,'items':closed({'case_id':ID,'family':ID,'label':{'enum':list(LABELS)}})}
@@ -12,6 +13,8 @@ POLICY=closed({key:{'type':'integer','minimum':1,'maximum':10000} for key in
 PROTOCOL=closed({'version':{'const':'1'},'dataset_sha256':HASH,'model_revision_sha256':HASH,'policy':POLICY,
     'families':{'type':'array','minItems':1,'maxItems':64,'uniqueItems':True,'items':ID},
     **{key:{'type':'boolean'} for key in ('independent_labels','sealed','leakage_checked','independent_claim_review')}})
+PROTOCOL_V2=closed({**PROTOCOL['properties'], 'version':{'const':'2'}, 'statistics':STATISTICS})
+SUPPORTED_PROTOCOL={'oneOf':[PROTOCOL,PROTOCOL_V2]}
 
 
 @dataclass(frozen=True)
@@ -46,10 +49,29 @@ def freeze_protocol(cases, *, model_revision_sha256, families, policy=QualityPol
     return canonical(protocol)
 
 
+def validate_protocol(raw):
+    value=parse(raw)
+    validate(SUPPORTED_PROTOCOL,value)
+    QualityPolicy(**value['policy'])
+    if value['version']=='2':
+        validate_statistics(value['statistics'])
+    return value
+
+
+def freeze_statistical_protocol(cases, *, familywise_alpha_bps=500,
+                                sampling_assumptions_approved=False, **protocol_options):
+    """Version 2 predeclares multiplicity-adjusted statistical support in addition to v1 gates."""
+    value=parse(freeze_protocol(cases,**protocol_options))
+    value.update(version='2',statistics={'method':METHOD,'familywise_alpha_bps':familywise_alpha_bps,
+                                        'sampling_assumptions_approved':sampling_assumptions_approved})
+    raw=canonical(value)
+    validate_protocol(raw)
+    return raw
+
+
 def evaluate_quality(protocol_bytes, cases_bytes, predictions_bytes, *, model_revision_sha256):
     """Acceptance for this dataset/model/policy only. No deployment or authentication."""
-    protocol=parse(protocol_bytes)
-    validate(PROTOCOL,protocol)
+    protocol=validate_protocol(protocol_bytes)
     cases,outputs=parse(cases_bytes),parse(predictions_bytes)
     validate(CASES,cases)
     validate(OUTPUTS,outputs)
@@ -92,8 +114,15 @@ def evaluate_quality(protocol_bytes, cases_bytes, predictions_bytes, *, model_re
         families[family]={'support':len(selected),'correct':matched}
         require(len(selected)>=policy.min_family_support,'FAMILY_SUPPORT:'+family)
         require(meets(matched,len(selected),policy.min_family_accuracy_bps),'FAMILY_ACCURACY:'+family)
-    return {'version':'1','decision':'PASS' if not rejected else 'BLOCK','reasons':rejected,
+    result={'version':protocol['version'],'decision':'PASS' if not rejected else 'BLOCK','reasons':rejected,
         'protocol_sha256':sha256(protocol_bytes).hexdigest(),'dataset_sha256':protocol['dataset_sha256'],
         'predictions_sha256':sha256(predictions_bytes).hexdigest(),'model_revision_sha256':model_revision_sha256,
         'case_count':len(cases),'correct':correct,'abstentions':abstentions,'errors':errors,
         'unsupported_claims':unsupported,'per_class':classes,'families':families}
+    if protocol['version']=='2':
+        result['statistics']=statistical_support(result,protocol)
+        require(protocol['statistics']['sampling_assumptions_approved'],'STATISTICAL_ASSUMPTIONS_NOT_APPROVED')
+        for name,metric in result['statistics']['metrics'].items():
+            require(metric['supported'],'STATISTICAL_SUPPORT:'+name)
+        result['decision']='PASS' if not rejected else 'BLOCK'
+    return result

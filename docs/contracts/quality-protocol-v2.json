@@ -1,0 +1,127 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "2"
+    },
+    "dataset_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "model_revision_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_cases": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_class_support": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_family_support": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_accuracy_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_precision_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_recall_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_family_accuracy_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "min_cases",
+        "min_class_support",
+        "min_family_support",
+        "min_accuracy_bps",
+        "min_precision_bps",
+        "min_recall_bps",
+        "min_family_accuracy_bps"
+      ]
+    },
+    "families": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      }
+    },
+    "independent_labels": {
+      "type": "boolean"
+    },
+    "sealed": {
+      "type": "boolean"
+    },
+    "leakage_checked": {
+      "type": "boolean"
+    },
+    "independent_claim_review": {
+      "type": "boolean"
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "exact-binomial-bonferroni-v1"
+        },
+        "sampling_assumptions_approved": {
+          "type": "boolean"
+        },
+        "familywise_alpha_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "required": [
+        "method",
+        "sampling_assumptions_approved",
+        "familywise_alpha_bps"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "dataset_sha256",
+    "model_revision_sha256",
+    "policy",
+    "families",
+    "independent_labels",
+    "sealed",
+    "leakage_checked",
+    "independent_claim_review",
+    "statistics"
+  ]
+}

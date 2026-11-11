@@ -62,3 +62,12 @@ consensus=reconcile_annotations(manifest,annotations,expected_manifest_sha256=di
 if consensus['status'] != 'AGREED' or len(consensus['cases']) != 1:
     raise RuntimeError('Installed curation consensus failed')
 print('Installed label-free manifest and exact dual-review reconciliation passed.')
+
+from aegisflow_dr.benchmark.quality import freeze_statistical_protocol
+from aegisflow_dr.benchmark.statistics import supports_target
+statistical_protocol=freeze_statistical_protocol(canonical(cases),model_revision_sha256='a'*64,families=('fixture',))
+statistical_result=evaluate_quality(statistical_protocol,canonical(cases),canonical(outputs),model_revision_sha256='a'*64)
+if (statistical_result['version'] != '2' or statistical_result['decision'] != 'BLOCK'
+        or supports_target(58,58,9500) or not supports_target(59,59,9500)):
+    raise RuntimeError('Installed statistical quality support failed')
+print('Installed exact statistical support and versioned fail-closed evaluation passed.')
