@@ -27,12 +27,15 @@ class UsagePolicy:
     max_cost_nusd: int = 1_000_000_000
     max_attempts: int = 2
     max_duration_ms: int = 10_000
+    max_total_attempts: int | None = None
 
     def __post_init__(self):
         integer(self.max_tokens, 1, 10**9)
         integer(self.max_cost_nusd, 0, LIMIT)
         integer(self.max_attempts, 1, 8)
         integer(self.max_duration_ms, 1, 600_000)
+        if self.max_total_attempts is not None:
+            integer(self.max_total_attempts, 1, 100_000)
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,12 @@ class UsageLedger:
                     or any(row['deadline_ms'] != deadline_ms for row in prior)):
                 raise AdvisoryError('Request deadline rejected')
             totals = self._totals(connection)
+            if self.policy.max_total_attempts is not None:
+                scope = connection.execute('SELECT deadline_ms,status FROM attempts').fetchall()
+                if (totals['attempts'] >= self.policy.max_total_attempts
+                        or any(row['deadline_ms'] != deadline_ms or row['status'] in
+                               ('RESERVED', 'IN_FLIGHT', 'UNKNOWN') for row in scope)):
+                    raise AdvisoryError('Shared operation admission denied')
             if (totals['held_tokens'] + totals['charged_tokens'] + quote.tokens > self.policy.max_tokens
                     or totals['held_cost_nusd'] + totals['charged_cost_nusd'] + quote.cost > self.policy.max_cost_nusd):
                 raise AdvisoryError('Usage budget exceeded')
