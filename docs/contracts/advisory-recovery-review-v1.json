@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "operator_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "operation_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "assessment_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "action": {
+      "enum": [
+        "KEEP_BLOCKED",
+        "REQUEST_USAGE_ATTESTATION"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "review_id",
+    "operator_id",
+    "operation_sha256",
+    "snapshot_sha256",
+    "assessment_sha256",
+    "action"
+  ]
+}

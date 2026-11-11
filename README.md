@@ -192,3 +192,7 @@ Bound operation admission was introduced with version 2 ledgers bound to one ret
 ### Recovery evidence and live output milestones
 
 `assess_recovery(ledger)` inspects routing/accounting in one read-only transaction, reports unresolved holds and unjournaled settlements, and exports canonical digests for operator review. It grants no resend or refund authority. See [increment 23](docs/delivery/increment-23.md) and [live output milestones](docs/delivery/live-output-milestones.md).
+
+### Bound recovery review requests
+
+Recovery assessment now checks event/plan/attempt correlation and known/unknown usage consistency. `prepare_recovery_review` binds an advisory request to one operation and exact snapshot; `verify_recovery_review` rejects stale evidence. Operator UUIDs remain host-supplied, with no authentication or state-change authority. See [increment 24](docs/delivery/increment-24.md).
