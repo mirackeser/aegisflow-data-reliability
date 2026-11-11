@@ -5,6 +5,8 @@ from tempfile import TemporaryDirectory
 import aegisflow_dr
 from aegisflow_dr.advisory.demo import run_demo
 from aegisflow_dr.advisory.operation import bind_operation
+from aegisflow_dr.advisory.recovery import assess_recovery
+from aegisflow_dr.advisory.routing import RouteCandidate, execute_route
 from uuid import uuid4
 from aegisflow_dr.advisory.retry import retry_dispatch
 import asyncio
@@ -119,6 +121,16 @@ with TemporaryDirectory() as temporary:
         raise RuntimeError('Installed operation allowed an unapproved model')
     if bound.snapshot()['attempts'] != 1:
         raise RuntimeError('Installed operation denial mutated usage')
+    recovery_path = Path(temporary) / 'recovery.db'
+    initialize_usage(recovery_path, UsagePolicy(max_total_attempts=1), operation=binding, routing=True)
+    recovery_ledger = UsageLedger(recovery_path, operation_id=operation_id, clock_ms=lambda:1000)
+    execute_route(recovery_ledger,(RouteCandidate(prepared,quote,adapter),))
+    saved = recovery_path.read_bytes()
+    recovery = assess_recovery(recovery_ledger)['assessment']
+    if recovery['decision'] != 'NO_RECOVERY_INDICATED' or recovery['usage']['charged_tokens'] != 10:
+        raise RuntimeError('Installed recovery assessment failed')
+    if saved != recovery_path.read_bytes() or recovery['automatic_resend_allowed']:
+        raise RuntimeError('Installed recovery assessment changed state or authorized resend')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')

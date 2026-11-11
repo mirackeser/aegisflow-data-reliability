@@ -188,3 +188,7 @@ Bound operation admission was introduced with version 2 ledgers bound to one ret
 ### Controlled model routing
 
 `execute_route` accepts an ordered tuple of at most eight distinct approved candidates on a new version 3 ledger. It switches models only after a settled retryable technical failure. Rejected, abstained or malformed answers and unknown usage stop safely. The same database records route ownership, exact candidate order, accounting and sanitized outcomes. Interrupted routes never auto-resume; completed replay is historical. See the [routing contract](docs/contracts/model-routing-v1.md) and [ADR-0022](docs/adr/0022-bounded-durable-model-routing.md).
+
+### Recovery evidence and live output milestones
+
+`assess_recovery(ledger)` inspects routing/accounting in one read-only transaction, reports unresolved holds and unjournaled settlements, and exports canonical digests for operator review. It grants no resend or refund authority. See [increment 23](docs/delivery/increment-23.md) and [live output milestones](docs/delivery/live-output-milestones.md).
