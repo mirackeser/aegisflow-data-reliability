@@ -54,3 +54,7 @@ An adapter must bind tokenization to the final provider payload, conservatively 
 ## Optional dedicated-operation guard
 
 UsagePolicy.max_total_attempts defaults to None for legacy behavior. An explicit integer 1..100000 enables a shared total-attempt cap, original deadline and unresolved-attempt guard across all requests/models in that dedicated ledger. Cancelled/zero-use attempts count. No stored JSON rewrite occurs for legacy metadata; no schema migration occurs. Host operation identity and model eligibility remain prerequisites for automatic fallback. See [ADR-0020](../adr/0020-shared-operation-budget-foundation.md).
+
+## Optional bound operation ledgers
+
+New operation-bound scopes use metadata version 2 and an immutable [operation binding](operation-binding-v1.md). Version 1 databases remain unmodified; there is no implicit migration. Shared guards still apply, and eligibility is checked before receipt lookup. Version 2 initialization requires a total attempt cap and opening requires the operation UUID.

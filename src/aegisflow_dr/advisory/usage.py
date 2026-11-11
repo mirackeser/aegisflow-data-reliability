@@ -12,6 +12,7 @@ from uuid import uuid4
 from ..storage.store import canonical, sha
 from .context import PreparedAdvisory
 from .contracts import AdvisoryError, decode
+from .operation import OperationBinding
 
 LIMIT = 10**18
 
@@ -100,16 +101,23 @@ def database(path, *, create=False):
         raise AdvisoryError('Usage ledger unavailable') from None
 
 
-def initialize_usage(path, policy=UsagePolicy()):
+def initialize_usage(path, policy=UsagePolicy(), *, operation=None):
     """Explicitly initialize an empty, separate local database; never migrate evidence."""
     if type(policy) is not UsagePolicy:
         raise AdvisoryError('Trusted usage policy required')
+    if operation is not None and (type(operation) is not OperationBinding or policy.max_total_attempts is None):
+        raise AdvisoryError('Bound operation requires a total attempt limit')
     with database(path, create=True) as connection:
         if connection.execute('SELECT name FROM sqlite_master').fetchone() is not None:
             raise AdvisoryError('Empty usage database required')
         for statement in SCHEMA:
             connection.execute(statement)
-        connection.execute('INSERT INTO metadata VALUES (1, ?, 0)', (canonical(asdict(policy)),))
+        if operation is None:
+            connection.execute('INSERT INTO metadata VALUES (1, ?, 0)', (canonical(asdict(policy)),))
+        else:
+            connection.execute('ALTER TABLE metadata ADD COLUMN operation BLOB NOT NULL DEFAULT X\'\'')
+            connection.execute('INSERT INTO metadata VALUES (2, ?, 0, ?)',
+                               (canonical(asdict(policy)), operation.payload))
 
 
 class UsageLedger:
@@ -119,17 +127,26 @@ class UsageLedger:
     UNKNOWN retains its full reservation and blocks retry for that request.
     Receipts are accounting records, not reusable dispatch authorizations.
     """
-    def __init__(self, path, *, clock_ms=None):
+    def __init__(self, path, *, clock_ms=None, operation_id=None):
         self.path = Path(path)
         self.clock_ms = clock_ms if clock_ms is not None else lambda: time.time_ns() // 1_000_000
         with database(self.path) as connection:
             rows = connection.execute('SELECT * FROM metadata').fetchall()
-            if len(rows) != 1 or rows[0]['version'] != 1:
+            if (len(rows) != 1 or rows[0]['version'] not in (1, 2)
+                    or ('operation' in rows[0].keys()) != (rows[0]['version'] == 2)):
                 raise AdvisoryError('Unsupported usage ledger')
             try:
                 self.policy = UsagePolicy(**json.loads(rows[0]['policy']))
             except (TypeError, ValueError):
                 raise AdvisoryError('Invalid stored usage policy') from None
+            self.operation = None
+            if rows[0]['version'] == 2:
+                self.operation = OperationBinding(rows[0]['operation'])
+                if (operation_id != decode('operation', self.operation.payload)['operation_id']
+                        or self.policy.max_total_attempts is None):
+                    raise AdvisoryError('Operation identity or total limit rejected')
+            elif operation_id is not None:
+                raise AdvisoryError('Unbound ledger cannot authorize an operation')
 
     def _now(self, connection):
         now = self.clock_ms()
@@ -152,7 +169,8 @@ class UsageLedger:
 
     def snapshot(self):
         with database(self.path) as connection:
-            return {'version': '1', 'policy': asdict(self.policy), **self._totals(connection)}
+            return {'version': '2' if self.operation is not None else '1',
+                    'policy': asdict(self.policy), **self._totals(connection)}
 
     def reserve(self, prepared, quote, *, attempt_key, deadline_ms):
         if type(prepared) is not PreparedAdvisory or type(quote) is not UsageQuote:
@@ -168,6 +186,8 @@ class UsageLedger:
         key = sha(attempt_key.encode())
         digest = sha(canonical(asdict(quote)))
         with database(self.path) as connection:
+            if self.operation is not None:
+                self.operation.admit(prepared, deadline_ms)
             now = self._now(connection)
             old = connection.execute('SELECT * FROM attempts WHERE key_sha256 = ?', (key,)).fetchone()
             if old is not None:

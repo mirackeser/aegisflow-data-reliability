@@ -4,6 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import aegisflow_dr
 from aegisflow_dr.advisory.demo import run_demo
+from aegisflow_dr.advisory.operation import bind_operation
+from uuid import uuid4
 from aegisflow_dr.advisory.retry import retry_dispatch
 import asyncio
 from aegisflow_dr.advisory.stream import stream_adapter, UsageFrame
@@ -96,6 +98,27 @@ with TemporaryDirectory() as temporary:
                             operation_key='installed',deadline_ms=2000,wait=lambda _:None)
     if result['status'] != 'ADMISSION_DENIED' or len(retry_calls) != 2:
         raise RuntimeError('Installed retry duplicate protection failed')
+    bound_path = Path(temporary) / 'bound.db'
+    operation_id = str(uuid4())
+    binding = bind_operation(prepared, operation_id=operation_id,
+                             allowed_models=('offline/test',), deadline_ms=2000)
+    initialize_usage(bound_path, UsagePolicy(max_total_attempts=2), operation=binding)
+    bound = UsageLedger(bound_path, operation_id=operation_id, clock_ms=lambda:1000)
+    result = dispatch(prepared,quote,bound,adapter,attempt_key='bound',deadline_ms=2000)
+    if result['review']['status'] != 'VERIFIED_ADVISORY':
+        raise RuntimeError('Installed bound operation verification failed')
+    denied = PreparedAdvisory(runs,record['run_id'],model_id='offline/unapproved')
+    from dataclasses import replace
+    denied_quote = replace(quote,input_sha256=denied.manifest['input_sha256'],model_id='offline/unapproved')
+    bound = UsageLedger(bound_path, operation_id=operation_id, clock_ms=lambda:1000)
+    try:
+        dispatch(denied,denied_quote,bound,adapter,attempt_key='denied',deadline_ms=2000)
+    except AdvisoryError:
+        pass
+    else:
+        raise RuntimeError('Installed operation allowed an unapproved model')
+    if bound.snapshot()['attempts'] != 1:
+        raise RuntimeError('Installed operation denial mutated usage')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')

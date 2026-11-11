@@ -3,10 +3,12 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from .context import PreparedAdvisory
 from .contracts import AdvisoryError, decode, encode
 from .dispatch import Adapter, AdapterFailure, AdapterResult, dispatch
+from .operation import bind_operation
 from .usage import UsageLedger, UsagePolicy, UsageQuote, initialize_usage
 from ..investigation import default_policy
 from ..pipeline import generate_orders
@@ -24,10 +26,16 @@ def run_demo():
         runs = InvestigationRuns(store)
         record = runs.execute(incident['incident_id'], default_policy(), request_key='demo')
         before = evidence.read_bytes()
-        initialize_usage(usage, UsagePolicy(max_tokens=30, max_cost_nusd=70, max_total_attempts=2))
-        ledger = UsageLedger(usage, clock_ms=lambda:1000)
+        models = ('fixture/primary','fixture/secondary','fixture/third')
+        operation_id = str(uuid4())
+        primary = PreparedAdvisory(runs,record['run_id'],model_id=models[0])
+        binding = bind_operation(primary, operation_id=operation_id,
+                                 allowed_models=models, deadline_ms=2000)
+        initialize_usage(usage, UsagePolicy(max_tokens=30, max_cost_nusd=70, max_total_attempts=2),
+                         operation=binding)
+        ledger = UsageLedger(usage, clock_ms=lambda:1000, operation_id=operation_id)
         events = []
-        for index, model in enumerate(('fixture/primary','fixture/secondary','fixture/third')):
+        for index, model in enumerate(models):
             prepared = PreparedAdvisory(runs,record['run_id'],model_id=model)
             quote = UsageQuote(prepared.manifest['input_sha256'],model,'synthetic-v1',10,5,2,3)
             metadata = decode('request',prepared.request)
