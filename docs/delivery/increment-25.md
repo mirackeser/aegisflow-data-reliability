@@ -7,3 +7,5 @@ Validation: 523 application + 13 security/hygiene methods = 536 distinct tests, 
 Next: independent dataset/label/claim review and enforceable preregistration, plus the still-pending B08 authenticated operator/durable decisions/provider attestations. Actual activation must wire this gate to the approved model revision and deployment process. See [ADR-0025](../adr/0025-measurable-model-quality-acceptance.md).
 
 Continuation while CI is pending: added immutable local protocol registration and append-only PASS/BLOCK history with exact run identity, conflict rejection and atomic rollback. The scope remains increment 25 until PR #28 and main CI complete. No new increment or production acceptance is claimed prematurely.
+
+Delivery follow-up: PR #28 merged after successful PR/push CI; main run 43101043986 passed all four jobs. The earlier queue delay is resolved for this delivered revision.

@@ -1,6 +1,6 @@
 # Increment 26 — Evaluation curation preparation
 
-Implementation prepared after increment 25, with PR #28 still awaiting GitHub execution. This increment is not delivered until the dependency, its own PR CI and post-merge main verification complete.
+Delivery follow-up: PR #28 completed first. PR #29 was retargeted to main, synchronized and merged after all four PR and all four push checks passed. Post-merge main run 43101511334 passed all four jobs. The original queue delay is retained in historical PR evidence.
 
 Add label-free exact-byte manifests, conservative known split-leakage/duplicate-group checks, two-reviewer annotation contracts and disagreement-safe export into the existing registered quality gate. No provider calls, automatic adjudication or production identity authority are added. See [ADR-0026](../adr/0026-dual-review-evaluation-curation.md) and [curation contracts/data flow](../contracts/evaluation-curation-v1.md).
 

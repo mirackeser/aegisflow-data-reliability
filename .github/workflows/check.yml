@@ -27,7 +27,7 @@ jobs:
           python -m coverage report --include="*/coordination/*.py" --fail-under=100
           python -m coverage report --include="*/workflow/*.py" --fail-under=100
           python -m coverage report --include="*/security/*.py,*/integration/*.py" --fail-under=100
-          python -m coverage report --include="*/benchmark/core.py,*/benchmark/runner.py,*/benchmark/report.py,*/benchmark/quality.py,*/benchmark/protocol_store.py,*/benchmark/curation.py" --fail-under=100
+          python -m coverage report --include="*/benchmark/core.py,*/benchmark/runner.py,*/benchmark/report.py,*/benchmark/quality.py,*/benchmark/protocol_store.py,*/benchmark/curation.py,*/benchmark/statistics.py" --fail-under=100
           python -m coverage report --include="*/advisory/*.py" --fail-under=100
           python -m coverage report
       - name: Verify installed package outside the checkout

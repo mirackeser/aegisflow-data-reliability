@@ -7,8 +7,8 @@ from pathlib import Path
 import sqlite3
 from uuid import UUID
 
-from .core import BenchmarkError, canonical, parse, validate
-from .quality import PROTOCOL, QualityPolicy, evaluate_quality
+from .core import BenchmarkError, canonical, parse
+from .quality import validate_protocol, evaluate_quality
 
 
 @contextmanager
@@ -26,9 +26,7 @@ def database(path):
 
 def register_protocol(path, protocol):
     """Create exclusively; the trusted host approves provenance and candidate thresholds."""
-    value=parse(protocol)
-    validate(PROTOCOL,value)
-    QualityPolicy(**value['policy'])
+    value=validate_protocol(protocol)
     normalized=canonical(value)
     try:
         descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
@@ -57,7 +55,7 @@ class EvaluationRegistry:
         if len(rows)!=1 or sha256(rows[0][0]).hexdigest()!=self.expected:
             raise BenchmarkError('Evaluation registration mismatch')
         protocol=rows[0][0]
-        validate(PROTOCOL,parse(protocol))
+        validate_protocol(protocol)
         return protocol
 
     def evaluate(self,cases,predictions,*,run_id,model_revision_sha256):
