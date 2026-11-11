@@ -71,3 +71,11 @@ if (statistical_result['version'] != '2' or statistical_result['decision'] != 'B
         or supports_target(58,58,9500) or not supports_target(59,59,9500)):
     raise RuntimeError('Installed statistical quality support failed')
 print('Installed exact statistical support and versioned fail-closed evaluation passed.')
+
+from aegisflow_dr.benchmark.curation_store import retain_curation, read_curation
+with TemporaryDirectory() as temporary:
+    path=Path(temporary)/'curation.db'
+    digest=retain_curation(path,development,candidate,annotations,reviewer_ids=reviewers)
+    if read_curation(path,expected_sha256=digest,reviewer_ids=reviewers) != consensus:
+        raise RuntimeError('Installed curation snapshot verification failed')
+print('Installed private curation snapshot and verified reopen passed.')
