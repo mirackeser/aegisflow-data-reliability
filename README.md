@@ -13,10 +13,10 @@ The executable baseline generates synthetic orders and checks a CSV data contrac
 
 ## Try locally
 
-Python 3.11+; install the validator, test tooling and optional official A2A SDK to run the complete suite:
+Python 3.11+; install the validator, test tooling and optional official protocol SDKs to run the complete suite:
 
 ```sh
-python3 -m pip install ".[test,a2a]"
+python3 -m pip install ".[test,a2a,mcp]"
 python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m aegisflow_dr catalog
 PYTHONPATH=src python3 -m aegisflow_dr demo
@@ -131,3 +131,9 @@ Use the [secure review host contract](docs/contracts/secure-review-v1.md) and [A
 The optional `a2a` extra pins `a2a-sdk==1.3.0`. An A2A 1.0 HTTP+JSON client and host callback wrap the existing read-only review using official generated protobuf models. Only synchronous `POST /message:send` with one JSON proposal and one direct verdict message is supported. Fixed endpoints, mutual TLS, exact certificate/resource grants, strict input/output contracts and bounded transport remain enforced before SDK compatibility decoding. No discovery, remote task lifecycle, streaming, files, push delivery or automatic protocol fallback is enabled.
 
 Base installation does not require the SDK; install `".[a2a]"` to use `integration.a2a_client.review_a2a`. The host supplies private TLS files, pinned endpoint and resource grants. Tests exercise the real SDK over temporary local TLS channels; no production A2A HTTP server is shipped. See [profile contract](docs/contracts/a2a-review-v1.md), [ADR-0011](docs/adr/0011-official-a2a-stateless-review.md) and [Increment 10](docs/delivery/increment-10.md). This profile adds transport interoperability, with no model calls or new accuracy claim.
+
+## Official MCP local tool profile
+
+Install `".[mcp]"` for the separately pinned official `mcp==2.3.0` SDK. `integration.mcp_tools.LocalToolSession` wraps the existing tool gateway in an official MCP Server for a trusted in-process Client using protocol revision `2026-07-28`. Host grants control both discovery and dispatch of `diagnose_csv`, `query_lineage` and `run_batch`. Exact input schemas, bounded results and persistent per-instance call/deadline budgets apply; reconnecting a client does not reset them. Batch execution stays in memory with the clean packaged transform.
+
+This increment validates SDK client/server calls in process. It does not expose a network endpoint or connect MCP calls to the A2A certificate identity. See [MCP contract](docs/contracts/mcp-local-tools-v1.md), [ADR-0012](docs/adr/0012-official-mcp-local-tools.md), [Increment 11](docs/delivery/increment-11.md) and [current implementation status](docs/delivery/status.md). Next establish held-out evaluation and model acceptance contracts before enabling provider calls or interface work.
