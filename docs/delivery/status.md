@@ -43,3 +43,9 @@ This record distinguishes delivered capabilities from the original target archit
 Current evaluation consists of ten labeled development scenarios and deterministic checks with zero LLM calls. No held-out benchmark or measured model accuracy exists yet. Passing tests and code coverage do not establish real-world root-cause inference quality.
 
 No approval is needed for the next local evaluation-contract increment. Provider/model selection, data residency, live API spending, production certificate issuer/hosting and access to enterprise datasets require concrete choices before activation. Production exposure and remediation writes remain separately gated. No shared history rewrite or repository archive/rename is required for this work.
+
+## Update after increment 12
+
+Versioned suite/prediction/report contracts and a frozen public synthetic validation baseline are implemented. The original 10 development cases remain unchanged; eight new validation cases are split by curated family/group/content checks. Label projection, explicit confusion/FP/FN, abstention/error/coverage metrics and exact deterministic regression gates are tested. 327 distinct tests pass; benchmark scorer/runner/report coverage is 100%. The module CLI is exercised in subprocess and installed checks.
+
+Current fixture agreement is 10/10 development and 8/8 public validation with zero model calls. These inspected public cases are not independently sealed held-out data, and no model accuracy exists yet. Next: provider-neutral prediction/evidence contracts, acceptance/sealed-evaluation process and budget/abstention rules before provider activation. Earlier ordered steps remain targets; the public baseline completes only the local evaluation-contract portion of step 1.

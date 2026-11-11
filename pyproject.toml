@@ -22,3 +22,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 aegisflow_dr = ["data/*.json", "sql/*.sql", "coordination/schemas/*.json"]
+"aegisflow_dr.benchmark" = ["data/*.json", "data/*.sha256"]
