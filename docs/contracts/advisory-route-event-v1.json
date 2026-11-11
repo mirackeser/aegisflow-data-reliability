@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 7
+    },
+    "model_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+      "maxLength": 64,
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "status": {
+      "enum": [
+        "KNOWN_RETRYABLE_FAILURE",
+        "KNOWN_TERMINAL_FAILURE",
+        "USAGE_UNKNOWN",
+        "DEADLINE_EXCEEDED",
+        "RESPONSE_REJECTED",
+        "REVIEWED"
+      ]
+    },
+    "review_status": {
+      "enum": [
+        "VERIFIED_ADVISORY",
+        "REJECTED_ADVISORY",
+        "ABSTAIN",
+        null
+      ]
+    }
+  },
+  "required": [
+    "index",
+    "model_id",
+    "request_sha256",
+    "attempt_id",
+    "status",
+    "review_status"
+  ],
+  "if": {
+    "properties": {
+      "status": {
+        "const": "REVIEWED"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "review_status": {
+        "enum": [
+          "VERIFIED_ADVISORY",
+          "REJECTED_ADVISORY",
+          "ABSTAIN"
+        ]
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "review_status": {
+        "type": "null"
+      }
+    }
+  }
+}

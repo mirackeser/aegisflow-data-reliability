@@ -124,5 +124,7 @@ with TemporaryDirectory() as temporary:
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
 
 shared = run_demo()
-if shared['adapter_invocations'] != 2 or shared['events'][-1]['event'] != 'ADMISSION_DENIED' or not shared['evidence_unchanged']:
+if (shared['adapter_invocations'] != 2 or shared['events'][-1]['event'] != 'ADMISSION_DENIED'
+        or not shared['evidence_unchanged'] or shared['usage']['version'] != '3'
+        or shared['routing_status'] != 'VERIFIED_ADVISORY' or not shared['replayed_without_dispatch']):
     raise RuntimeError('Installed shared budget demo failed')

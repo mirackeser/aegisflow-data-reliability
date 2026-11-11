@@ -1,0 +1,7 @@
+# Increment 22 — Controlled model failover and durable route outcomes
+
+The local B07 profile now performs ordered failover among approved models after settled retryable technical failures only. A version 3 ledger binds route ownership, candidate order and shared usage. Wrong/abstained/invalid responses, unknown usage and deadline/admission failures stop the route. Completion is durably recorded; concurrent or interrupted claims cannot resend. Completed replay is explicitly historical.
+
+Validation: 480 application + 13 security/hygiene methods = 493 distinct passing tests, including 26 new routing tests. All critical gates have 100% statement/branch coverage (2,041 statements, 598 branch exits on Python 3.12); overall application coverage rounds to 98%. Nine installed checks include the actual automatic routing demo. Runtime/optional dependency, secret and repository hygiene scans are required before merge. No model accuracy percentage or live provider call is claimed.
+
+Location: stage B, development increment 22. Local B07 controlled routing is delivered; production integration remains gated. Next B08: explicit audited reconciliation/recovery for interrupted routes and ambiguous usage, preserving no-resend and no-unproven-refund rules. Provider-specific accounting, independent sealed quality evaluation, authenticated multi-process deployment and UI remain future work. See [ADR-0022](../adr/0022-bounded-durable-model-routing.md).
