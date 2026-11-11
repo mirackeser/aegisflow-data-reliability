@@ -1,0 +1,15 @@
+# ADR-0018 — Bounded cooperative streaming bridge
+
+Status: accepted for local simulation and trusted cooperative async sources.
+
+The synchronous dispatcher can now use stream_adapter(revision, source_factory). A factory receives the exact immutable AdapterRequest and returns an owned async generator. The bridge runs in a synchronous worker, using a fresh event loop and one asyncio.timeout covering source creation, consumption and cleanup. Existing running loops are rejected before creating a coroutine.
+
+Frames are nonempty bytes followed by exactly one final UsageFrame from trusted transport metadata. Response JSON cannot supply accounting. EOF is required after usage; extra frames, missing payload/usage, unknown frames, invalid counts and more than 256 frames reject. The aggregate byte cap is checked before extending the buffer; a single chunk must also fit. Final output usage cannot exceed the quoted output limit. Dispatcher/ledger independently validate input usage and settle only complete known results.
+
+The owned source is closed through aclosing on success, error, timeout and cancellation. Timeout or incomplete/malformed framing propagates to the dispatcher as ambiguous usage, retaining the full hold; it never implies zero cost or automatic retry. CancelledError propagates after conservative accounting. Valid complete results still pass the independent Judge and normal one-shot protections.
+
+This is cooperative cancellation, not process isolation or forced termination. Source code must yield control and honor cancellation, including bounded cleanup. A blocking factory, cancellation-suppressing generator or blocking cleanup can exceed the timeout. A source can allocate a large chunk before yielding; the bridge caps retained buffer size, not arbitrary host allocations. Future provider transports must bound socket reads, enforce I/O/output limits, own their resource lifecycle and establish trustworthy usage. No real network/model provider, hard process kill or tokenizer is added.
+
+Validation: 16 tests cover exact input, fragmented success, deadline cancellation/closure, propagated cancellation, single/cumulative byte overflow, empty/unknown frames, missing data/usage, post-final data, frame count, over-cap output/invalid input usage, inclusive limits and host configuration/running-loop denial. Stream statement/branch coverage is 100% (50 statements, 16 branch exits). Installed dispatch exercises successful streaming and actual timeout cleanup/held accounting outside the checkout.
+
+Roadmap: B04 gains the local cooperative stream boundary; actual provider I/O preemption remains pending. B05 known/ambiguous failure classification is available. Next B06: explicitly bounded retry/backoff consuming only trusted eligible outcomes under the original deadline/attempt budget. B03 provider tokenizer/pricing, B07 shared fallback, B08 reconciliation, A04 defensive coverage and independent sealed evaluation remain gates. All 84 work packages are scope/dependency units, not a linear completion percentage.

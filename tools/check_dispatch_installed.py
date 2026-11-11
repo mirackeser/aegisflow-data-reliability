@@ -3,6 +3,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import aegisflow_dr
+import asyncio
+from aegisflow_dr.advisory.stream import stream_adapter, UsageFrame
 from aegisflow_dr.advisory.context import PreparedAdvisory
 from aegisflow_dr.advisory.dispatch import Adapter, AdapterResult, AdapterFailure, dispatch
 from aegisflow_dr.advisory.contracts import decode, encode
@@ -53,6 +55,29 @@ with TemporaryDirectory() as temporary:
     failed = dispatch(prepared,quote,failure_ledger,failure_adapter,attempt_key='failure',deadline_ms=2000)
     if failed['status'] != 'KNOWN_RETRYABLE_FAILURE' or failure_ledger.snapshot()['held_tokens'] != 0:
         raise RuntimeError('Installed known failure accounting failed')
+    stream_path = Path(temporary) / 'stream.db'
+    initialize_usage(stream_path)
+    stream_ledger = UsageLedger(stream_path, clock_ms=lambda:1000)
+    async def source(request):
+        yield payload[:10]
+        yield payload[10:]
+        yield UsageFrame(8,2)
+    result = dispatch(prepared,quote,stream_ledger,stream_adapter('fixture-v1',source),
+                      attempt_key='stream',deadline_ms=2000)
+    if result['review']['status'] != 'VERIFIED_ADVISORY':
+        raise RuntimeError('Installed stream review failed')
+    closed = []
+    async def stalled(request):
+        try:
+            await asyncio.sleep(1)
+            yield b'x'
+        finally:
+            closed.append(True)
+    stream_ledger.clock_ms = lambda:1995
+    result = dispatch(prepared,quote,stream_ledger,stream_adapter('fixture-v1',stalled),
+                      attempt_key='timeout',deadline_ms=2000)
+    if result['status'] != 'USAGE_UNKNOWN' or closed != [True] or stream_ledger.snapshot()['held_tokens'] != 15:
+        raise RuntimeError('Installed stream timeout/cleanup accounting failed')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
