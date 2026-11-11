@@ -196,3 +196,7 @@ Bound operation admission was introduced with version 2 ledgers bound to one ret
 ### Bound recovery review requests
 
 Recovery assessment now checks event/plan/attempt correlation and known/unknown usage consistency. `prepare_recovery_review` binds an advisory request to one operation and exact snapshot; `verify_recovery_review` rejects stale evidence. Operator UUIDs remain host-supplied, with no authentication or state-change authority. See [increment 24](docs/delivery/increment-24.md).
+
+### Model quality acceptance
+
+The provider-neutral quality gate computes exact-count PASS/BLOCK against a frozen dataset/model/policy. Candidate defaults require 95% overall accuracy, per-class precision/recall and per-family accuracy, with minimum samples, independent provenance and zero errors/unsupported claims. Perfect public fixtures remain blocked. See [ADR-0025](docs/adr/0025-measurable-model-quality-acceptance.md). Actual sealed evaluation and activation enforcement remain pending.

@@ -20,3 +20,14 @@ if restored != report or not report['regression_gate_passed']:
 if report['splits']['validation']['metrics']['case_count'] != 8 or report['blind_holdout']:
     raise RuntimeError('Installed benchmark scope inconsistent')
 print('Installed benchmark schemas, frozen fixtures, deterministic scoring and CLI passed.')
+
+# A perfect public fixture must still be blocked by provenance/sample requirements.
+from aegisflow_dr.benchmark.quality import freeze_protocol, evaluate_quality
+from aegisflow_dr.benchmark.core import canonical, LABELS
+cases=[{'case_id':str(i),'family':'fixture','label':LABELS[i%3]} for i in range(3)]
+outputs=[{'case_id':x['case_id'],'prediction':x['label'],'unsupported_claim':False} for x in cases]
+protocol=freeze_protocol(canonical(cases),model_revision_sha256='a'*64,families=('fixture',))
+gate=evaluate_quality(protocol,canonical(cases),canonical(outputs),model_revision_sha256='a'*64)
+if gate['decision'] != 'BLOCK' or 'PROVENANCE_NOT_APPROVED' not in gate['reasons']:
+    raise RuntimeError('Installed quality gate accepted public fixture evidence')
+print('Installed quality gate blocks unapproved fixture evidence.')

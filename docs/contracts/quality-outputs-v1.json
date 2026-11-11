@@ -1,0 +1,32 @@
+{
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 10000,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "case_id": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      },
+      "prediction": {
+        "enum": [
+          "NO_FAILURE_OBSERVED",
+          "SOURCE_QUALITY_FAILURE",
+          "TRANSFORMATION_RECONCILIATION_FAILURE",
+          "ABSTAIN",
+          "ERROR"
+        ]
+      },
+      "unsupported_claim": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "case_id",
+      "prediction",
+      "unsupported_claim"
+    ]
+  }
+}
