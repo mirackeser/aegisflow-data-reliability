@@ -295,3 +295,7 @@ The architecture PDF is a preserved reference, not a live implementation specifi
 Immediate functional work: B01–B04 with simulated providers; prioritize A04 defensive coverage follow-up before live activation. Quality evaluation C and production prerequisites H remain gates. There is no measured model accuracy or reliable percentage derived from tests/role count. Earlier 25–30% was a scope-based estimate, not measured progress.
 
 Repository review identified stale active layer/reliability status prose; those descriptions are corrected without changing archived architecture or executable source. No blocking application regression was found by this test run. Zero known scan findings do not establish absence of every possible vulnerability.
+
+## Update after increment 16
+
+B01/B02 now have a working trusted synchronous adapter boundary with immutable input, one-shot durable start, usage settlement and independent response review. B03 still needs actual provider tokenization/pricing verification; B04 still needs transport-level hard limits and cancellation. The wrapper propagates limits and rejects late/oversized returned results; it cannot interrupt arbitrary host Python. 402 tests pass; dispatch statement/branch coverage is 100%. See [dispatch ADR](../adr/0017-one-shot-advisory-dispatch.md). The 84-package inventory above is the review-time baseline; this update records subsequent progress without declaring complete provider execution. Next: bounded simulated transport and typed failure classification before retry/fallback.

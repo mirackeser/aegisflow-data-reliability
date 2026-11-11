@@ -164,3 +164,7 @@ See [context contract](docs/contracts/evidence-context-v1.md), [ADR-0015](docs/a
 The trusted host can reserve token/cost capacity in a separate local SQLite ledger using an approved quote bound to the exact prepared input and model. Atomic reservations, one-shot start, original request deadlines, bounded attempts and idempotent settlement survive reopening. Unknown usage retains the entire hold and blocks retry for that request; timeouts never imply a free call. Costs use integer nano-US dollars with explicit host rates, not floating-point estimates.
 
 See [usage contract](docs/contracts/usage-ledger-v1.md), [ADR-0016](docs/adr/0016-durable-usage-admission.md) and [Increment 15](docs/delivery/increment-15.md). This adds local accounting without a provider, tokenizer or dispatch scheduler. Next implement the simulated adapter boundary and bounded retry/backoff; actual payload tokenization, transport deadlines, output limits, shared fallback budgets and approved live evaluation remain activation gates.
+
+## One-shot advisory dispatch
+
+A trusted synchronous adapter now connects immutable prepared inputs to durable usage admission/start, exact settlement and independent Judge review. Repeated or concurrent attempt keys cannot dispatch twice; ambiguous outcomes retain holds. Limits are propagated and late/oversized results rejected. No live provider or hard I/O preemption is supplied. See [ADR-0017](docs/adr/0017-one-shot-advisory-dispatch.md) and [Increment 16](docs/delivery/increment-16.md).
