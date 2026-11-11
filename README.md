@@ -168,3 +168,7 @@ See [usage contract](docs/contracts/usage-ledger-v1.md), [ADR-0016](docs/adr/001
 ## One-shot advisory dispatch
 
 A trusted synchronous adapter now connects immutable prepared inputs to durable usage admission/start, exact settlement and independent Judge review. Repeated or concurrent attempt keys cannot dispatch twice; ambiguous outcomes retain holds. Limits are propagated and late/oversized results rejected. No live provider or hard I/O preemption is supplied. See [ADR-0017](docs/adr/0017-one-shot-advisory-dispatch.md) and [Increment 16](docs/delivery/increment-16.md).
+
+## Bounded cooperative advisory streams
+
+The trusted synchronous dispatcher can consume owned async streams with a shared timeout, bounded bytes/frame count, final trusted usage and source cleanup. Timeout/incomplete streams retain usage holds. Sources must cooperate with cancellation; real provider I/O enforcement remains gated. See [ADR-0018](docs/adr/0018-bounded-cooperative-stream.md) and [increment 18](docs/delivery/increment-18.md).
