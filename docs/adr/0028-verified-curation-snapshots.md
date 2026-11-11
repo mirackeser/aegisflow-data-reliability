@@ -1,0 +1,15 @@
+# ADR-0028: Verified local curation snapshots
+
+Status: Accepted; delivery evidence is recorded in the PR.
+
+Curation previously returned hashes and consensus without retaining the exact source and annotation bytes. Add an exclusive local SQLite snapshot with four input artifacts and a canonical header binding their hashes, manifest, result and approved reviewer names. Retain agreement and disagreement alike; no adjudication override or automatic acceptance is added.
+
+`retain_curation(path, development, candidate, annotations, reviewer_ids=...)` validates split checks and full annotation coverage before creating a private mode-0600 file. Existing paths, including symlinks, are never overwritten. Creation uses one transaction; failed initialization may leave a reserved file which fails closed and requires explicit operator handling. Normal SQL INSERT/UPDATE/DELETE operations are denied after initialization.
+
+`read_curation(path, expected_sha256=..., reviewer_ids=...)` opens read-only, takes a consistent transaction snapshot, checks the exact artifact names/types and one-megabyte per-artifact limits before loading payloads, validates the external trusted header digest, then recomputes the original manifest and annotation result. Every byte is bound, including semantically irrelevant whitespace. Missing, substituted, malformed and oversized artifacts fail closed. No source CSV is returned by this API; the returned consensus includes labels for the trusted evaluator.
+
+The trusted host must keep the returned digest separately from the database and supply approved reviewer identities. A digest read from the same untrusted file establishes no independent trust. The SQLite file contains plaintext sensitive source data and labels. Local file mode and mutation triggers are not encryption, authenticated reviewer identity, protected holdout sealing, backup, remote access control, or protection against a privileged file owner. Read paths may resolve symlinks but must still match the external digest. Use only host-controlled local paths; this is not a model-facing or multi-tenant service. Do not commit real snapshots or source/annotation data to the public repository.
+
+Self-review checked the distinction between data retention, integrity and access separation. Recompute the full curation checks rather than trusting stored result fields. Tests cover private reopen, disagreement preservation, no overwrite, SQL mutation rejection, whitespace changes, header replacement, missing/extra/oversized/wrong-type artifacts, reviewer mismatch and initialization/storage failures. An installed distribution check exercises retention and verified reopen. No real model performance or independently sealed dataset is claimed.
+
+Next: authenticated curator identity and separate access roles, encrypted storage/managed keys, controlled adjudication and sampling/selection governance before real evaluation. These operations require concrete organizational ownership and data-access decisions before external activation.
