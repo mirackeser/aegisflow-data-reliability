@@ -29,9 +29,17 @@ class AdapterResult:
 
 
 @dataclass(frozen=True)
+class AdapterFailure:
+    """Trusted adapter attestation of known usage; never inferred from HTTP status alone."""
+    kind: str
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True)
 class Adapter:
     revision: str
-    send: Callable[[AdapterRequest], AdapterResult]
+    send: Callable[[AdapterRequest], AdapterResult | AdapterFailure]
 
 
 def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, clock=monotonic):
@@ -76,7 +84,8 @@ def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, cloc
         result = adapter.send(request)
         elapsed = clock() - started
         late = elapsed < 0 or not elapsed < remaining / 1000 or ledger.clock_ms() >= deadline_ms
-        if type(result) is not AdapterResult:
+        if (type(result) not in (AdapterResult, AdapterFailure)
+                or (type(result) is AdapterFailure and result.kind not in ('RETRYABLE', 'TERMINAL'))):
             unknown()
             return outcome('USAGE_UNKNOWN')
         try:
@@ -92,6 +101,8 @@ def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, cloc
         raise
     if late:
         return outcome('DEADLINE_EXCEEDED')
+    if type(result) is AdapterFailure:
+        return outcome('KNOWN_' + result.kind + '_FAILURE')
     if type(result.payload) is not bytes or len(result.payload) > MAX_BYTES:
         return outcome('RESPONSE_REJECTED')
     try:

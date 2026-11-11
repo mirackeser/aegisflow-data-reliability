@@ -15,3 +15,7 @@ Ledger and external effects are not one atomic transaction. A crash after start 
 Validation: 15 new integration/concurrency/failure tests; one-shot immutable inputs, exact limits, restart/duplicate denial, simultaneous dispatch, wrong revision/configuration, malformed result/usage/content, deadline rejection, cancellation, storage failure and independent Judge rejection. Dispatch statement/branch coverage is 100% (75 statements, 12 branch exits). Installed dispatch is checked outside the source tree.
 
 Roadmap: B01/B02 are implemented for this trusted synchronous boundary. B03 supplies revision/input quote binding only; actual provider tokenization/pricing verification remains pending. B04 supplies remaining-limit propagation and late/oversized result rejection only; hard I/O enforcement/cancellation remains pending. Next implement a bounded simulated transport and typed known-failure classification before retry/backoff and shared fallback budgets. A04 defensive coverage and independent evaluation remain gates before live activation.
+
+## Known failure extension
+
+AdapterFailure is a trusted adapter result, with RETRYABLE or TERMINAL classification and known usage. Settlement precedes the sanitized outcome; late/invalid/ambiguous outcomes remain conservative. HTTP status or generated response text alone cannot establish zero usage. See [increment 17](../delivery/increment-17.md).
