@@ -42,7 +42,7 @@ class Adapter:
     send: Callable[[AdapterRequest], AdapterResult | AdapterFailure]
 
 
-def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, clock=monotonic):
+def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, clock=monotonic, route_token=None):
     """Reserve/start once, settle known usage, then independently review advice.
 
     The synchronous host adapter must enforce streaming/transport caps. This wrapper
@@ -56,7 +56,7 @@ def dispatch(prepared, quote, ledger, adapter, *, attempt_key, deadline_ms, cloc
     messages = canonical(prepared.messages)
     if sha(messages) != quote.input_sha256:
         raise AdvisoryError('Dispatch input changed')
-    row = ledger.reserve(prepared, quote, attempt_key=attempt_key, deadline_ms=deadline_ms)
+    row = ledger.reserve(prepared, quote, attempt_key=attempt_key, deadline_ms=deadline_ms, route_token=route_token)
     attempt = row['attempt_id']
     ledger.transition(attempt, 'start')
 

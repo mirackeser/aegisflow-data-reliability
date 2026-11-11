@@ -9,6 +9,7 @@ from .context import PreparedAdvisory
 from .contracts import AdvisoryError, decode, encode
 from .dispatch import Adapter, AdapterFailure, AdapterResult, dispatch
 from .operation import bind_operation
+from .routing import RouteCandidate, execute_route
 from .usage import UsageLedger, UsagePolicy, UsageQuote, initialize_usage
 from ..investigation import default_policy
 from ..pipeline import generate_orders
@@ -32,10 +33,10 @@ def run_demo():
         binding = bind_operation(primary, operation_id=operation_id,
                                  allowed_models=models, deadline_ms=2000)
         initialize_usage(usage, UsagePolicy(max_tokens=30, max_cost_nusd=70, max_total_attempts=2),
-                         operation=binding)
+                         operation=binding, routing=True)
         ledger = UsageLedger(usage, clock_ms=lambda:1000, operation_id=operation_id)
-        events = []
-        for index, model in enumerate(models):
+        calls = []
+        def candidate(index, model):
             prepared = PreparedAdvisory(runs,record['run_id'],model_id=model)
             quote = UsageQuote(prepared.manifest['input_sha256'],model,'synthetic-v1',10,5,2,3)
             metadata = decode('request',prepared.request)
@@ -43,17 +44,26 @@ def run_demo():
                 'decision':'PROPOSE','assessment':record['trace']['assessment'],
                 'evidence_sha256':metadata['evidence_sha256']})
             def send(request):
-                events.append({'model':model,'event':'ADAPTER_CALLED'})
+                calls.append(model)
                 return AdapterFailure('RETRYABLE',2,0) if index==0 else AdapterResult(payload,8,2)
-            try:
-                result = dispatch(prepared,quote,ledger,Adapter('synthetic-v1',send),
-                                  attempt_key=f'demo-{index}',deadline_ms=2000)
-                events.append({'model':model,'event':result['status'],
-                               'review':result['review']['status'] if result['review'] else None})
-            except AdvisoryError:
-                events.append({'model':model,'event':'ADMISSION_DENIED'})
-        return {'mode':'offline-synthetic','model_calls':0,'adapter_invocations':sum(event['event']=='ADAPTER_CALLED' for event in events),
+            return RouteCandidate(prepared,quote,Adapter('synthetic-v1',send))
+        candidates = tuple(candidate(index, model) for index, model in enumerate(models[:2]))
+        result = execute_route(ledger,candidates)
+        replay = execute_route(ledger,candidates)
+        events = []
+        for event in result['events']:
+            events.extend([{'model':event['model_id'],'event':'ADAPTER_CALLED'},
+                {'model':event['model_id'],'event':event['status'],'review':event['review_status']}])
+        third = candidate(2,models[2])
+        try:
+            dispatch(third.prepared,third.quote,ledger,third.adapter,
+                     attempt_key='manual-bypass',deadline_ms=2000)
+        except AdvisoryError:
+            events.append({'model':models[2],'event':'ADMISSION_DENIED'})
+        return {'mode':'offline-synthetic','model_calls':0,'adapter_invocations':len(calls),
+                'routing_status':result['status'],'replayed_without_dispatch':replay['replayed'],
                 'events':events,'usage':ledger.snapshot(),'evidence_unchanged':before==evidence.read_bytes()}
+
 
 
 if __name__ == '__main__':

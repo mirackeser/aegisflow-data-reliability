@@ -26,7 +26,7 @@ stateDiagram-v2
 
 Settlement accepts integer input/output counts from zero to the reserved caps and charges their exact per-token cost. It releases the unused reservation regardless of whether the separate Judge accepts the response. Over-cap/invalid reports do not release holds. Usage comes from a trusted adapter, never generated JSON. A model/transport failure with certain zero usage may settle zero; a timeout alone is insufficient evidence of zero usage.
 
-UNKNOWN and crash-left IN_FLIGHT retain full holds and block another attempt for that request. No automatic expiry refund, UNKNOWN reconciliation, scheduler or network call exists. RESERVED expiry blocks start and retains its hold until explicit pre-dispatch cancellation. An idempotent reserve after settlement returns the recorded terminal receipt, not new dispatch permission. Attempts include cancellations and are never reset for that request.
+UNKNOWN and crash-left IN_FLIGHT retain full holds and block another attempt for that request. No automatic expiry refund or UNKNOWN reconciliation exists. The separate routing controller described below can schedule bounded trusted adapter calls. RESERVED expiry blocks start and retains its hold until explicit pre-dispatch cancellation. An idempotent reserve after settlement returns the recorded terminal receipt, not new dispatch permission. Attempts include cancellations and are never reset for that request.
 
 `snapshot()` returns version, detached policy, held/charged tokens and cost, and total attempt count. It does not expose source/prompt data. Database rows and digests remain sensitive operational metadata; protect filesystem permissions and storage according to host policy. This library supplies no encryption, tenant authentication, ledger tamper attestation or backup/retention operations. Snapshot reads take a short database lock for consistency.
 
@@ -42,14 +42,14 @@ sequenceDiagram
   H->>P: Verify evidence and prepare immutable prompt
   H->>L: Reserve exact input with host quote and deadline
   H->>L: Start attempt once
-  Note over H,A: Dispatch and live provider activation are future work
+  Note over H,A: Local dispatch is implemented; live provider activation remains gated
   H-->>A: Exact prepared snapshot, remaining time, output cap
   A-->>H: Trusted usage and untrusted structured response
   H->>L: Settle known usage or retain UNKNOWN hold
   H->>J: Independently verify response and current evidence
 ```
 
-An adapter must bind tokenization to the final provider payload, conservatively include provider framing/reasoning/cache/tool charges, cap output and use the remaining transport deadline. A quote alone does not prove actual provider billing or stop out-of-band calls. Current tests use explicit fixture token counts/rates with zero model calls. Model fallback/shared operation limits, retry scheduler/backoff and sealed quality evaluation remain the next gates.
+An adapter must bind tokenization to the final provider payload, conservatively include provider framing/reasoning/cache/tool charges, cap output and use the remaining transport deadline. A quote alone does not prove actual provider billing or stop out-of-band calls. Current tests use explicit fixture token counts/rates with zero model calls. Local retry/backoff and bound shared-operation routing are now implemented; provider-specific accounting and sealed quality evaluation remain gates.
 
 ## Optional dedicated-operation guard
 
@@ -58,3 +58,7 @@ UsagePolicy.max_total_attempts defaults to None for legacy behavior. An explicit
 ## Optional bound operation ledgers
 
 New operation-bound scopes use metadata version 2 and an immutable [operation binding](operation-binding-v1.md). Version 1 databases remain unmodified; there is no implicit migration. Shared guards still apply, and eligibility is checked before receipt lookup. Version 2 initialization requires a total attempt cap and opening requires the operation UUID.
+
+## Optional exclusive routing profile
+
+`initialize_usage(..., operation=binding, routing=True)` creates a version 3 ledger with route and event tables. Direct reservations require the owner token and exact next candidate from the durable plan. Version/table mismatch fails closed. No migration of version 1/2 ledgers occurs. See the [routing contract](model-routing-v1.md).

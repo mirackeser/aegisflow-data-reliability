@@ -103,6 +103,9 @@ class SharedUsageTests(unittest.TestCase):
         self.assertEqual(value['usage']['attempts'],2)
         self.assertEqual(value['usage']['charged_cost_nusd'],26)
         self.assertEqual(value['model_calls'],0)
+        self.assertEqual(value['routing_status'],'VERIFIED_ADVISORY')
+        self.assertTrue(value['replayed_without_dispatch'])
+        self.assertEqual(value['usage']['version'],'3')
         self.assertTrue(value['evidence_unchanged'])
 
     def test_demo_is_repeatable_without_operational_ids(self):

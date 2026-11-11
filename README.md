@@ -175,12 +175,16 @@ The trusted synchronous dispatcher can consume owned async streams with a shared
 
 ## Bounded same-model retry
 
-Trusted workers may explicitly retry only settled known retryable failures, with capped attempts/backoff and the original input/model/deadline. Usage remains charged and the durable ledger controls admission. Unknown usage and duplicate/restarted operation keys stop safely. See [ADR-0019](docs/adr/0019-bounded-advisory-retry.md). Cross-model fallback and automatic crash resumption remain planned.
+Trusted workers may explicitly retry only settled known retryable failures, with capped attempts/backoff and the original input/model/deadline. Usage remains charged and the durable ledger controls admission. Unknown usage and duplicate/restarted operation keys stop safely. See [ADR-0019](docs/adr/0019-bounded-advisory-retry.md). Bounded cross-model failover is available in the opt-in routing profile below; automatic crash resumption remains disabled.
 
 ## See the backend work without a web interface
 
-Run `python -m aegisflow_dr.advisory.demo` after installation, or `PYTHONPATH=src python -m aegisflow_dr.advisory.demo` from this checkout. The offline synthetic demonstration prints ordered primary/secondary fixture events, independent verification, shared usage and a denied third attempt. It makes zero provider calls and uses no credentials. This is an explicit test host sequence; automatic model fallback remains planned. See [increment 20](docs/delivery/increment-20.md).
+Run `python -m aegisflow_dr.advisory.demo` after installation, or `PYTHONPATH=src python -m aegisflow_dr.advisory.demo` from this checkout. The offline synthetic demonstration prints ordered primary/secondary fixture events, independent verification, shared usage and a denied third attempt. It makes zero provider calls and uses no credentials. The demo uses actual bounded local routing, persists outcomes, replays completed history without sending again and denies a manual third call. See [increment 22](docs/delivery/increment-22.md).
 
 ### Bound operation admission
 
-The offline demo now runs on a version 2 ledger bound to one retained investigation, its evidence/context, approved fixture models and the original deadline. A different run, changed context or unapproved model is denied before dispatch; an eligible answer still passes independent evidence review. See [increment 21](docs/delivery/increment-21.md) and the [operation contract](docs/contracts/operation-binding-v1.md). No measured live-model accuracy or automatic model fallback is claimed.
+Bound operation admission was introduced with version 2 ledgers bound to one retained investigation, its evidence/context, approved fixture models and the original deadline. A different run, changed context or unapproved model is denied before dispatch; an eligible answer still passes independent evidence review. See [increment 21](docs/delivery/increment-21.md) and the [operation contract](docs/contracts/operation-binding-v1.md). No measured live-model accuracy is claimed. The demo now opts into version 3 routing.
+
+### Controlled model routing
+
+`execute_route` accepts an ordered tuple of at most eight distinct approved candidates on a new version 3 ledger. It switches models only after a settled retryable technical failure. Rejected, abstained or malformed answers and unknown usage stop safely. The same database records route ownership, exact candidate order, accounting and sanitized outcomes. Interrupted routes never auto-resume; completed replay is historical. See the [routing contract](docs/contracts/model-routing-v1.md) and [ADR-0022](docs/adr/0022-bounded-durable-model-routing.md).
