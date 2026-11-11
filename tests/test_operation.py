@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
 import json
 import sqlite3
@@ -88,10 +89,10 @@ class OperationTests(unittest.TestCase):
 
     def test_stored_binding_and_policy_corruption_fail_closed(self):
         for payload in (b'{}', b'not-json', b'[]'):
-            with sqlite3.connect(self.bound_path) as connection:
+            with closing(sqlite3.connect(self.bound_path)) as connection, connection:
                 connection.execute('UPDATE metadata SET operation=?',(payload,))
             with self.assertRaises(AdvisoryError): self.reopen()
-        with sqlite3.connect(self.bound_path) as connection:
+        with closing(sqlite3.connect(self.bound_path)) as connection, connection:
             policy=json.loads(connection.execute('SELECT policy FROM metadata').fetchone()[0])
             policy['max_total_attempts']=None
             connection.execute('UPDATE metadata SET operation=?,policy=?',
@@ -102,7 +103,7 @@ class OperationTests(unittest.TestCase):
         before=self.bound_path.read_bytes()
         with self.assertRaises(AdvisoryError): initialize_usage(self.bound_path)
         self.assertEqual(before,self.bound_path.read_bytes())
-        with sqlite3.connect(self.bound_path) as connection:
+        with closing(sqlite3.connect(self.bound_path)) as connection, connection:
             connection.execute('UPDATE metadata SET version=1')
         with self.assertRaises(AdvisoryError): UsageLedger(self.bound_path)
 
