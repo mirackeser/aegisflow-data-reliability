@@ -172,3 +172,7 @@ A trusted synchronous adapter now connects immutable prepared inputs to durable 
 ## Bounded cooperative advisory streams
 
 The trusted synchronous dispatcher can consume owned async streams with a shared timeout, bounded bytes/frame count, final trusted usage and source cleanup. Timeout/incomplete streams retain usage holds. Sources must cooperate with cancellation; real provider I/O enforcement remains gated. See [ADR-0018](docs/adr/0018-bounded-cooperative-stream.md) and [increment 18](docs/delivery/increment-18.md).
+
+## Bounded same-model retry
+
+Trusted workers may explicitly retry only settled known retryable failures, with capped attempts/backoff and the original input/model/deadline. Usage remains charged and the durable ledger controls admission. Unknown usage and duplicate/restarted operation keys stop safely. See [ADR-0019](docs/adr/0019-bounded-advisory-retry.md). Cross-model fallback and automatic crash resumption remain planned.

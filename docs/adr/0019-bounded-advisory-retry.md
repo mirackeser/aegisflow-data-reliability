@@ -1,0 +1,15 @@
+# ADR-0019 — Bounded same-model advisory retry
+
+Status: accepted for trusted local synchronous workers; roadmap B06 local foundation.
+
+retry_dispatch wraps the existing dispatcher and durable usage ledger. Frozen RetryPolicy bounds attempts (1..8), positive exponential delay and delay cap (up to 60000 ms); requested attempts cannot exceed ledger policy. Only a settled KNOWN_RETRYABLE_FAILURE permits another attempt. Terminal failures, UNKNOWN usage, malformed/rejected responses and Judge results stop immediately. Late failures cannot authorize retry. No generated output supplies retry policy.
+
+The exact same PreparedAdvisory, model/quote and original absolute deadline apply across all attempts. Both remaining wall time and elapsed monotonic time bound admission/waiting; backwards/nonfinite clocks fail closed. Backoff is rejected when it cannot fit, and time is checked again after waiting. Existing ledger reservations enforce charged-plus-held budget and per-request attempt limits. Waits/adapters must cooperate; this is not hard preemption, jitter, server Retry-After handling or a distributed scheduler.
+
+Attempt keys hash the caller-owned operation key, prepared request digest and zero-based attempt index. Callers must persist/reuse the operation key. Repeating/reopening the operation stops at its already-started first attempt: no automatic resumption or replay of missing outcomes occurs. A crash can leave IN_FLIGHT/UNKNOWN holds requiring separate reconciliation. Changing the operation key is a new host intent and does not share this invocation's policy counters; the underlying prepared-request ledger limits still apply. New prepared requests/ledgers are separate scopes. Cross-model fallback/global quotas and durable operation outcome/history are future work.
+
+Returned metadata includes invocation status, locally started count and last dispatcher result. ADMISSION_DENIED means no new adapter call for that rejected attempt; it includes budget, duplicate-start and ledger denial. Exceptions are not exposed in result text. Wait cancellation propagates with no active invocation and no extra attempt. Individual known usages remain charged even if the overall retry fails. No database schema, retained evidence fingerprint, provider or model-quality claim changes.
+
+Validation: 18 tests cover transient-to-verified success, exact attempts/delays, immutable input and decreasing remaining time, UNKNOWN/terminal/rejected stops, restart/duplicate/concurrent operation denial, billed failure exhaustion, insufficient backoff time, oversleep, expired admission, monotonic expiry with unchanged wall time, bad policy/keys/configuration/clocks and wait cancellation. Retry statement/branch coverage is 100% (65 statements, 20 branch exits). Installed checks exercise retry success and repeat-operation denial outside the checkout.
+
+Next: B07 shared logical-operation/fallback admission and B08 audited reconciliation after scope design. B03 provider tokenizer/pricing, real provider I/O and independent sealed evaluation remain activation gates; A04 defensive coverage remains tracked. UI stays deferred.
