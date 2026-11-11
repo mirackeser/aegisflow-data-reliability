@@ -3,6 +3,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import aegisflow_dr
+from aegisflow_dr.advisory.demo import run_demo
 from aegisflow_dr.advisory.retry import retry_dispatch
 import asyncio
 from aegisflow_dr.advisory.stream import stream_adapter, UsageFrame
@@ -98,3 +99,7 @@ with TemporaryDirectory() as temporary:
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
+
+shared = run_demo()
+if shared['adapter_invocations'] != 2 or shared['events'][-1]['event'] != 'ADMISSION_DENIED' or not shared['evidence_unchanged']:
+    raise RuntimeError('Installed shared budget demo failed')

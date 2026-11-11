@@ -50,3 +50,7 @@ sequenceDiagram
 ```
 
 An adapter must bind tokenization to the final provider payload, conservatively include provider framing/reasoning/cache/tool charges, cap output and use the remaining transport deadline. A quote alone does not prove actual provider billing or stop out-of-band calls. Current tests use explicit fixture token counts/rates with zero model calls. Model fallback/shared operation limits, retry scheduler/backoff and sealed quality evaluation remain the next gates.
+
+## Optional dedicated-operation guard
+
+UsagePolicy.max_total_attempts defaults to None for legacy behavior. An explicit integer 1..100000 enables a shared total-attempt cap, original deadline and unresolved-attempt guard across all requests/models in that dedicated ledger. Cancelled/zero-use attempts count. No stored JSON rewrite occurs for legacy metadata; no schema migration occurs. Host operation identity and model eligibility remain prerequisites for automatic fallback. See [ADR-0020](../adr/0020-shared-operation-budget-foundation.md).

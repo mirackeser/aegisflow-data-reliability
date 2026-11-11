@@ -176,3 +176,7 @@ The trusted synchronous dispatcher can consume owned async streams with a shared
 ## Bounded same-model retry
 
 Trusted workers may explicitly retry only settled known retryable failures, with capped attempts/backoff and the original input/model/deadline. Usage remains charged and the durable ledger controls admission. Unknown usage and duplicate/restarted operation keys stop safely. See [ADR-0019](docs/adr/0019-bounded-advisory-retry.md). Cross-model fallback and automatic crash resumption remain planned.
+
+## See the backend work without a web interface
+
+Run `python -m aegisflow_dr.advisory.demo` after installation, or `PYTHONPATH=src python -m aegisflow_dr.advisory.demo` from this checkout. The offline synthetic demonstration prints ordered primary/secondary fixture events, independent verification, shared usage and a denied third attempt. It makes zero provider calls and uses no credentials. This is an explicit test host sequence; automatic model fallback remains planned. See [increment 20](docs/delivery/increment-20.md).
