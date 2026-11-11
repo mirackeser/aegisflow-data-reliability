@@ -3,6 +3,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import aegisflow_dr
+from aegisflow_dr.advisory.retry import retry_dispatch
 import asyncio
 from aegisflow_dr.advisory.stream import stream_adapter, UsageFrame
 from aegisflow_dr.advisory.context import PreparedAdvisory
@@ -78,6 +79,22 @@ with TemporaryDirectory() as temporary:
                       attempt_key='timeout',deadline_ms=2000)
     if result['status'] != 'USAGE_UNKNOWN' or closed != [True] or stream_ledger.snapshot()['held_tokens'] != 15:
         raise RuntimeError('Installed stream timeout/cleanup accounting failed')
+    retry_path = Path(temporary) / 'retry.db'
+    initialize_usage(retry_path)
+    retry_ledger = UsageLedger(retry_path, clock_ms=lambda:1000)
+    retry_calls = []
+    def retry_send(request):
+        retry_calls.append(request)
+        return AdapterFailure('RETRYABLE',0,0) if len(retry_calls)==1 else AdapterResult(payload,8,2)
+    retry_adapter = Adapter('fixture-v1',retry_send)
+    result = retry_dispatch(prepared,quote,retry_ledger,retry_adapter,
+                            operation_key='installed',deadline_ms=2000,wait=lambda _:None)
+    if result['attempts_started'] != 2 or result['last_result']['review']['status'] != 'VERIFIED_ADVISORY':
+        raise RuntimeError('Installed bounded retry failed')
+    result = retry_dispatch(prepared,quote,retry_ledger,retry_adapter,
+                            operation_key='installed',deadline_ms=2000,wait=lambda _:None)
+    if result['status'] != 'ADMISSION_DENIED' or len(retry_calls) != 2:
+        raise RuntimeError('Installed retry duplicate protection failed')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
