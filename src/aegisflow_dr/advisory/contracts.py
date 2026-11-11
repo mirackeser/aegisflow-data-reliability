@@ -28,7 +28,14 @@ RESPONSE = closed({'version': {'const': '1'}, 'request_sha256': HASH,
 RESPONSE.update({'if': {'properties': {'decision': {'const': 'ABSTAIN'}}},
     'then': {'properties': {'assessment': {'type': 'null'}, 'evidence_sha256': {'maxItems': 0}}},
     'else': {'properties': {'assessment': {'enum': LABELS}, 'evidence_sha256': {'minItems': 1}}}})
-SCHEMAS = {'request': REQUEST, 'response': RESPONSE}
+OPERATION = closed({'version': {'const': '1'}, 'operation_id': UUID,
+    'run_id': UUID, 'incident_id': UUID, 'record_sha256': HASH,
+    'prompt_sha256': HASH, 'context_sha256': HASH, 'response_schema_sha256': HASH,
+    'evidence_sha256': {**REFERENCES, 'minItems': 1},
+    'allowed_models': {'type': 'array', 'minItems': 1, 'maxItems': 16,
+                       'uniqueItems': True, 'items': REQUEST['properties']['model_id']},
+    'deadline_ms': {'type': 'integer', 'minimum': 0, 'maximum': 10**18}})
+SCHEMAS = {'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION}
 
 
 class AdvisoryError(ValueError):

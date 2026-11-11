@@ -180,3 +180,7 @@ Trusted workers may explicitly retry only settled known retryable failures, with
 ## See the backend work without a web interface
 
 Run `python -m aegisflow_dr.advisory.demo` after installation, or `PYTHONPATH=src python -m aegisflow_dr.advisory.demo` from this checkout. The offline synthetic demonstration prints ordered primary/secondary fixture events, independent verification, shared usage and a denied third attempt. It makes zero provider calls and uses no credentials. This is an explicit test host sequence; automatic model fallback remains planned. See [increment 20](docs/delivery/increment-20.md).
+
+### Bound operation admission
+
+The offline demo now runs on a version 2 ledger bound to one retained investigation, its evidence/context, approved fixture models and the original deadline. A different run, changed context or unapproved model is denied before dispatch; an eligible answer still passes independent evidence review. See [increment 21](docs/delivery/increment-21.md) and the [operation contract](docs/contracts/operation-binding-v1.md). No measured live-model accuracy or automatic model fallback is claimed.
