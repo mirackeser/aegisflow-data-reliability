@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Exercise installed detached signature verification with ephemeral in-memory keys."""
+from hashlib import sha256
+from importlib.metadata import distribution
+from pathlib import Path
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+import aegisflow_dr
+from aegisflow_dr.benchmark.core import BenchmarkError, canonical
+from aegisflow_dr.benchmark.curation import prepare_manifest
+from aegisflow_dr.benchmark.curation_auth import ReviewerGrant, annotation_signing_bytes, reconcile_verified_annotations
+
+checkout=Path(__file__).resolve().parents[1]
+if Path(aegisflow_dr.__file__).resolve().is_relative_to(checkout/'src'):
+    raise RuntimeError('Installed curation authentication check imported checkout')
+requirements=distribution('aegisflow-data-reliability').requires or []
+if not any('cryptography==50.0.2' in requirement and 'curation' in requirement for requirement in requirements):
+    raise RuntimeError('Installed curation optional dependency missing')
+development=canonical([{'case_id':'development','family':'development','group_id':'development',
+                        'csv_text':'id,value\n1,100\n','transform':'clean'}])
+candidate=canonical([{'case_id':'candidate','family':'candidate','group_id':'candidate',
+                      'csv_text':'id,value\n2,200\n','transform':'clean'}])
+manifest=prepare_manifest(development,candidate);digest=sha256(manifest).hexdigest()
+grants=[];annotations=[];envelopes=[]
+for reviewer in ('reviewer-a','reviewer-b'):
+    key=Ed25519PrivateKey.generate()
+    grant=ReviewerGrant(reviewer,key.public_key().public_bytes_raw(),digest,1000,9000)
+    annotation=canonical({'version':'1','reviewer_id':reviewer,'manifest_sha256':digest,
+                          'labels':[{'case_id':'candidate','label':'NO_FAILURE_OBSERVED'}]})
+    metadata={'version':'1','purpose':'aegisflow-curation-annotation','reviewer_id':reviewer,
+              'key_sha256':sha256(grant.public_key).hexdigest(),'manifest_sha256':digest,
+              'annotation_sha256':sha256(annotation).hexdigest(),'issued_at_ms':2000,'expires_at_ms':8000}
+    envelopes.append(canonical({**metadata,'signature':key.sign(annotation_signing_bytes(metadata)).hex()}))
+    grants.append(grant);annotations.append(annotation)
+result=reconcile_verified_annotations(manifest,tuple(annotations),tuple(envelopes),grants=tuple(grants),now_ms=3000)
+if result['status'] != 'AGREED' or len(result['authentication']['proofs']) != 2:
+    raise RuntimeError('Installed signed curation reconciliation failed')
+try:
+    reconcile_verified_annotations(manifest,tuple(annotations),tuple(envelopes),grants=tuple(grants),now_ms=8000)
+except BenchmarkError:
+    pass
+else:
+    raise RuntimeError('Installed signature expiry was not enforced')
+print('Installed detached signature binding and expiry passed.')

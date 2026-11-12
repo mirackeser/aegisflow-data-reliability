@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install ".[test,a2a,mcp]"
+      - run: python -m pip install ".[test,a2a,mcp,curation]"
       - name: Verify installed dependency consistency
         run: python -m pip check
       - name: Run unit, integration and local agent simulations
@@ -51,6 +51,10 @@ jobs:
       - name: Verify installed benchmark contracts and frozen baseline
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_benchmark_installed.py"
+
+      - name: Verify installed curation signature boundary
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_curation_auth_installed.py"
 
       - name: Verify installed offline advisory contracts
         working-directory: ${{ runner.temp }}
