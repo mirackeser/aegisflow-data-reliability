@@ -1,6 +1,6 @@
 # Live output milestones
 
-Current position: development increment 23, B08 first slice. The original scope has 84 unequal work packages; increment numbers do not imply a completion percentage.
+Current position: development increment 30 QA review, following increment 29 security hardening. B08 remains partial; C01–C03 now include local curation retention and registered statistical acceptance tooling. The original scope has 84 unequal work packages; increment numbers do not imply a completion percentage.
 
 | Milestone | Roadmap gate | Current position |
 | --- | --- | --- |
@@ -12,6 +12,6 @@ Current position: development increment 23, B08 first slice. The original scope 
 
 Before C05, complete the relevant B08 recovery/reconciliation slice and B09 failure simulations, remaining A04 defensive coverage, provider-specific B03 accounting, C01–C03 scenario/holdout/threshold preparation, C04 provider/region/retention/runtime credentials/spending decisions, and C05 adapter integration. Some preparation can overlap, but quality and external activation gates cannot be skipped.
 
-Planning estimate: about 6–10 further bounded development increments to a first controlled live-model demonstration, including remaining recovery work, if scope and provider access remain stable. This is a scope estimate, not a calendar commitment, and one package may require several increments. C08 quality acceptance, real enterprise data and a deployed web application require additional work. Review this estimate after B08 and C03.
+The earlier 6–10-increment estimate is historical and must not be treated as a current countdown. Re-estimate the first live-provider milestone after authenticated curation, protected storage, B08 and provider-accounting decisions are resolved. C05 first response, C08 measured acceptance and a deployed UI are separate milestones.
 
 Strong foundations help preserve correctness and detect failures. High model accuracy still requires independently labeled representative data, sealed evaluation, predeclared precision/recall/false-positive/false-negative/abstention thresholds and scenario-level error analysis. The current authored public synthetic cases are not an independent holdout. No measured live-model accuracy is claimed.

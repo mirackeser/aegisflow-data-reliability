@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Delivery history: increments 25 and 26 were merged through PR #28 and PR #29 after successful exact-head PR/push checks. Increment 27 adds statistical support. Each PR records its post-merge main verification; historical pending notes below describe their original delivery state.
+Latest QA: increment 30. Increments 25–29 have merged PR/main verification. The current QA PR records delivery of report-consistency validation and documentation corrections. Historical counts and pending notes below describe their original review revisions; see increment-30.md for the current verification scope.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -22,7 +22,7 @@ This record distinguishes delivered capabilities from the original target archit
 
 - MCP: local official SDK tools implemented; authenticated remote transport and operational quotas pending.
 - A2A: official stateless review implemented; remote durable Task lifecycle, delivery and production hosting pending.
-- LLM: offline advisory contracts, minimized versioned prompts and durable trusted-host token/cost/deadline admission are implemented. Actual provider tokenization, dispatch/routing, transport enforcement and fallback remain planned; no provider calls enabled.
+- LLM: offline advisory contracts, minimized versioned prompts and durable trusted-host token/cost/deadline admission are implemented. Offline dispatch, cooperative streaming, bounded retry and durable routing are implemented. Actual provider tokenization/pricing and real I/O enforcement remain pending; no live provider calls enabled.
 - RAG: retrieval adapters, tenant/source filtering, provenance/citation checks and retrieval evaluation are planned.
 - CAG: bounded context caching, identity-aware keys, invalidation, confidentiality and prompt-version isolation are planned.
 - Contracts: existing business JSON Schemas, official protocol models and MCP tool schemas implemented; specialist/model-specific contracts pending.
@@ -131,3 +131,7 @@ Local private snapshots now retain exact source and annotation artifacts, includ
 ## Increment 29 — adversarial review and reader hardening
 
 Local schema substitution and metadata resource bounds were reproduced/reviewed and hardened before expanding curation authority. Seven new adversarial test methods cover storage and message attacks; 584 distinct tests are subject to the delivery gates. See [increment 29](increment-29.md) and [finding, fix and remaining boundaries](../adr/0029-curation-reader-security-hardening.md). Authenticated curation, protected storage and deployment security remain next.
+
+## Increment 30 — system QA and report consistency
+
+Full regression/installation review reproduced a report-reader consistency defect and fixed it by recomputing metrics and the regression gate against the frozen suite. Six new methods plus installed negative verification cover forged and stale report values. 590 distinct tests pass locally; critical coverage is 100%, whole-application statement coverage 98.8707% and branch coverage 96.9101%. Historical snapshots are labeled; stale routing/milestone prose is corrected. See [increment 30](increment-30.md) and [ADR-0030](../adr/0030-recomputed-benchmark-report-validation.md). A04 and production/model activation gates remain explicit.

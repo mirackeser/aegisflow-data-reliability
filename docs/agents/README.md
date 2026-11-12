@@ -1,6 +1,6 @@
 # Agent connections and execution visibility
 
-This page is a rendered connection map of implemented capabilities, not a live dashboard. GitHub renders the Mermaid diagrams below. The [36-role catalog](../agent-catalog.json) and original architecture remain the planned specialist design. Only A26 retained evidence read and A27 deterministic verification are currently executable role slices. MCP tools and the investigation workflow are software components, not additional autonomous agents. No LLM worker is active.
+This page is a rendered connection map of implemented capabilities, not a live dashboard. GitHub renders the Mermaid diagrams below. The [36-role catalog](../agent-catalog.json) and original architecture remain the planned specialist design. Only A26 retained evidence read and A27 deterministic verification are currently executable role slices. MCP tools and the investigation workflow are software components, not additional autonomous agents. No live LLM worker is active. Offline dispatcher/routing simulations are executable; their adapters do not establish provider operation.
 
 ## Implemented connections
 
@@ -20,7 +20,7 @@ flowchart LR
   Offline[Offline advisory response contract] --> A27
   Context[Allowlisted evidence context and versioned prompt] --> Offline
   Context --> Usage[Durable local usage admission and accounting]
-  Usage -.-> Adapter[Future approved model dispatcher]
+  Usage --> Adapter[Offline simulated dispatcher and bounded routing]
   Adapter -.-> Offline
   Planned[Other catalog roles: planned] -.-> Future[Future specialist workflows]
 ```
