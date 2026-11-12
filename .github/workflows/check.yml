@@ -16,6 +16,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install ".[test,a2a,mcp]"
+      - name: Verify installed dependency consistency
+        run: python -m pip check
       - name: Run unit, integration and local agent simulations
         env:
           COVERAGE_FILE: ${{ runner.temp }}/application.coverage
