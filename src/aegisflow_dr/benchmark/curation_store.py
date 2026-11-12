@@ -9,12 +9,19 @@ import sqlite3
 from .core import BenchmarkError, canonical
 from .curation import prepare_manifest, reconcile_annotations
 
+TABLE_SQL = 'CREATE TABLE artifacts (name TEXT PRIMARY KEY, value BLOB NOT NULL)'
+
 
 @contextmanager
 def _database(path, *, readonly):
     try:
         uri = Path(path).resolve().as_uri() + ('?mode=ro' if readonly else '?mode=rw')
         with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection, connection:
+            if readonly:
+                connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1_000_256)
+                connection.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 16_384)
+                connection.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 32)
+                connection.execute('PRAGMA trusted_schema=OFF')
             connection.execute('BEGIN' if readonly else 'BEGIN IMMEDIATE')
             yield connection
     except BenchmarkError:
@@ -44,7 +51,7 @@ def retain_curation(path, development, candidate, annotations, *, reviewer_ids):
     except (OSError, TypeError, ValueError):
         raise BenchmarkError('New curation snapshot required') from None
     with _database(path, readonly=False) as connection:
-        connection.execute('CREATE TABLE artifacts (name TEXT PRIMARY KEY, value BLOB NOT NULL)')
+        connection.execute(TABLE_SQL)
         connection.executemany('INSERT INTO artifacts VALUES (?,?)', {**artifacts, 'header':header}.items())
         for action in ('INSERT', 'UPDATE', 'DELETE'):
             connection.execute(f"CREATE TRIGGER immutable_{action.lower()} BEFORE {action} ON artifacts BEGIN SELECT RAISE(ABORT,'Immutable curation snapshot'); END")
@@ -58,7 +65,10 @@ def read_curation(path, *, expected_sha256, reviewer_ids):
     The database contains private source data; it is not a model-facing interface.
     """
     with _database(path, readonly=True) as connection:
-        sizes = connection.execute('SELECT name, typeof(value), length(value) FROM artifacts').fetchall()
+        schema = connection.execute("SELECT sql FROM sqlite_schema WHERE type='table' AND name='artifacts' LIMIT 2").fetchall()
+        if schema != [(TABLE_SQL,)]:
+            raise BenchmarkError('Curation snapshot schema rejected')
+        sizes = connection.execute('SELECT name, typeof(value), length(value) FROM artifacts LIMIT 6').fetchall()
         expected_names = {'development','candidate','annotation_a','annotation_b','header'}
         if (len(sizes) != 5 or {row[0] for row in sizes} != expected_names
                 or any(row[1] != 'blob' or not 0 < row[2] <= 1_000_000 for row in sizes)):
