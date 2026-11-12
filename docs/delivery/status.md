@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest QA: increment 31; A04 defensive coverage gap closed. Increments 25–29 have merged PR/main verification. The increment 30 PR records report-consistency validation; the current increment 31 PR records defensive qualification and full coverage enforcement. Historical counts and pending notes below describe their original review revisions; see increment-30.md for the current verification scope.
+Latest implementation: increment 33, durable signed curation evidence with current external policy enforcement. Local validation: 628 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR and post-merge checks record final delivery. A04 is closed; managed identity, encrypted/access-separated storage and live-model acceptance remain open. Historical counts and pending notes below describe their original review revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -143,3 +143,7 @@ A04 now covers the previously unexecuted 40 statements and 33 branch exits throu
 ## Increment 32 — dataset-scoped annotation signing keys
 
 Detached Ed25519 envelopes now bind exact annotation/manifest/reviewer/key/time under trusted-host grants before consensus. Two distinct reviewer names and keys are required; scope, expiry/revocation and tampering fail closed. 625 distinct tests pass locally; full application coverage remains 100%. This authenticates granted key possession, not human independence or durable protected storage. See [increment 32](increment-32.md) and [authentication contract](../contracts/curation-authentication-v1.md). Next: protected retention of signed evidence/trust provenance and organizational identity integration.
+
+## Increment 33 — durable signed curation evidence
+
+A separate local format retains exact signatures, annotations, sources and the public grant policy under an external digest. Reopening reconstructs original integrity and requires current host grants, revision and signature validity. No stored key becomes authority; expired/revoked/changed policy blocks label export. Legacy unsigned records remain unchanged. 641 distinct tests and full application coverage apply. See [increment 33](increment-33.md). Next: confidentiality, curator/evaluator access separation and managed identity/key policy. Model activation and UI gates remain open; the [milestones](live-output-milestones.md) record conditional effort estimates.

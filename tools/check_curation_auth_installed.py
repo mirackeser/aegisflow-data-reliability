@@ -3,12 +3,14 @@
 from hashlib import sha256
 from importlib.metadata import distribution
 from pathlib import Path
+import tempfile
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import aegisflow_dr
 from aegisflow_dr.benchmark.core import BenchmarkError, canonical
 from aegisflow_dr.benchmark.curation import prepare_manifest
 from aegisflow_dr.benchmark.curation_auth import ReviewerGrant, annotation_signing_bytes, reconcile_verified_annotations
+from aegisflow_dr.benchmark.signed_curation_store import retain_signed_curation, read_signed_curation
 
 checkout=Path(__file__).resolve().parents[1]
 if Path(aegisflow_dr.__file__).resolve().is_relative_to(checkout/'src'):
@@ -41,4 +43,20 @@ except BenchmarkError:
     pass
 else:
     raise RuntimeError('Installed signature expiry was not enforced')
-print('Installed detached signature binding and expiry passed.')
+with tempfile.TemporaryDirectory() as directory:
+    path = Path(directory)/'signed.db'
+    snapshot = retain_signed_curation(path, development, candidate, tuple(annotations), tuple(envelopes),
+                                       grants=tuple(grants), policy_revision='policy-1', now_ms=3000)
+    retained = read_signed_curation(path, expected_sha256=snapshot, grants=tuple(grants),
+                                    policy_revision='policy-1', now_ms=4000)
+    if retained['status'] != 'AGREED' or retained['retention']['retained_at_ms'] != 3000:
+        raise RuntimeError('Installed signed curation retention failed')
+    for revision, now in (('policy-2', 4000), ('policy-1', 8000)):
+        try:
+            read_signed_curation(path, expected_sha256=snapshot, grants=tuple(grants),
+                                 policy_revision=revision, now_ms=now)
+        except BenchmarkError:
+            pass
+        else:
+            raise RuntimeError('Installed retained evidence authority was not enforced')
+print('Installed signature binding, retention, current policy and expiry passed.')
