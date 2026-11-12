@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "purpose": {
+      "const": "aegisflow-curation-annotation"
+    },
+    "reviewer_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,64}$"
+    },
+    "key_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "annotation_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "issued_at_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000000
+    },
+    "expires_at_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000000
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 128,
+      "maxLength": 128,
+      "pattern": "^[0-9a-f]{128}$"
+    }
+  },
+  "required": [
+    "version",
+    "purpose",
+    "reviewer_id",
+    "key_sha256",
+    "manifest_sha256",
+    "annotation_sha256",
+    "issued_at_ms",
+    "expires_at_ms",
+    "signature"
+  ]
+}
