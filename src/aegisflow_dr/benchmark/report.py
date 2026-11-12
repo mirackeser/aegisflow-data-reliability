@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Versioned report envelope with explicit counts and undefined metric values."""
-from .core import LABELS, PREDICTIONS, PREDICTION_SCHEMA, closed, validate
+from .core import BenchmarkError, LABELS, PREDICTIONS, PREDICTION_SCHEMA, closed, load_suite, score, validate
 
 COUNT = {'type': 'integer', 'minimum': 0, 'maximum': 64}
 HASH = {'type': 'string', 'pattern': '^[0-9a-f]{64}$'}
@@ -28,4 +28,12 @@ REPORT_SCHEMA = closed({'version': {'const': '1'}, 'suite_id': {'const': 'public
 
 def validate_report(report):
     validate(REPORT_SCHEMA, report)
+    suite, digest = load_suite()
+    measured = score(suite, report['predictions'])
+    passed = all(part['metrics']['correct'] == part['metrics']['case_count']
+                 and part['metrics']['tool_sequence_matches'] == part['metrics']['case_count']
+                 for part in measured.values())
+    if (report['suite_sha256'] != digest or report['splits'] != measured
+            or report['regression_gate_passed'] != passed):
+        raise BenchmarkError('Benchmark report consistency rejected')
     return report

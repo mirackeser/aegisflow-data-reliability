@@ -161,6 +161,7 @@ class BenchmarkRunnerTests(unittest.TestCase):
         suite, digest = load_suite()
         suite['cases'][0]['expected_assessment'] = LABELS[1]
         with patch('aegisflow_dr.benchmark.runner.load_suite', return_value=(suite, digest)), \
+             patch('aegisflow_dr.benchmark.report.load_suite', return_value=(suite, digest)), \
              patch('aegisflow_dr.benchmark.runner._execute', wraps=real_execute) as execution:
             result = evaluate_baseline()
         self.assertFalse(result['regression_gate_passed'])

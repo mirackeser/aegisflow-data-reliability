@@ -79,3 +79,15 @@ with TemporaryDirectory() as temporary:
     if read_curation(path,expected_sha256=digest,reviewer_ids=reviewers) != consensus:
         raise RuntimeError('Installed curation snapshot verification failed')
 print('Installed private curation snapshot and verified reopen passed.')
+
+from copy import deepcopy
+from aegisflow_dr.benchmark.core import BenchmarkError
+forged=deepcopy(report)
+forged['splits']['validation']['metrics']['correct']=0
+try:
+    validate_report(forged)
+except BenchmarkError:
+    pass
+else:
+    raise RuntimeError('Installed report validator accepted forged aggregate counts')
+print('Installed report consistency rejects forged counts.')

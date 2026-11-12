@@ -4,9 +4,9 @@ Review date: 2026-11-11. Executable baseline: `c3205510e253172941521da0f50009e5f
 
 This is the complete work-package inventory for the currently agreed six-layer, 36-role research/product target. It is a scoped plan, not a claim that every future discovery is known. Re-estimate after each acceptance gate; new pilot findings require explicit backlog entries. Completed implementation increments are not elapsed weeks.
 
-## Verified current state
+## Historical verified baseline (review revision above)
 
-Fresh local run: 374 application + 13 security/hygiene test methods = **387 passing tests**, zero failures/skips. Eight fresh installed-wheel checks and the independent installed benchmark CLI pass. The 10 development and 8 public validation cases match expected labels/tool order; no model calls. These inspected cases are not a blind holdout.
+Historical local run: 374 application + 13 security/hygiene test methods = **387 passing tests**, zero failures/skips. Eight fresh installed-wheel checks and the independent installed benchmark CLI pass. The 10 development and 8 public validation cases match expected labels/tool order; no model calls. These inspected cases are not a blind holdout.
 
 Whole-application statement coverage: **2641/2681 = 98.5080%**. Branch coverage: **789/822 = 95.9854%**. Combined coverage: **97.9161%**. Critical advisory/coordination/workflow/security/integration/benchmark core-runner-report gates are **100%** (1582 statements, 460 branch exits). Forty unexecuted statements and 33 branch exits remain across defensive storage/CLI/legacy validation paths; A04 tracks targeted follow-up. This is a coverage gap, not a finding that these paths are defective.
 
@@ -47,7 +47,7 @@ Fresh dependency audit reports no known vulnerabilities. Candidate/PDF secret sc
 
 1. **MCP:** Official local SDK, three grant-filtered tools implemented; authenticated remote hosting pending.
 2. **A2A:** Official stateless SDK/mTLS review implemented; remote durable task lifecycle and hosting pending.
-3. **LLM:** Offline contracts/prompts/usage admission implemented; provider calls, tokenization, routing and fallback pending.
+3. **LLM:** Offline contracts/prompts/usage admission implemented; offline dispatch/retry/routing now implemented in subsequent increments; live provider calls and provider-specific tokenization/pricing remain pending.
 4. **RAG:** Not implemented; ingestion/index/retrieval/provenance evaluation planned in E.
 5. **CAG:** Not implemented; isolation/versioned keys/invalidation/eviction planned in E.
 6. **Contracts:** Strict existing JSON/protocol contracts implemented; executable specialist/API contracts pending.
@@ -101,7 +101,7 @@ Each role requires a validated input/output contract, actual allowed tools, nega
 
 ## Remaining ordered work packages
 
-**84 remaining work packages** across A–J, plus the individual role acceptances above. Packages vary in size; their count is not a progress percentage. Within a phase, order follows dependencies. A and production preparation H can overlap other work; UI I stays gated. Select infrastructure technologies by approved ADR when their actual need is known; original FastAPI/PostgreSQL/LangGraph/dbt/pgvector/Compose choices are targets, not installed components.
+**84 work packages in the expanded review-time backlog** across A–J, plus the individual role acceptances above. Packages vary in size; their count is not a progress percentage. Within a phase, order follows dependencies. A and production preparation H can overlap other work; UI I stays gated. Select infrastructure technologies by approved ADR when their actual need is known; original FastAPI/PostgreSQL/LangGraph/dbt/pgvector/Compose choices are targets, not installed components.
 
 ### A — Acceptance and engineering hardening
 
@@ -347,3 +347,7 @@ Local private snapshots now retain exact source and annotation artifacts, includ
 ## Increment 29 — adversarial review and reader hardening
 
 Local schema substitution and metadata resource bounds were reproduced/reviewed and hardened before expanding curation authority. Seven new adversarial test methods cover storage and message attacks; 584 distinct tests are subject to the delivery gates. See [increment 29](increment-29.md) and [finding, fix and remaining boundaries](../adr/0029-curation-reader-security-hardening.md). Authenticated curation, protected storage and deployment security remain next.
+
+## Increment 30 — system QA and report consistency
+
+Full regression/installation review reproduced a report-reader consistency defect and fixed it by recomputing metrics and the regression gate against the frozen suite. Six new methods plus installed negative verification cover forged and stale report values. 590 distinct tests pass locally; critical coverage is 100%, whole-application statement coverage 98.8707% and branch coverage 96.9101%. Historical snapshots are labeled; stale routing/milestone prose is corrected. See [increment 30](increment-30.md) and [ADR-0030](../adr/0030-recomputed-benchmark-report-validation.md). A04 and production/model activation gates remain explicit.
