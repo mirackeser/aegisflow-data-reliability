@@ -1,0 +1,9 @@
+# Increment 33 — Durable signed curation evidence
+
+Requirement: retain the exact signatures and trust-policy provenance from increment 32 without treating stored credentials as current authority. The new signed format preserves evidence, policy and retention time under an external digest, recomputes original integrity and revalidates current authority before label export. Existing unsigned records remain compatible through their original API.
+
+Sixteen new unit/integration/negative methods cover normal operation, disagreement, current authority, tampering, malformed storage, cross-format substitution and real transaction rollback. The installed curation check now includes durable reopen, changed-policy rejection and expiry. Local full regression: 628 application + 13 security/hygiene methods = 641 distinct tests; 3650/3650 statements and 1094/1094 branch exits covered, with no exclusions. Dependency audit, ten installed-package checks and exact-revision GitHub checks remain delivery gates. Final CI evidence is recorded in the PR.
+
+Self-review: the pre-change 612 application tests passed. This closes the planned local signature-retention gap; it does not add encryption, organizational authentication, an independent timestamp service or sealed-data approval. No new live provider or interface is enabled. Follow [ADR-0033](../adr/0033-signed-curation-retention.md) and [the contract](../contracts/signed-curation-retention-v1.md).
+
+Next: storage confidentiality and curator/evaluator authorization with managed key/identity boundaries. Then complete provider accounting/recovery, independently curated evaluation and the production API gates. The [milestones](live-output-milestones.md) include a conditional effort estimate, not a fixed delivery date or a fraction of the 84-package historical inventory.

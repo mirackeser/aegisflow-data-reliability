@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 33 adds [durable signed curation evidence](docs/contracts/signed-curation-retention-v1.md): exact signatures and policy provenance survive reopening, with current host authority checked before label export. Local regression covers 641 distinct application/security tests and 100% application statement/branch execution. See [current status](docs/delivery/status.md) and [conditional live-output milestones](docs/delivery/live-output-milestones.md). Enterprise identity, confidential storage and measured live-model acceptance remain pending.
+
 The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Versioned investigation runs now retain exact executed stage/mart CSV, SQL and staging-contract snapshots in the explicit local store. Dashboard execution and inferred root cause remain planned. Source CSV diagnosis now supports the persistent local store described below.
 
 
@@ -16,7 +18,7 @@ The executable baseline generates synthetic orders and checks a CSV data contrac
 Python 3.11+; install the validator, test tooling and optional official protocol SDKs to run the complete suite:
 
 ```sh
-python3 -m pip install ".[test,a2a,mcp]"
+python3 -m pip install ".[test,a2a,mcp,curation]"
 python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m aegisflow_dr catalog
 PYTHONPATH=src python3 -m aegisflow_dr demo

@@ -1,6 +1,6 @@
 # Live output milestones
 
-Current position: development increment 31 defensive qualification; A04 coverage gap closed. B08 remains partial; C01–C03 now include local curation retention and registered statistical acceptance tooling. The original scope has 84 unequal work packages; increment numbers do not imply a completion percentage.
+Current position: development increment 33 signed evidence retention; A04 coverage gap closed. B08 remains partial; C01–C03 include local signed curation retention and registered statistical acceptance tooling. Confidential storage, organizational identity and real independent data remain open. The original scope has 84 unequal work packages; increment numbers do not imply a completion percentage.
 
 | Milestone | Roadmap gate | Current position |
 | --- | --- | --- |
@@ -12,6 +12,19 @@ Current position: development increment 31 defensive qualification; A04 coverage
 
 Before C05, complete the relevant B08 recovery/reconciliation slice and B09 failure simulations, the A04 regression guard (delivered in increment 31), provider-specific B03 accounting, C01–C03 scenario/holdout/threshold preparation, C04 provider/region/retention/runtime credentials/spending decisions, and C05 adapter integration. Some preparation can overlap, but quality and external activation gates cannot be skipped.
 
-The earlier 6–10-increment estimate is historical and must not be treated as a current countdown. Re-estimate the first live-provider milestone after authenticated curation, protected storage, B08 and provider-accounting decisions are resolved. C05 first response, C08 measured acceptance and a deployed UI are separate milestones.
+The earlier 6–10-increment estimate is historical and must not be treated as a current countdown. C05 first response, C08 measured acceptance and a deployed UI are separate milestones.
+
+## Conditional planning estimate — 2026-11-12
+
+For one narrow read-only diagnostic pilot, budget approximately 15–30 focused engineering days (3–6 full-time working weeks) to the first controlled model trial. Allow a further 20–40 engineering days (4–8 working weeks) for measured acceptance, a relevant data connector, authenticated service operations and the first small investigation workspace. These are initial engineering judgment ranges, not a velocity-based forecast or a commitment. They do not cover all 36 specialist roles, full enterprise rollout, remediation or the entire research program.
+
+The critical sequence is:
+
+1. Finish confidential/access-separated curation storage and current identity/key policy; prepare independent reviewers and scenario data. Signed local integrity is now present, but does not complete this gate.
+2. Finish the relevant recovery/failure simulations, provider-specific accounting and approved adapter. Resolve provider/model, region, retention, runtime credential delivery and spending limits before any external activation. The first controlled C05 response occurs here after prerequisite gates.
+3. Run independent sealed evaluation and error analysis against the predeclared statistical thresholds. Correct weak cases using development data; do not tune on the sealed holdout. A failed acceptance run extends this phase and blocks activation.
+4. Integrate the pilot data path and authenticated API, audit/rate/isolation controls, failure recovery and service tests. Build the small observer/workspace only after the relevant backend and quality gates pass.
+
+Assumptions: daily focused engineering time, stable narrow scope, timely authorized dataset/reviewer availability and provider/hosting decisions, and no major issue found in acceptance. External approval/data waiting time and substantial model-quality rework are not bounded by this estimate. Re-estimate after the protected-curation gate and again after the first measured model evaluation. There is no reliable calendar delivery date yet. A runnable synthetic CLI is already available; first model output is not the same milestone as accepted model quality or a production UI.
 
 Strong foundations help preserve correctness and detect failures. High model accuracy still requires independently labeled representative data, sealed evaluation, predeclared precision/recall/false-positive/false-negative/abstention thresholds and scenario-level error analysis. The current authored public synthetic cases are not an independent holdout. No measured live-model accuracy is claimed.
