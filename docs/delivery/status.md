@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest QA: increment 30. Increments 25–29 have merged PR/main verification. The current QA PR records delivery of report-consistency validation and documentation corrections. Historical counts and pending notes below describe their original review revisions; see increment-30.md for the current verification scope.
+Latest QA: increment 31; A04 defensive coverage gap closed. Increments 25–29 have merged PR/main verification. The increment 30 PR records report-consistency validation; the current increment 31 PR records defensive qualification and full coverage enforcement. Historical counts and pending notes below describe their original review revisions; see increment-30.md for the current verification scope.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -135,3 +135,7 @@ Local schema substitution and metadata resource bounds were reproduced/reviewed 
 ## Increment 30 — system QA and report consistency
 
 Full regression/installation review reproduced a report-reader consistency defect and fixed it by recomputing metrics and the regression gate against the frozen suite. Six new methods plus installed negative verification cover forged and stale report values. 590 distinct tests pass locally; critical coverage is 100%, whole-application statement coverage 98.8707% and branch coverage 96.9101%. Historical snapshots are labeled; stale routing/milestone prose is corrected. See [increment 30](increment-30.md) and [ADR-0030](../adr/0030-recomputed-benchmark-report-validation.md). A04 and production/model activation gates remain explicit.
+
+## Increment 31 — A04 defensive coverage closed
+
+A04 now covers the previously unexecuted 40 statements and 33 branch exits through 21 negative/integration/fault-injection methods. Full application coverage is 3542/3542 statements and 1068/1068 branch exits, 100%, with no exclusions; CI enforces the full gate. 611 distinct tests pass locally. Product source and archived artifacts are unchanged. See [increment 31](increment-31.md). Next: authenticated curation identity and protected storage; model/production activation remains separately gated.
