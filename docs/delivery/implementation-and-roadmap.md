@@ -110,7 +110,7 @@ May run alongside B; required before live activation.
 - **A01:** Freeze PRD/SRS, MVP boundaries, user stories and measurable acceptance criteria.
 - **A02:** Define latency/capacity/availability/recovery targets and retention budgets from pilot needs.
 - **A03:** Review threat model, trust boundaries, data classification and tenant model.
-- **A04:** Cover remaining retained-evidence/CLI defensive branches with targeted corruption and failure tests.
+- **A04:** Delivered in increment 31: retained-evidence/CLI defensive rejection and rollback tests close the recorded coverage gap; whole-application statement/branch CI gate is 100%.
 - **A05:** Lock transitive/build dependencies; pin scanner/container digests; produce SBOM and license checks.
 - **A06:** Define versioning, schema compatibility/deprecation and release evidence conventions.
 
@@ -351,3 +351,7 @@ Local schema substitution and metadata resource bounds were reproduced/reviewed 
 ## Increment 30 — system QA and report consistency
 
 Full regression/installation review reproduced a report-reader consistency defect and fixed it by recomputing metrics and the regression gate against the frozen suite. Six new methods plus installed negative verification cover forged and stale report values. 590 distinct tests pass locally; critical coverage is 100%, whole-application statement coverage 98.8707% and branch coverage 96.9101%. Historical snapshots are labeled; stale routing/milestone prose is corrected. See [increment 30](increment-30.md) and [ADR-0030](../adr/0030-recomputed-benchmark-report-validation.md). A04 and production/model activation gates remain explicit.
+
+## Increment 31 — A04 defensive coverage closed
+
+A04 now covers the previously unexecuted 40 statements and 33 branch exits through 21 negative/integration/fault-injection methods. Full application coverage is 3542/3542 statements and 1068/1068 branch exits, 100%, with no exclusions; CI enforces the full gate. 611 distinct tests pass locally. Product source and archived artifacts are unchanged. See [increment 31](increment-31.md). Next: authenticated curation identity and protected storage; model/production activation remains separately gated.
