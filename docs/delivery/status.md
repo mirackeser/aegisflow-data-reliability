@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 37, verified mTLS identity and exact key-version binding with persistent binding-scoped disable and explicit renewal. Local validation: 674 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Global managed-key/issuer operations, lifecycle audit, restore safety and process isolation remain open. Historical records below describe their original revisions.
+Latest implementation: increment 38, shared key policy, hash-linked lifecycle and old-backup rejection under an external current checkpoint. Local validation: 688 application + 13 security/hygiene methods, full application coverage. PR/main checks record delivery. Trusted checkpoint publication/reconciliation, issuer/KMS operations, ingress audit and process isolation remain open. Historical entries below describe their original revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -163,3 +163,7 @@ Persistent evaluator grants, terminal revocation and transactionally committed a
 ## Increment 37 — verified identity and key versions
 
 Actual verified mTLS peers now map to durable principal/grant/key bindings. Persisted binding-scoped identity/key disable, exact material checks, certificate renewal and new-key/new-snapshot transitions are tested together. 687 distinct tests apply. See [increment 37](increment-37.md). Global key policy/lifecycle audit and restore safety remain next; issuer/KMS operations and process isolation are still open.
+
+## Increment 38 — shared key control and restore guard
+
+One terminal key disable now affects all bindings using the shared policy. Hash-linked lifecycle events and an externally retained current checkpoint reject old database restores before key resolution. 701 distinct tests apply. External checkpoint freshness/publication remains a host prerequisite; see [increment 38](increment-38.md).
