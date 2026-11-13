@@ -157,3 +157,15 @@ with tempfile.TemporaryDirectory() as directory:
     else:
         raise RuntimeError('Installed old key-policy backup accepted')
 print('Installed shared key lifecycle and external checkpoint rollback guard passed.')
+
+from aegisflow_dr.benchmark.checkpoint_control import initialize_checkpoint, managed_disable, recover_checkpoint, checkpoint_status
+with tempfile.TemporaryDirectory() as directory:
+    policy_path=Path(directory)/'policy.db';control_path=Path(directory)/'control.db'
+    checkpoint=initialize_key_policy(policy_path,{'installed-key':sha256(key).hexdigest()})
+    catalog=initialize_checkpoint(control_path,policy_path,checkpoint=checkpoint)
+    published=managed_disable(control_path,policy_path,catalog_sha256=catalog,key_id='installed-key',now_ms=4000)
+    if checkpoint_status(control_path,catalog_sha256=catalog)['pending'] is not None:
+        raise RuntimeError('Installed publication left pending work')
+    if recover_checkpoint(control_path,policy_path,catalog_sha256=catalog) != published:
+        raise RuntimeError('Installed recovery changed checkpoint')
+print('Installed checkpoint publication and idempotent recovery passed.')

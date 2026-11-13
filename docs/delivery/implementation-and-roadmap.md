@@ -383,3 +383,7 @@ Actual verified mTLS peers now map to durable principal/grant/key bindings. Pers
 ## Increment 38 — shared key control and restore guard
 
 One terminal key disable now affects all bindings using the shared policy. Hash-linked lifecycle events and an externally retained current checkpoint reject old database restores before key resolution. 701 distinct tests apply. External checkpoint freshness/publication remains a host prerequisite; see [increment 38](increment-38.md).
+
+## Increment 39 — checkpoint publication and recovery
+
+Managed disable now commits an exact intent before policy mutation, blocks reads while pending, and publishes only the verified successor. Recovery handles a tested process exit after policy commit without duplicate events. 716 distinct tests apply. See [increment 39](increment-39.md); control-state custody remains a deployment prerequisite.

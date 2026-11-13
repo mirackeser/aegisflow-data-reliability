@@ -75,8 +75,7 @@ def disable_key(path, *, checkpoint, key_id, now_ms):
             raise BenchmarkError('Unknown policy key')
         if key_id in disabled:
             return dict(checkpoint)
-        event={'catalog_sha256':checkpoint['catalog_sha256'],'sequence':len(history)+1,
-               'previous_sha256':checkpoint['event_sha256'],'key_id':key_id,'action':'DISABLED','time_ms':now_ms}
+        event=_disable_event(checkpoint,key_id,now_ms)
         raw=canonical(event)
         db.execute('INSERT INTO events VALUES (?,?)',(event['sequence'],raw))
     return {'catalog_sha256':checkpoint['catalog_sha256'],'sequence':event['sequence'],'event_sha256':sha256(raw).hexdigest()}
@@ -102,3 +101,8 @@ def evaluate_with_key_policy(policy_path, binding_path, registry_path, snapshot_
                 raise BenchmarkError('Policy key material rejected')
             return key
         return evaluate_peer(binding_path,registry_path,snapshot_path,resolve_key=approved_key,**request)
+
+
+def _disable_event(checkpoint, key_id, now_ms):
+    return {'catalog_sha256':checkpoint['catalog_sha256'],'sequence':checkpoint['sequence']+1,
+            'previous_sha256':checkpoint['event_sha256'],'key_id':key_id,'action':'DISABLED','time_ms':now_ms}
