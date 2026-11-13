@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 34, encrypted signed curation at rest under host-supplied keys. Local validation: 640 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Managed key authorization, organizational identity and curator/evaluator access separation remain open. Historical records below describe their original revisions.
+Latest implementation: increment 37, verified mTLS identity and exact key-version binding with persistent binding-scoped disable and explicit renewal. Local validation: 674 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Global managed-key/issuer operations, lifecycle audit, restore safety and process isolation remain open. Historical records below describe their original revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
