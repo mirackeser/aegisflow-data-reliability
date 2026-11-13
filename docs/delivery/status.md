@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 40, persisted accounting integrity and consolidated offline operational qualification. Local validation: 719 application + 13 security/hygiene methods; 4,201 statements / 1,246 branch exits, 100% coverage. Eleven installed checks include eight integrated qualification scenarios. PR/main checks record delivery. Authenticated usage attestation and durable operator decisions are next; live quality, provider activation and deployment custody remain open. Historical entries below describe their original revisions.
+Latest implementation: increment 41, cross-system regression and route-result integrity. Shared validation rejects contradictory outcomes before historical replay or recovery reporting. Local validation: 731 application + 13 security/hygiene methods, 100% statement/branch coverage on Python 3.12/3.14. Eleven installed checks and PR/main CI record delivery. Authenticated usage attestation, durable operator decisions and independent live model quality remain next gates.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 

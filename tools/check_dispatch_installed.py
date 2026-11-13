@@ -144,6 +144,21 @@ with TemporaryDirectory() as temporary:
         raise RuntimeError('Installed review packet released an unknown hold')
     if evidence.read_bytes() != before:
         raise RuntimeError('Installed usage check changed evidence')
+    import sqlite3
+    from contextlib import closing
+    from aegisflow_dr.advisory.route_store import RouteJournal
+    with closing(sqlite3.connect(recovery_path)) as connection, connection:
+        connection.execute("UPDATE route SET final_status='ABSTAIN'")
+    unchanged = recovery_path.read_bytes()
+    for check in (lambda: assess_recovery(recovery_ledger), lambda: RouteJournal(recovery_ledger).snapshot()):
+        try:
+            check()
+        except AdvisoryError:
+            pass
+        else:
+            raise RuntimeError('Installed replay accepted contradictory final outcome')
+    if recovery_path.read_bytes() != unchanged:
+        raise RuntimeError('Installed rejected history was mutated')
 print('Installed one-shot dispatch, review, exact accounting and duplicate denial passed.')
 
 shared = run_demo()
