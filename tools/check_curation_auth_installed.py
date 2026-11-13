@@ -96,3 +96,28 @@ except BenchmarkError as error:
 else:
     raise RuntimeError('Installed curator role was accepted')
 print('Installed evaluator authorization boundary passed.')
+
+from aegisflow_dr.benchmark.access_registry import initialize_access, evaluate_registered, revoke_access, access_history
+with tempfile.TemporaryDirectory() as directory:
+    path = Path(directory)/'encrypted.db'
+    snapshot = retain_encrypted_curation(path, development, candidate, tuple(annotations), tuple(envelopes),
+                                         grants=tuple(grants), policy_revision='policy-1', now_ms=3000,
+                                         key=key, key_id='installed-key')
+    registry = Path(directory)/'authority.db'
+    access = EvaluationAccess('installed-evaluator', snapshot, 'installed-key', 'policy-1', 1000, 9000)
+    binding = initialize_access(registry, access)
+    options = dict(expected_grant_sha256=binding, principal_id='installed-evaluator', role='evaluator',
+                   expected_sha256=snapshot, key_id='installed-key', policy_revision='policy-1', now_ms=4000,
+                   grants=tuple(grants), resolve_key=lambda access: key)
+    if evaluate_registered(registry,path,**options)['status'] != 'AGREED':
+        raise RuntimeError('Installed durable access failed')
+    revoke_access(registry,expected_sha256=binding,now_ms=4001)
+    try:
+        evaluate_registered(registry,path,**options)
+    except BenchmarkError:
+        pass
+    else:
+        raise RuntimeError('Installed revoked access accepted')
+    if [row['outcome'] for row in access_history(registry,expected_sha256=binding)] != ['STARTED','VERIFIED','REVOKED','STARTED','REJECTED']:
+        raise RuntimeError('Installed audit mismatch')
+print('Installed durable access, revocation and audit passed.')

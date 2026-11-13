@@ -371,3 +371,7 @@ All signed source/annotation/envelope/policy artifacts are encrypted before pers
 ## Increment 35 — scoped evaluator authorization
 
 Trusted-host grants now bind evaluator identity, encrypted snapshot, key, policy and time before key resolution. Six new methods verify denial and encrypted read behavior. See [increment 35](increment-35.md). Managed identity, current durable key policy and process separation remain next.
+
+## Increment 36 — durable authority and audit
+
+Persistent evaluator grants, terminal revocation and transactionally committed access outcomes are delivered together. Twelve new tests cover denial, reopen, audit failure and concurrent revocation. See [increment 36](increment-36.md). Identity enrollment, managed key lifecycle and process isolation remain next.

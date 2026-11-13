@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 36 adds [durable evaluator authority and access audit](docs/contracts/access-registry-v1.md), including terminal revocation and commit-before-result semantics. This trusted-host boundary is covered by 671 application/security test methods. Managed identity, key lifecycle and process isolation remain pending.
+
 Increment 34 adds [encrypted signed curation evidence](docs/contracts/encrypted-curation-v1.md): sources, annotations and signing provenance are encrypted before persistence, with current host authority checked before label export. Local regression covers 653 distinct application/security tests and 100% application statement/branch execution. See [current status](docs/delivery/status.md) and [conditional live-output milestones](docs/delivery/live-output-milestones.md). Managed key authorization, enterprise identity, access separation and measured live-model acceptance remain pending.
 
 The batch demo now executes source validation → normalized staging → SQL customer-sales aggregation in an in-memory SQLite database. It checks count/amount conservation and traverses a fixed declared lineage graph for potential downstream impact. Packaged SQL and canonical stage/mart datasets have linked content hashes. Versioned investigation runs now retain exact executed stage/mart CSV, SQL and staging-contract snapshots in the explicit local store. Dashboard execution and inferred root cause remain planned. Source CSV diagnosis now supports the persistent local store described below.
