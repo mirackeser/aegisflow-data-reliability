@@ -81,3 +81,18 @@ with tempfile.TemporaryDirectory() as directory:
     else:
         raise RuntimeError('Installed wrong encryption key accepted')
 print('Installed encrypted retention and wrong-key rejection passed.')
+
+from aegisflow_dr.benchmark.curation_access import EvaluationAccess, read_for_evaluation
+access = EvaluationAccess('installed-evaluator', 'a'*64, 'installed-key', 'policy-1', 1000, 9000)
+def forbidden_resolver(grant):
+    raise AssertionError('Denied caller reached key resolver')
+try:
+    read_for_evaluation('/nonexistent', access=access, principal_id='installed-evaluator', role='curator',
+                        expected_sha256='a'*64, key_id='installed-key', policy_revision='policy-1',
+                        now_ms=4000, grants=(), resolve_key=forbidden_resolver)
+except BenchmarkError as error:
+    if str(error) != 'Evaluation access denied':
+        raise
+else:
+    raise RuntimeError('Installed curator role was accepted')
+print('Installed evaluator authorization boundary passed.')
