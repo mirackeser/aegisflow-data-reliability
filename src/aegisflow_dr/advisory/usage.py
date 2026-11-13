@@ -10,6 +10,7 @@ import time
 from uuid import uuid4
 
 from ..storage.store import canonical, sha
+from .accounting import MAX_RECORDS, audit_rows
 from .context import PreparedAdvisory
 from .contracts import AdvisoryError, decode
 from .operation import OperationBinding
@@ -145,6 +146,7 @@ class UsageLedger:
                 self.policy = UsagePolicy(**json.loads(rows[0]['policy']))
             except (TypeError, ValueError):
                 raise AdvisoryError('Invalid stored usage policy') from None
+            self._policy_payload = rows[0]['policy']
             self.version = rows[0]['version']
             self.operation = None
             if self.version >= 2:
@@ -158,6 +160,7 @@ class UsageLedger:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('route', 'route_events')")}
             if tables != ({'route', 'route_events'} if self.version == 3 else set()):
                 raise AdvisoryError('Unsupported routing ledger schema')
+            self._validate(connection)
 
     def _now(self, connection):
         now = self.clock_ms()
@@ -168,20 +171,25 @@ class UsageLedger:
         connection.execute('UPDATE metadata SET observed_ms = ?', (now,))
         return now
 
-    @staticmethod
-    def _totals(connection):
-        rows = connection.execute('SELECT * FROM attempts').fetchall()
-        held = [row for row in rows if row['status'] in ('RESERVED', 'IN_FLIGHT', 'UNKNOWN')]
-        return {'held_tokens': sum(row['reserved_tokens'] for row in held),
-                'held_cost_nusd': sum(row['reserved_cost_nusd'] for row in held),
-                'charged_tokens': sum(row['charged_tokens'] for row in rows),
-                'charged_cost_nusd': sum(row['charged_cost_nusd'] for row in rows),
-                'attempts': len(rows)}
+    def _validate(self, connection):
+        rows = connection.execute('SELECT * FROM metadata LIMIT 2').fetchall()
+        if (len(rows) != 1 or rows[0]['version'] != self.version or
+                rows[0]['policy'] != self._policy_payload or
+                (rows[0]['operation'] if self.version >= 2 else None) !=
+                (self.operation.payload if self.operation is not None else None)):
+            raise AdvisoryError('Usage authority changed')
+        integer(rows[0]['observed_ms'], 0, LIMIT - 600_000)
+        return self._totals(connection)
+
+    def _totals(self, connection):
+        rows = connection.execute('SELECT * FROM attempts LIMIT ?', (MAX_RECORDS + 1,)).fetchall()
+        operation = None if self.operation is None else decode('operation', self.operation.payload)
+        return audit_rows(rows, self.policy, operation)
 
     def snapshot(self):
         with database(self.path) as connection:
             return {'version': str(self.version),
-                    'policy': asdict(self.policy), **self._totals(connection)}
+                    'policy': asdict(self.policy), **self._validate(connection)}
 
     def reserve(self, prepared, quote, *, attempt_key, deadline_ms, route_token=None):
         if type(prepared) is not PreparedAdvisory or type(quote) is not UsageQuote:
@@ -197,6 +205,7 @@ class UsageLedger:
         key = sha(attempt_key.encode())
         digest = sha(canonical(asdict(quote)))
         with database(self.path) as connection:
+            self._validate(connection)
             if self.operation is not None:
                 self.operation.admit(prepared, deadline_ms)
             if self.version == 3:
@@ -218,6 +227,8 @@ class UsageLedger:
                     or any(row['deadline_ms'] != deadline_ms for row in prior)):
                 raise AdvisoryError('Request deadline rejected')
             totals = self._totals(connection)
+            if totals['attempts'] >= MAX_RECORDS:
+                raise AdvisoryError('Usage record capacity reached')
             if self.policy.max_total_attempts is not None:
                 scope = connection.execute('SELECT deadline_ms,status FROM attempts').fetchall()
                 if (totals['attempts'] >= self.policy.max_total_attempts
@@ -249,6 +260,7 @@ class UsageLedger:
         elif input_tokens is not None or output_tokens is not None:
             raise AdvisoryError('Unexpected usage fields')
         with database(self.path) as connection:
+            self._validate(connection)
             now = self._now(connection)
             row = connection.execute('SELECT * FROM attempts WHERE attempt_id = ?', (attempt_id,)).fetchone()
             if row is None:

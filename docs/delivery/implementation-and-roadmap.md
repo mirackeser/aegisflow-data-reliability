@@ -387,3 +387,8 @@ One terminal key disable now affects all bindings using the shared policy. Hash-
 ## Increment 39 — checkpoint publication and recovery
 
 Managed disable now commits an exact intent before policy mutation, blocks reads while pending, and publishes only the verified successor. Recovery handles a tested process exit after policy commit without duplicate events. 716 distinct tests apply. See [increment 39](increment-39.md); control-state custody remains a deployment prerequisite.
+
+
+## Increment 40 — accounting integrity and operational qualification
+
+Persisted accounting is now revalidated before spending, historical replay and recovery. A reproduced negative-charge admission defect is fixed; legacy policy records retain their original bytes. Eight integrated offline scenarios and a new installed CI gate qualify bounded fallback, rejection, ambiguity, deadlines, cost limits and interrupted workers. 730 distinct methods and full application coverage apply. See [increment 40](increment-40.md). Next B08 scope: authenticated usage-attestation contracts and durable operator review decisions; reconciliation writes and live model activation remain gated.

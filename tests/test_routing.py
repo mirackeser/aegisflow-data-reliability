@@ -241,11 +241,11 @@ class RoutingTests(unittest.TestCase):
     def test_claim_requires_pristine_ledger_and_valid_plan(self):
         with self.assertRaises(AdvisoryError):self.journal.claim(b'{}')
         # Simulate a preexisting attempt to verify admission fails even if no route was claimed.
-        original=self.route.version
-        self.route.version=2
+        token=self.journal.claim(plan_route(self.route,self.candidates))
         first=self.candidates[0]
-        self.route.reserve(first.prepared,first.quote,attempt_key='existing',deadline_ms=2000)
-        self.route.version=original
+        self.route.reserve(first.prepared,first.quote,attempt_key='existing',deadline_ms=2000,route_token=token)
+        with database(self.route_path) as connection:
+            connection.execute('DELETE FROM route')
         with self.assertRaises(AdvisoryError):self.journal.claim(plan_route(self.route,self.candidates))
 
     def test_bad_event_order_identity_or_unsettled_retry_is_rejected(self):
@@ -258,7 +258,7 @@ class RoutingTests(unittest.TestCase):
             connection.execute("UPDATE attempts SET request_sha256=?",('0'*64,))
         with self.assertRaises(AdvisoryError):self.journal.record(token,event)
         with closing(sqlite3.connect(self.route_path)) as connection,connection:
-            connection.execute("UPDATE attempts SET request_sha256=?,status='UNKNOWN'",(event['request_sha256'],))
+            connection.execute("UPDATE attempts SET request_sha256=?,status='UNKNOWN',actual_input=NULL,actual_output=NULL,charged_tokens=0,charged_cost_nusd=0",(event['request_sha256'],))
         with self.assertRaises(AdvisoryError):self.journal.record(token,event)
         with self.assertRaises(AdvisoryError):self.journal.stop(token,'invented')
         with self.assertRaises(AdvisoryError):self.journal.stop('wrong','ADMISSION_DENIED')
