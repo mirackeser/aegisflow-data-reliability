@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 40 adds [accounting integrity and offline operational qualification](docs/contracts/operational-qualification-v1.md): persisted arithmetic is validated before admission/replay/recovery, and eight integrated scenarios verify exact costs, conservative holds and restart behavior. Validation covers 732 application/security methods and eleven installed checks. Live model quality and provider activation remain separately gated.
+
 Increment 39 adds [durable checkpoint publication and recovery](docs/contracts/checkpoint-control-v1.md). Pending intents block reads; recovery finishes only the exact recorded transition. Local verification covers 716 application/security methods, including actual process termination and restart. Independent custody of the control store remains required.
 
 Increment 38 adds [shared key policy and lifecycle/restore checks](docs/contracts/shared-key-policy-v1.md). One disable affects participating bindings; restored old files reject against the current external checkpoint. Local verification covers 701 application/security methods. Trusted checkpoint publication and operational recovery remain pending.

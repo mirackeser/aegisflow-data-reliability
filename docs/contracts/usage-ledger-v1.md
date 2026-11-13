@@ -62,3 +62,10 @@ New operation-bound scopes use metadata version 2 and an immutable [operation bi
 ## Optional exclusive routing profile
 
 `initialize_usage(..., operation=binding, routing=True)` creates a version 3 ledger with route and event tables. Direct reservations require the owner token and exact next candidate from the durable plan. Version/table mismatch fails closed. No migration of version 1/2 ledgers occurs. See the [routing contract](model-routing-v1.md).
+
+
+## Persisted accounting checks (increment 40)
+
+Every handle open, snapshot, reservation, transition, route journal operation and recovery assessment validates the stored accounting before using it. Exact integer reservation/settlement arithmetic, state/actual-use consistency, digest/model fields, per-request/shared limits, allowed model/original deadline and aggregate budgets are checked. An open handle rejects changed policy/version/operation metadata. Legacy policy bytes remain unchanged. An internally inconsistent database is rejected, never automatically repaired or refunded.
+
+All profiles now cap retained attempts at 100,000; cancelled attempts count. Reads and arithmetic validation are bounded and linear in scope size. Rotate scopes only through an explicit host budget policy; the library never resets budgets or deletes history automatically. These consistency checks do not authenticate a hostile host, prove provider billing or detect a coordinated consistent rollback. See [ADR-0040](../adr/0040-operational-qualification-and-accounting-integrity.md) and the [operational qualification suite](operational-qualification-v1.md).

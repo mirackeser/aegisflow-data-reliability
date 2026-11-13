@@ -72,6 +72,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_dispatch_installed.py"
 
+      - name: Qualify installed offline operations and recovery
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_operational_installed.py"
+
   repository-hygiene:
     runs-on: ubuntu-latest
     steps:

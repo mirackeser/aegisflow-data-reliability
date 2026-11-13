@@ -47,6 +47,7 @@ class RouteJournal:
 
     def snapshot(self):
         with database(self.ledger.path) as connection:
+            self.ledger._validate(connection)
             row, _, events = state(connection)
             return {'version': '1', 'status': 'UNCLAIMED' if row is None else
                     (row['final_status'] or 'RUNNING'), 'events': events}
@@ -56,6 +57,7 @@ class RouteJournal:
         if plan['operation_sha256'] != sha(self.ledger.operation.payload):
             raise AdvisoryError('Route operation mismatch')
         with database(self.ledger.path) as connection:
+            self.ledger._validate(connection)
             row, _, _ = state(connection)
             if row is not None:
                 if row['plan'] != payload or row['final_status'] is None:
@@ -71,12 +73,14 @@ class RouteJournal:
         if status not in ('DEADLINE_EXCEEDED', 'ADMISSION_DENIED'):
             raise AdvisoryError('Invalid route stop')
         with database(self.ledger.path) as connection:
+            self.ledger._validate(connection)
             owned(connection, token)
             connection.execute('UPDATE route SET final_status=? WHERE id=1', (status,))
 
     def record(self, token, event, *, expired=False):
         payload = encode('route-event', event)
         with database(self.ledger.path) as connection:
+            self.ledger._validate(connection)
             _, plan, events = owned(connection, token)
             position = len(events)
             if position >= len(plan['steps']) or event['index'] != position:

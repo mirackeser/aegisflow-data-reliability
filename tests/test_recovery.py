@@ -141,12 +141,13 @@ class RecoveryTests(unittest.TestCase):
 
     def test_settled_result_cannot_refer_to_unknown_usage(self):
         execute_route(self.route,self.candidates)
-        self.sql("UPDATE attempts SET status='UNKNOWN'")
+        self.sql("UPDATE attempts SET status='UNKNOWN',actual_input=NULL,actual_output=NULL,"
+                 "charged_tokens=0,charged_cost_nusd=0 WHERE attempt_id=(SELECT attempt_id FROM attempts LIMIT 1)")
         with self.assertRaises(AdvisoryError):self.assessment()
 
     def test_unknown_result_cannot_claim_settled_usage(self):
         execute_route(self.route,(self.candidate('offline/test','unknown'),))
-        self.sql("UPDATE attempts SET status='SETTLED'")
+        self.sql("UPDATE attempts SET status='SETTLED',actual_input=0,actual_output=0")
         with self.assertRaises(AdvisoryError):self.assessment()
 
     def test_terminal_event_cannot_precede_another_model(self):

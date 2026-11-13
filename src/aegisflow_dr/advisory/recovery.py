@@ -44,10 +44,8 @@ def assess_recovery(ledger):
         with closing(sqlite3.connect(ledger.path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute('BEGIN')
+            usage = ledger._validate(connection)
             metadata = connection.execute('SELECT * FROM metadata').fetchall()
-            if (len(metadata) != 1 or metadata[0]['version'] != 3
-                    or metadata[0]['operation'] != ledger.operation.payload):
-                raise AdvisoryError('Recovery scope changed')
             row, plan, events = state(connection)
             attempts = [dict(item) for item in connection.execute('SELECT * FROM attempts ORDER BY attempt_id')]
             if (any(item['status'] not in STATUSES for item in attempts)
@@ -75,13 +73,13 @@ def assess_recovery(ledger):
                         'plan': plan, 'status': route_status, 'events': events, 'attempts': attempts}
             assessment = {'version': '1', 'operation_sha256': sha(ledger.operation.payload),
                 'snapshot_sha256': sha(canonical(snapshot)), 'route_status': route_status,
-                'attempt_counts': counts, 'unrecorded_settlements': unrecorded, 'usage': ledger._totals(connection),
+                'attempt_counts': counts, 'unrecorded_settlements': unrecorded, 'usage': usage,
                 'decision': 'REVIEW_BEFORE_RECOVERY' if reasons else 'NO_RECOVERY_INDICATED',
                 'reasons': reasons, 'automatic_resend_allowed': False, 'automatic_refund_allowed': False}
             return {'assessment': assessment, 'assessment_sha256': sha(canonical(assessment))}
     except AdvisoryError:
         raise
-    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError, IndexError):
         raise AdvisoryError('Recovery assessment unavailable') from None
 
 
