@@ -4,6 +4,8 @@ from hashlib import sha256
 from importlib.metadata import distribution
 from pathlib import Path
 import tempfile
+import os
+from aegisflow_dr.benchmark.encrypted_curation_store import retain_encrypted_curation, read_encrypted_curation
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import aegisflow_dr
@@ -60,3 +62,22 @@ with tempfile.TemporaryDirectory() as directory:
         else:
             raise RuntimeError('Installed retained evidence authority was not enforced')
 print('Installed signature binding, retention, current policy and expiry passed.')
+
+with tempfile.TemporaryDirectory() as directory:
+    key = os.urandom(32)
+    path = Path(directory)/'encrypted.db'
+    snapshot = retain_encrypted_curation(path, development, candidate, tuple(annotations), tuple(envelopes),
+                                         grants=tuple(grants), policy_revision='policy-1', now_ms=3000,
+                                         key=key, key_id='installed-key')
+    result = read_encrypted_curation(path, expected_sha256=snapshot, grants=tuple(grants),
+                                     policy_revision='policy-1', now_ms=4000, key=key, key_id='installed-key')
+    if result['status'] != 'AGREED' or candidate in path.read_bytes():
+        raise RuntimeError('Installed encryption boundary failed')
+    try:
+        read_encrypted_curation(path, expected_sha256=snapshot, grants=tuple(grants),
+                                policy_revision='policy-1', now_ms=4000, key=os.urandom(32), key_id='installed-key')
+    except BenchmarkError:
+        pass
+    else:
+        raise RuntimeError('Installed wrong encryption key accepted')
+print('Installed encrypted retention and wrong-key rejection passed.')

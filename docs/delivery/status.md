@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 33, durable signed curation evidence with current external policy enforcement. Local validation: 628 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR and post-merge checks record final delivery. A04 is closed; managed identity, encrypted/access-separated storage and live-model acceptance remain open. Historical counts and pending notes below describe their original review revisions.
+Latest implementation: increment 34, encrypted signed curation at rest under host-supplied keys. Local validation: 640 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Managed key authorization, organizational identity and curator/evaluator access separation remain open. Historical records below describe their original revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -147,3 +147,7 @@ Detached Ed25519 envelopes now bind exact annotation/manifest/reviewer/key/time 
 ## Increment 33 — durable signed curation evidence
 
 A separate local format retains exact signatures, annotations, sources and the public grant policy under an external digest. Reopening reconstructs original integrity and requires current host grants, revision and signature validity. No stored key becomes authority; expired/revoked/changed policy blocks label export. Legacy unsigned records remain unchanged. 641 distinct tests and full application coverage apply. See [increment 33](increment-33.md). Next: confidentiality, curator/evaluator access separation and managed identity/key policy. Model activation and UI gates remain open; the [milestones](live-output-milestones.md) record conditional effort estimates.
+
+## Increment 34 — encrypted signed evidence
+
+All signed source/annotation/envelope/policy artifacts are encrypted before persistence with a host-supplied key. Current signing authority remains mandatory after decryption. 653 distinct tests and full application coverage apply. See [increment 34](increment-34.md) and [encryption contract](../contracts/encrypted-curation-v1.md). Managed key authorization and curator/evaluator access separation are next. The [milestones](live-output-milestones.md) now include a conditional November 11-intensity estimate.

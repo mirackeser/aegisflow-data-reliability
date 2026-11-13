@@ -77,7 +77,7 @@ def read_curation(path, *, expected_sha256, reviewer_ids):
     return result
 
 
-def _read_snapshot(path, expected_sha256, expected_names):
+def _read_snapshot(path, expected_sha256, expected_names, *, maximum_blob_bytes=1_000_000):
     """Bounded physical-table reader; caller supplies the exact artifact names."""
     with _database(path, readonly=True) as connection:
         schema = connection.execute("SELECT sql FROM sqlite_schema WHERE type='table' AND name='artifacts' LIMIT 2").fetchall()
@@ -86,7 +86,7 @@ def _read_snapshot(path, expected_sha256, expected_names):
         sizes = connection.execute('SELECT name, typeof(value), length(value) FROM artifacts LIMIT ?',
                                    (len(expected_names)+1,)).fetchall()
         if (len(sizes) != len(expected_names) or {row[0] for row in sizes} != expected_names
-                or any(row[1] != 'blob' or not 0 < row[2] <= 1_000_000 for row in sizes)):
+                or any(row[1] != 'blob' or not 0 < row[2] <= maximum_blob_bytes for row in sizes)):
             raise BenchmarkError('Curation snapshot structure rejected')
         artifacts = dict(connection.execute('SELECT name,value FROM artifacts').fetchall())
         if sha256(artifacts['header']).hexdigest() != expected_sha256:
