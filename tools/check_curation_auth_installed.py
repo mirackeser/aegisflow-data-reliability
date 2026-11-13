@@ -121,3 +121,20 @@ with tempfile.TemporaryDirectory() as directory:
     if [row['outcome'] for row in access_history(registry,expected_sha256=binding)] != ['STARTED','VERIFIED','REVOKED','STARTED','REJECTED']:
         raise RuntimeError('Installed audit mismatch')
 print('Installed durable access, revocation and audit passed.')
+
+from aegisflow_dr.benchmark.identity_keys import IdentityKeyBinding, initialize_binding, disable_binding, evaluate_peer
+with tempfile.TemporaryDirectory() as directory:
+    binding_path=Path(directory)/'binding.db'
+    identity_binding=IdentityKeyBinding('a'*64,'installed-evaluator','b'*64,'installed-key',sha256(key).hexdigest(),1000,9000)
+    binding_digest=initialize_binding(binding_path,identity_binding)
+    disable_binding(binding_path,expected_sha256=binding_digest,component='key')
+    disable_binding(binding_path,expected_sha256=binding_digest,component='key')
+    try:
+        evaluate_peer(binding_path,Path(directory)/'access.db',Path(directory)/'snapshot.db',
+                      expected_binding_sha256=binding_digest,peer={'peer_sha256':'a'*64},expected_sha256='c'*64,
+                      policy_revision='policy-1',now_ms=4000,grants=(),resolve_key=forbidden_resolver)
+    except BenchmarkError as error:
+        if str(error) != 'Authenticated evaluator channel required': raise
+    else:
+        raise RuntimeError('Installed unverified identity accepted')
+print('Installed identity/key lifecycle and authenticated-channel requirement passed.')
