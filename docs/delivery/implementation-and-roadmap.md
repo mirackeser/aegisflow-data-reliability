@@ -397,3 +397,8 @@ Persisted accounting is now revalidated before spending, historical replay and r
 ## Increment 41 — route-result integrity
 
 Cross-system regression passed before fault injection reproduced unsupported historical success. Shared route history and event-write validation now reject contradictory outcomes and usage states. 744 distinct tests and full coverage apply; see [increment 41](increment-41.md). Next: authenticated usage attestations and durable review decisions before reconciliation authority.
+
+
+## Increment 42 — signed recovery evidence and durable decisions
+
+B08 now has operation-scoped usage assertion verification and signed durable operator reviews, with exact attachment binding, snapshot freshness and idempotent append-only local records. 758 distinct tests and full coverage apply; see [increment 42](increment-42.md). Reconciliation writes, managed issuer deployment and live model activation remain gated. Next: explicit authorized reconciliation state transitions and crash/failure atomicity.

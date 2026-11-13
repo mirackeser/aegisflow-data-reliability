@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 41, cross-system regression and route-result integrity. Shared validation rejects contradictory outcomes before historical replay or recovery reporting. Local validation: 731 application + 13 security/hygiene methods, 100% statement/branch coverage on Python 3.12/3.14. Eleven installed checks and PR/main CI record delivery. Authenticated usage attestation, durable operator decisions and independent live model quality remain next gates.
+Latest implementation: increment 42, signed usage evidence and durable recovery decisions. Current operation/purpose-scoped grants, snapshot/attempt/quote bindings and independent issuer/operator keys protect signed records. Local validation: 745 application + 13 security/hygiene methods, full coverage on Python 3.12/3.14; twelve installed checks. PR/main CI records delivery. Explicit reconciliation transitions, managed issuer operations and independent live model quality remain open.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 

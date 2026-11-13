@@ -51,7 +51,24 @@ ROUTE_EVENT.update({'if': {'properties': {'status': {'const': 'REVIEWED'}}},
 RECOVERY_REVIEW = closed({'version': {'const': '1'}, 'review_id': UUID, 'operator_id': UUID,
     'operation_sha256': HASH, 'snapshot_sha256': HASH, 'assessment_sha256': HASH,
     'action': {'enum': ['KEEP_BLOCKED', 'REQUEST_USAGE_ATTESTATION']}})
-SCHEMAS = {'recovery-review': RECOVERY_REVIEW, 'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
+TIME = {'type':'integer','minimum':0,'maximum':10**18}
+PURPOSES = ('usage-attestation', 'recovery-decision')
+SIGNED = closed({'version':{'const':'1'}, 'purpose':{'enum':list(PURPOSES)},
+    'principal_id':UUID, 'operation_sha256':HASH, 'key_sha256':HASH, 'payload_sha256':HASH,
+    'issued_at_ms':TIME, 'expires_at_ms':TIME})
+ENVELOPE = closed({**SIGNED['properties'], 'signature':{'type':'string','pattern':'^[0-9a-f]{128}$',
+                                                    'minLength':128,'maxLength':128}})
+ATTESTATION = closed({'version':{'const':'1'}, 'operation_sha256':HASH, 'snapshot_sha256':HASH,
+    'assessment_sha256':HASH, 'attempt_id':UUID, 'request_sha256':HASH,
+    'input_sha256':HASH, 'quote_sha256':HASH, 'receipt_sha256':HASH,
+    'input_tokens':{'type':'integer','minimum':0,'maximum':10**6},
+    'output_tokens':{'type':'integer','minimum':0,'maximum':10**6}})
+DECISION = closed({'version':{'const':'1'},'review_sha256':HASH,
+    'attestation_sha256':{'anyOf':[HASH,{'type':'null'}]},
+    'attestation_signature_sha256':{'anyOf':[HASH,{'type':'null'}]}})
+DECISION_SCOPE = closed({'operation_sha256':HASH})
+SCHEMAS = {'recovery-decision':DECISION,'recovery-signature-metadata':SIGNED,'recovery-signature':ENVELOPE,
+           'usage-attestation':ATTESTATION,'recovery-decision-scope':DECISION_SCOPE,'recovery-review': RECOVERY_REVIEW, 'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
            'route-plan': ROUTE_PLAN, 'route-event': ROUTE_EVENT}
 
 
