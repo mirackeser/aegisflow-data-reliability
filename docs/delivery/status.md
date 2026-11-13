@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 34, encrypted signed curation at rest under host-supplied keys. Local validation: 640 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Managed key authorization, organizational identity and curator/evaluator access separation remain open. Historical records below describe their original revisions.
+Latest implementation: increment 37, verified mTLS identity and exact key-version binding with persistent binding-scoped disable and explicit renewal. Local validation: 674 application + 13 security/hygiene methods, 100% application statement/branch coverage. PR/main checks record final delivery. Global managed-key/issuer operations, lifecycle audit, restore safety and process isolation remain open. Historical records below describe their original revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -159,3 +159,7 @@ Trusted-host grants now bind evaluator identity, encrypted snapshot, key, policy
 ## Increment 36 — durable authority and audit
 
 Persistent evaluator grants, terminal revocation and transactionally committed access outcomes are delivered together. Twelve new tests cover denial, reopen, audit failure and concurrent revocation. See [increment 36](increment-36.md). Identity enrollment, managed key lifecycle and process isolation remain next.
+
+## Increment 37 — verified identity and key versions
+
+Actual verified mTLS peers now map to durable principal/grant/key bindings. Persisted binding-scoped identity/key disable, exact material checks, certificate renewal and new-key/new-snapshot transitions are tested together. 687 distinct tests apply. See [increment 37](increment-37.md). Global key policy/lifecycle audit and restore safety remain next; issuer/KMS operations and process isolation are still open.
