@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 40, persisted accounting integrity and consolidated offline operational qualification. Local validation: 717 application + 13 security/hygiene methods; 4,200 statements / 1,246 branch exits, 100% coverage. Eleven installed checks include eight integrated qualification scenarios. PR/main checks record delivery. Authenticated usage attestation and durable operator decisions are next; live quality, provider activation and deployment custody remain open. Historical entries below describe their original revisions.
+Latest implementation: increment 40, persisted accounting integrity and consolidated offline operational qualification. Local validation: 719 application + 13 security/hygiene methods; 4,200 statements / 1,246 branch exits, 100% coverage. Eleven installed checks include eight integrated qualification scenarios. PR/main checks record delivery. Authenticated usage attestation and durable operator decisions are next; live quality, provider activation and deployment custody remain open. Historical entries below describe their original revisions.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 

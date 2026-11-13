@@ -98,7 +98,7 @@ def database(path, *, create=False):
                 yield connection
     except AdvisoryError:
         raise
-    except (sqlite3.Error, OSError, ValueError, TypeError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, IndexError):
         raise AdvisoryError('Usage ledger unavailable') from None
 
 

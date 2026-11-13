@@ -22,6 +22,6 @@ These checks cannot detect coordinated, internally consistent changes by a privi
 
 ## Evidence and next package
 
-717 application and 13 security/hygiene tests (730 distinct), including 14 new methods, cover malformed accounting, cached authority changes, request/shared caps, legacy compatibility, replay without new calls, conservative UNKNOWN/in-flight holds and qualification regression detection. Full coverage: 4,200 statements and 1,246 branch exits, 100%, no exclusions. Eleven installed checks, dependency/secret scans and PR/main CI are delivery gates; final run links are recorded in the PR.
+719 application and 13 security/hygiene tests (732 distinct), including 16 new methods, cover malformed accounting, cached authority changes, request/shared caps, legacy compatibility, replay without new calls, conservative UNKNOWN/in-flight holds and qualification regression detection. Full coverage: 4,200 statements and 1,246 branch exits, 100%, no exclusions. Eleven installed checks, dependency/secret scans and PR/main CI are delivery gates; final run links are recorded in the PR.
 
 Next: provider-neutral authenticated usage-attestation contracts and durable operator review decisions, bound to the operation, attempt, quote and exact recovery snapshot. Define replay/conflict/current-authority rules before permitting any reconciliation write. Provider selection, region, retention, credential delivery, spending approval and independent quality evidence remain activation prerequisites.

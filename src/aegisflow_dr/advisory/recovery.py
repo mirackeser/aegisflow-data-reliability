@@ -79,7 +79,7 @@ def assess_recovery(ledger):
             return {'assessment': assessment, 'assessment_sha256': sha(canonical(assessment))}
     except AdvisoryError:
         raise
-    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError, IndexError):
         raise AdvisoryError('Recovery assessment unavailable') from None
 
 

@@ -25,6 +25,15 @@ class AccountingTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute(statement, args)
 
+    def test_missing_accounting_column_is_sanitized_without_mutation(self):
+        row = self.reserve()
+        self.write('ALTER TABLE attempts DROP COLUMN charged_tokens')
+        before = self.path.read_bytes()
+        for action in (self.ledger.snapshot, lambda: UsageLedger(self.path),
+                       lambda: self.reserve('next'), lambda: self.ledger.transition(row['attempt_id'],'start')):
+            with self.assertRaisesRegex(AdvisoryError, '^Usage ledger unavailable$'): action()
+            self.assertEqual(before, self.path.read_bytes())
+
     def test_corrupt_negative_charge_cannot_increase_available_budget(self):
         attempt = self.start()
         self.ledger.transition(attempt, 'settle', input_tokens=8, output_tokens=2)
@@ -149,3 +158,11 @@ class RoutingAccountingTests(unittest.TestCase):
             self.write(f'UPDATE attempts SET {field}=?',(row[field],))
         self.write('UPDATE metadata SET operation=?',(b'{}',))
         with self.assertRaises(AdvisoryError): self.route.snapshot()
+
+    def test_missing_accounting_column_cannot_escape_recovery_error_boundary(self):
+        execute_route(self.route, self.candidates)
+        self.write('ALTER TABLE attempts DROP COLUMN charged_tokens')
+        before = self.route_path.read_bytes()
+        with self.assertRaisesRegex(AdvisoryError, '^Recovery assessment unavailable$'):
+            assess_recovery(self.route)
+        self.assertEqual(before, self.route_path.read_bytes())
