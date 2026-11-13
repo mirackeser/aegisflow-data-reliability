@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 42 adds [signed usage evidence and durable recovery decisions](docs/contracts/recovery-authority-v1.md). Operator signatures bind exact reviews and attached usage proofs; current operation-scoped grants, snapshot freshness and independent issuer keys are verified before durable recording. Validation covers 758 application/security methods and twelve installed checks. Install `.[recovery]` for these optional APIs.
+
 Increment 41 adds [route-result integrity](docs/adr/0041-route-outcome-integrity.md): replay and recovery validate final outcomes against event/plan/usage history. A reproduced unsupported-success defect is fixed. Validation includes 744 application/security methods and full statement/branch coverage.
 
 Increment 40 adds [accounting integrity and offline operational qualification](docs/contracts/operational-qualification-v1.md): persisted arithmetic is validated before admission/replay/recovery, and eight integrated scenarios verify exact costs, conservative holds and restart behavior. Validation covers 732 application/security methods and eleven installed checks. Live model quality and provider activation remain separately gated.
