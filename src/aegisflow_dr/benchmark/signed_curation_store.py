@@ -55,9 +55,16 @@ def read_signed_curation(path, *, expected_sha256, grants, policy_revision, now_
     No stored key or grant is promoted to trust. Expired/revoked/changed policy
     blocks label export, even when the original retention was valid.
     """
-    policy = _policy(grants, policy_revision)
+    _policy(grants, policy_revision)
     _time(now_ms)
     artifacts = _read_snapshot(path, expected_sha256, {*ARTIFACT_NAMES, 'header'})
+    return _verify_artifacts(artifacts, expected_sha256=expected_sha256, grants=grants,
+                             policy_revision=policy_revision, now_ms=now_ms)
+
+
+def _verify_artifacts(artifacts, *, expected_sha256, grants, policy_revision, now_ms):
+    policy = _policy(grants, policy_revision)
+    _time(now_ms)
     header = parse(artifacts['header'])
     validate(HEADER, header)
     _time(header['retained_at_ms'])
