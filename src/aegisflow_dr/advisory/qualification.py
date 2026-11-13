@@ -64,7 +64,8 @@ def qualify_operations():
                     'evidence_sha256':decode('request', prepared.request)['evidence_sha256']})
                 def send(request, index=index, payload=payload):
                     calls.append(index)
-                    if mode == 'unknown': raise TimeoutError('synthetic ambiguity')
+                    if mode == 'unknown':
+                        raise TimeoutError('synthetic ambiguity')
                     if index == 0 and mode in ('retry', 'budget', 'terminal'):
                         return AdapterFailure('TERMINAL' if mode == 'terminal' else 'RETRYABLE', 2, 0)
                     return AdapterResult(b'invalid' if mode == 'invalid' else payload, 8, 2)
