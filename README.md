@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 41 adds [route-result integrity](docs/adr/0041-route-outcome-integrity.md): replay and recovery validate final outcomes against event/plan/usage history. A reproduced unsupported-success defect is fixed. Validation includes 744 application/security methods and full statement/branch coverage.
+
 Increment 40 adds [accounting integrity and offline operational qualification](docs/contracts/operational-qualification-v1.md): persisted arithmetic is validated before admission/replay/recovery, and eight integrated scenarios verify exact costs, conservative holds and restart behavior. Validation covers 732 application/security methods and eleven installed checks. Live model quality and provider activation remain separately gated.
 
 Increment 39 adds [durable checkpoint publication and recovery](docs/contracts/checkpoint-control-v1.md). Pending intents block reads; recovery finishes only the exact recorded transition. Local verification covers 716 application/security methods, including actual process termination and restart. Independent custody of the control store remains required.

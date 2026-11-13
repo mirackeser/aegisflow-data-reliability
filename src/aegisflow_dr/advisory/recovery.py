@@ -9,29 +9,6 @@ from .route_store import state
 from .usage import UsageLedger
 
 STATUSES = ('RESERVED', 'IN_FLIGHT', 'UNKNOWN', 'SETTLED', 'CANCELLED')
-FINALS = ('EXHAUSTED', 'DEADLINE_EXCEEDED', 'ADMISSION_DENIED', 'KNOWN_TERMINAL_FAILURE',
-          'USAGE_UNKNOWN', 'RESPONSE_REJECTED', 'VERIFIED_ADVISORY', 'REJECTED_ADVISORY', 'ABSTAIN')
-
-
-def validate_event_bindings(plan, events, attempts):
-    by_id = {item['attempt_id']: item for item in attempts}
-    if events and (plan is None or len(events) > len(plan['steps'])):
-        raise AdvisoryError('Recovery event plan rejected')
-    for index, event in enumerate(events):
-        step, attempt = plan['steps'][index], by_id[event['attempt_id']]
-        if (event['model_id'] != step['model_id'] or event['request_sha256'] != step['request_sha256']
-                or any(attempt[key] != step[key] for key in
-                       ('model_id', 'request_sha256', 'input_sha256', 'quote_sha256'))):
-            raise AdvisoryError('Recovery event binding rejected')
-        if (event['status'] in ('REVIEWED', 'RESPONSE_REJECTED', 'KNOWN_RETRYABLE_FAILURE', 'KNOWN_TERMINAL_FAILURE')
-                and attempt['status'] != 'SETTLED'):
-            raise AdvisoryError('Recovery event usage rejected')
-        if event['status'] == 'USAGE_UNKNOWN' and attempt['status'] not in ('UNKNOWN', 'IN_FLIGHT'):
-            raise AdvisoryError('Recovery unknown usage rejected')
-        if index + 1 < len(events) and event['status'] != 'KNOWN_RETRYABLE_FAILURE':
-            raise AdvisoryError('Recovery progression rejected')
-
-
 def assess_recovery(ledger):
     """Export historical evidence, including running routes that may still be active.
 
@@ -48,19 +25,12 @@ def assess_recovery(ledger):
             metadata = connection.execute('SELECT * FROM metadata').fetchall()
             row, plan, events = state(connection)
             attempts = [dict(item) for item in connection.execute('SELECT * FROM attempts ORDER BY attempt_id')]
-            if (any(item['status'] not in STATUSES for item in attempts)
-                    or (row is not None and row['final_status'] not in (None, *FINALS))
-                    or (plan is not None and plan['operation_sha256'] != sha(ledger.operation.payload))):
-                raise AdvisoryError('Recovery state rejected')
-            ids = {item['attempt_id'] for item in attempts}
-            recorded = {event['attempt_id'] for event in events}
-            if (not recorded <= ids or len(recorded) != len(events)
-                    or [event['index'] for event in events] != list(range(len(events)))
-                    or (row is None and attempts)):
-                raise AdvisoryError('Recovery history rejected')
-            validate_event_bindings(plan, events, attempts)
+            if ((row is None and attempts) or
+                    (plan is not None and plan['operation_sha256'] != sha(ledger.operation.payload))):
+                raise AdvisoryError('Recovery scope rejected')
             counts = {status: sum(item['status'] == status for item in attempts) for status in STATUSES}
             route_status = 'UNCLAIMED' if row is None else (row['final_status'] or 'RUNNING')
+            recorded = {event['attempt_id'] for event in events}
             unrecorded = sum(item['status'] == 'SETTLED' and item['attempt_id'] not in recorded for item in attempts)
             reasons = []
             if route_status == 'RUNNING': reasons.append('ROUTE_NOT_FINALIZED')

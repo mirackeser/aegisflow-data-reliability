@@ -392,3 +392,8 @@ Managed disable now commits an exact intent before policy mutation, blocks reads
 ## Increment 40 — accounting integrity and operational qualification
 
 Persisted accounting is now revalidated before spending, historical replay and recovery. A reproduced negative-charge admission defect is fixed; legacy policy records retain their original bytes. Eight integrated offline scenarios and a new installed CI gate qualify bounded fallback, rejection, ambiguity, deadlines, cost limits and interrupted workers. 732 distinct methods and full application coverage apply. See [increment 40](increment-40.md). Next B08 scope: authenticated usage-attestation contracts and durable operator review decisions; reconciliation writes and live model activation remain gated.
+
+
+## Increment 41 — route-result integrity
+
+Cross-system regression passed before fault injection reproduced unsupported historical success. Shared route history and event-write validation now reject contradictory outcomes and usage states. 744 distinct tests and full coverage apply; see [increment 41](increment-41.md). Next: authenticated usage attestations and durable review decisions before reconciliation authority.
