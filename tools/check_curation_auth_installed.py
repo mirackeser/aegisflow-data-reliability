@@ -138,3 +138,22 @@ with tempfile.TemporaryDirectory() as directory:
     else:
         raise RuntimeError('Installed unverified identity accepted')
 print('Installed identity/key lifecycle and authenticated-channel requirement passed.')
+
+from aegisflow_dr.benchmark.key_policy import initialize_key_policy, disable_key, key_history
+with tempfile.TemporaryDirectory() as directory:
+    policy_path=Path(directory)/'key-policy.db'
+    checkpoint=initialize_key_policy(policy_path,{'installed-key':sha256(key).hexdigest()})
+    backup=policy_path.read_bytes()
+    checkpoint=disable_key(policy_path,checkpoint=checkpoint,key_id='installed-key',now_ms=4000)
+    if len(key_history(policy_path,checkpoint=checkpoint)) != 1:
+        raise RuntimeError('Installed key lifecycle event missing')
+    if disable_key(policy_path,checkpoint=checkpoint,key_id='installed-key',now_ms=4001) != checkpoint:
+        raise RuntimeError('Installed key disable not idempotent')
+    policy_path.write_bytes(backup)
+    try:
+        key_history(policy_path,checkpoint=checkpoint)
+    except BenchmarkError:
+        pass
+    else:
+        raise RuntimeError('Installed old key-policy backup accepted')
+print('Installed shared key lifecycle and external checkpoint rollback guard passed.')

@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 38 adds [shared key policy and lifecycle/restore checks](docs/contracts/shared-key-policy-v1.md). One disable affects participating bindings; restored old files reject against the current external checkpoint. Local verification covers 701 application/security methods. Trusted checkpoint publication and operational recovery remain pending.
+
 Increment 37 adds [verified client identity and exact key-version bindings](docs/contracts/identity-key-binding-v1.md), with persisted binding-scoped disable and explicit renewal/rotation. Validation includes 687 application/security methods. Global managed-key and issuer operations remain pending.
 
 Increment 36 adds [durable evaluator authority and access audit](docs/contracts/access-registry-v1.md), including terminal revocation and commit-before-result semantics. This trusted-host boundary is covered by 671 application/security test methods. Managed identity, key lifecycle and process isolation remain pending.
