@@ -80,6 +80,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_recovery_auth_installed.py"
 
+      - name: Verify installed signed model gateway and independent usage inquiry
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_model_gateway_installed.py"
+
   repository-hygiene:
     runs-on: ubuntu-latest
     steps:

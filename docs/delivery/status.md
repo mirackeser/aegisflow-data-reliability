@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 43, explicit atomic usage reconciliation in a new opt-in v4 profile. Scoped operator approval and independent issuer evidence commit with accounting receipts; unresolved delivery remains blocked. Local validation: 759 application + 13 security/hygiene methods; 100% statement/branch coverage on Python 3.12/3.14, twelve installed checks. PR/main CI records delivery. Provider transport, independent usage acquisition, managed identity/custody and measured model quality remain open.
+Latest implementation: increment 44, signed pinned model-gateway dispatch and independent usage inquiry. Exact prepared-input/operation/quote/deadline checks and signed result verification connect to bounded mTLS. Queries release the ledger lock across I/O and reject stale evidence afterward. Local validation: 771 application + 13 security/hygiene methods; full coverage on Python 3.12/3.14; thirteen installed checks. PR/main CI records delivery. A concrete provider-specific adapter, activation decisions, managed gateway authority/receipt custody and independent real-model quality remain open.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 

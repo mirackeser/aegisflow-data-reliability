@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "quote_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "model_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+          "maxLength": 64,
+          "not": {
+            "pattern": "\\s"
+          }
+        },
+        "payload_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$",
+          "maxLength": 8192
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "version",
+        "operation_sha256",
+        "request_sha256",
+        "input_sha256",
+        "quote_sha256",
+        "model_id",
+        "payload_hex",
+        "receipt_sha256",
+        "input_tokens",
+        "output_tokens"
+      ]
+    },
+    "signature_hex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})+$",
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "result",
+    "signature_hex"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "operation_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "quote_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "model_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+      "maxLength": 64,
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "messages_hex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})+$",
+      "maxLength": 16384
+    },
+    "output_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "remaining_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    }
+  },
+  "required": [
+    "version",
+    "operation_sha256",
+    "request_sha256",
+    "input_sha256",
+    "quote_sha256",
+    "model_id",
+    "messages_hex",
+    "output_limit",
+    "remaining_ms"
+  ]
+}
