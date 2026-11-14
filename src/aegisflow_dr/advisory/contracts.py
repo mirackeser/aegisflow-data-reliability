@@ -52,7 +52,7 @@ RECOVERY_REVIEW = closed({'version': {'const': '1'}, 'review_id': UUID, 'operato
     'operation_sha256': HASH, 'snapshot_sha256': HASH, 'assessment_sha256': HASH,
     'action': {'enum': ['KEEP_BLOCKED', 'REQUEST_USAGE_ATTESTATION']}})
 TIME = {'type':'integer','minimum':0,'maximum':10**18}
-PURPOSES = ('usage-attestation', 'recovery-decision')
+PURPOSES = ('usage-attestation', 'recovery-decision', 'reconcile-usage')
 SIGNED = closed({'version':{'const':'1'}, 'purpose':{'enum':list(PURPOSES)},
     'principal_id':UUID, 'operation_sha256':HASH, 'key_sha256':HASH, 'payload_sha256':HASH,
     'issued_at_ms':TIME, 'expires_at_ms':TIME})
@@ -67,7 +67,15 @@ DECISION = closed({'version':{'const':'1'},'review_sha256':HASH,
     'attestation_sha256':{'anyOf':[HASH,{'type':'null'}]},
     'attestation_signature_sha256':{'anyOf':[HASH,{'type':'null'}]}})
 DECISION_SCOPE = closed({'operation_sha256':HASH})
-SCHEMAS = {'recovery-decision':DECISION,'recovery-signature-metadata':SIGNED,'recovery-signature':ENVELOPE,
+RECONCILIATION = closed({'version':{'const':'1'},'action':{'const':'ACCOUNT_KNOWN_USAGE'},
+    'approval_id':UUID,'operator_id':UUID,'operation_sha256':HASH,'snapshot_sha256':HASH,
+    'assessment_sha256':HASH,'attempt_id':UUID,'attestation_sha256':HASH,'attestation_signature_sha256':HASH})
+RECONCILIATION_RECORD = closed({'approval':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
+    'signature':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
+    'attestation':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
+    'attestation_signature':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
+    'recorded_at_ms':TIME})
+SCHEMAS = {'usage-reconciliation':RECONCILIATION,'usage-reconciliation-record':RECONCILIATION_RECORD,'recovery-decision':DECISION,'recovery-signature-metadata':SIGNED,'recovery-signature':ENVELOPE,
            'usage-attestation':ATTESTATION,'recovery-decision-scope':DECISION_SCOPE,'recovery-review': RECOVERY_REVIEW, 'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
            'route-plan': ROUTE_PLAN, 'route-event': ROUTE_EVENT}
 

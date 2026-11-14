@@ -69,3 +69,8 @@ New operation-bound scopes use metadata version 2 and an immutable [operation bi
 Every handle open, snapshot, reservation, transition, route journal operation and recovery assessment validates the stored accounting before using it. Exact integer reservation/settlement arithmetic, state/actual-use consistency, digest/model fields, per-request/shared limits, allowed model/original deadline and aggregate budgets are checked. An open handle rejects changed policy/version/operation metadata. Legacy policy bytes remain unchanged. An internally inconsistent database is rejected, never automatically repaired or refunded.
 
 All profiles now cap retained attempts at 100,000; cancelled attempts count. Reads and arithmetic validation are bounded and linear in scope size. Rotate scopes only through an explicit host budget policy; the library never resets budgets or deletes history automatically. These consistency checks do not authenticate a hostile host, prove provider billing or detect a coordinated consistent rollback. See [ADR-0040](../adr/0040-operational-qualification-and-accounting-integrity.md) and the [operational qualification suite](operational-qualification-v1.md).
+
+
+## Explicit reconciliation profile v4 (increment 43)
+
+New scopes may opt into `routing=True, reconciliation=True` for signed accounting receipts. Existing scopes are not migrated. Public totals project receipt-backed charges while original delivery state continues to block resend. Ordinary reviews/transitions cannot reconcile usage. See the [v4 reconciliation contract](usage-reconciliation-v1.md) for atomicity, authority, history and trusted-host limits.

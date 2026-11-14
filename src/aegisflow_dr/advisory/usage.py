@@ -102,7 +102,7 @@ def database(path, *, create=False):
         raise AdvisoryError('Usage ledger unavailable') from None
 
 
-def initialize_usage(path, policy=UsagePolicy(), *, operation=None, routing=False):
+def initialize_usage(path, policy=UsagePolicy(), *, operation=None, routing=False, reconciliation=False):
     """Explicitly initialize an empty, separate local database; never migrate evidence."""
     if type(policy) is not UsagePolicy:
         raise AdvisoryError('Trusted usage policy required')
@@ -110,6 +110,8 @@ def initialize_usage(path, policy=UsagePolicy(), *, operation=None, routing=Fals
         raise AdvisoryError('Bound operation requires a total attempt limit')
     if type(routing) is not bool or (routing and operation is None):
         raise AdvisoryError('Routing requires a bound operation')
+    if type(reconciliation) is not bool or (reconciliation and not routing):
+        raise AdvisoryError('Reconciliation requires routing profile')
     with database(path, create=True) as connection:
         if connection.execute('SELECT name FROM sqlite_master').fetchone() is not None:
             raise AdvisoryError('Empty usage database required')
@@ -120,10 +122,14 @@ def initialize_usage(path, policy=UsagePolicy(), *, operation=None, routing=Fals
         else:
             connection.execute('ALTER TABLE metadata ADD COLUMN operation BLOB NOT NULL DEFAULT X\'\'')
             connection.execute('INSERT INTO metadata VALUES (?, ?, 0, ?)',
-                               (3 if routing else 2, canonical(asdict(policy)), operation.payload))
+                               (4 if reconciliation else (3 if routing else 2), canonical(asdict(policy)), operation.payload))
         if routing:
             from .route_store import SCHEMA as ROUTING_SCHEMA
             for statement in ROUTING_SCHEMA:
+                connection.execute(statement)
+        if reconciliation:
+            from .reconciliation import SCHEMA as RECONCILIATION_SCHEMA
+            for statement in RECONCILIATION_SCHEMA:
                 connection.execute(statement)
 
 
@@ -139,7 +145,7 @@ class UsageLedger:
         self.clock_ms = clock_ms if clock_ms is not None else lambda: time.time_ns() // 1_000_000
         with database(self.path) as connection:
             rows = connection.execute('SELECT * FROM metadata').fetchall()
-            if (len(rows) != 1 or rows[0]['version'] not in (1, 2, 3)
+            if (len(rows) != 1 or rows[0]['version'] not in (1, 2, 3, 4)
                     or ('operation' in rows[0].keys()) != (rows[0]['version'] >= 2)):
                 raise AdvisoryError('Unsupported usage ledger')
             try:
@@ -157,8 +163,10 @@ class UsageLedger:
             elif operation_id is not None:
                 raise AdvisoryError('Unbound ledger cannot authorize an operation')
             tables = {row[0] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('route', 'route_events')")}
-            if tables != ({'route', 'route_events'} if self.version == 3 else set()):
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('route', 'route_events', 'reconciliations')")}
+            expected = {'route','route_events','reconciliations'} if self.version == 4 else (
+                {'route','route_events'} if self.version == 3 else set())
+            if tables != expected:
                 raise AdvisoryError('Unsupported routing ledger schema')
             self._validate(connection)
 
@@ -184,7 +192,12 @@ class UsageLedger:
     def _totals(self, connection):
         rows = connection.execute('SELECT * FROM attempts LIMIT ?', (MAX_RECORDS + 1,)).fetchall()
         operation = None if self.operation is None else decode('operation', self.operation.payload)
-        return audit_rows(rows, self.policy, operation)
+        totals = audit_rows(rows, self.policy, operation)
+        if self.version == 4:
+            from .reconciliation import project_accounting
+            rows = project_accounting(connection, rows, sha(self.operation.payload))
+            return audit_rows(rows, self.policy, operation)
+        return totals
 
     def snapshot(self):
         with database(self.path) as connection:
@@ -208,7 +221,7 @@ class UsageLedger:
             self._validate(connection)
             if self.operation is not None:
                 self.operation.admit(prepared, deadline_ms)
-            if self.version == 3:
+            if self.version in (3, 4):
                 from .route_store import admit_route
                 admit_route(connection, route_token, manifest['request_sha256'], digest)
             elif route_token is not None:
@@ -265,6 +278,9 @@ class UsageLedger:
             row = connection.execute('SELECT * FROM attempts WHERE attempt_id = ?', (attempt_id,)).fetchone()
             if row is None:
                 raise AdvisoryError('Unknown usage attempt')
+            if self.version == 4 and connection.execute(
+                    'SELECT 1 FROM reconciliations WHERE attempt_id=?',(attempt_id,)).fetchone() is not None:
+                raise AdvisoryError('Reconciled accounting is terminal')
             target = {'start': 'IN_FLIGHT', 'cancel': 'CANCELLED', 'settle': 'SETTLED', 'unknown': 'UNKNOWN'}[action]
             if action == 'settle' and row['status'] == 'SETTLED':
                 if (row['actual_input'], row['actual_output']) != (input_tokens, output_tokens):

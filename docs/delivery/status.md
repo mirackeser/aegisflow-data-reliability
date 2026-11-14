@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 42, signed usage evidence and durable recovery decisions. Current operation/purpose-scoped grants, snapshot/attempt/quote bindings and independent issuer/operator keys protect signed records. Local validation: 745 application + 13 security/hygiene methods, full coverage on Python 3.12/3.14; twelve installed checks. PR/main CI records delivery. Explicit reconciliation transitions, managed issuer operations and independent live model quality remain open.
+Latest implementation: increment 43, explicit atomic usage reconciliation in a new opt-in v4 profile. Scoped operator approval and independent issuer evidence commit with accounting receipts; unresolved delivery remains blocked. Local validation: 759 application + 13 security/hygiene methods; 100% statement/branch coverage on Python 3.12/3.14, twelve installed checks. PR/main CI records delivery. Provider transport, independent usage acquisition, managed identity/custody and measured model quality remain open.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 

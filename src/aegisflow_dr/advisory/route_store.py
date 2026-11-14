@@ -86,7 +86,7 @@ def admit_route(connection, token, request_sha256, quote_sha256):
 
 class RouteJournal:
     def __init__(self, ledger):
-        if type(ledger) is not UsageLedger or ledger.version != 3:
+        if type(ledger) is not UsageLedger or ledger.version not in (3, 4):
             raise AdvisoryError('Routing ledger required')
         self.ledger = ledger
 
