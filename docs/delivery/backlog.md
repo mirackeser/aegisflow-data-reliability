@@ -1,5 +1,7 @@
 # Delivery backlog
 
+Current delivery overlay: [increment 45](increment-45.md) joins retained multi-case evaluation, raw-versus-accepted scoring, campaign budgets/latency and signed gateway qualification. The public CLI produces inspectable retained output with zero live model calls; independent quality acceptance remains blocked. The larger next packages are provider/usage evaluation, read-only real integration, retrieval/cache, supported specialists, and operational/API readiness before UI. Historical item counts below are not a completion percentage.
+
 Work in short, acceptance-driven increments. Estimate the next item after reviewing the previous increment; the architectural 16-week roadmap is a target, not a delivery guarantee.
 
 1. **DR-001 — Deterministic diagnostic baseline:** implemented in increment 01. Reproducible synthetic orders; schema/null/duplicate injection; evidence-linked checks; bounded input; stable CLI outcomes; automated regression coverage.

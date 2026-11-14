@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "model_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+      "maxLength": 64,
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "model_revision_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "max_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000
+    },
+    "max_cost_nusd": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000000
+    },
+    "case_timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600000
+    },
+    "max_case_latency_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600000
+    }
+  },
+  "required": [
+    "model_id",
+    "model_revision_sha256",
+    "max_tokens",
+    "max_cost_nusd",
+    "case_timeout_ms",
+    "max_case_latency_ms"
+  ]
+}

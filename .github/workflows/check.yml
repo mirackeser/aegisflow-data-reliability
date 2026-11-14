@@ -84,6 +84,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python "${{ github.workspace }}/tools/check_model_gateway_installed.py"
 
+      - name: Verify installed retained evaluation campaign through signed mTLS
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/tools/check_campaign_installed.py"
+
   repository-hygiene:
     runs-on: ubuntu-latest
     steps:

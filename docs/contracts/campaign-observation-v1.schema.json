@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "VERIFIED_ADVISORY",
+        "REJECTED_ADVISORY",
+        "ABSTAIN",
+        "USAGE_UNKNOWN",
+        "KNOWN_RETRYABLE_FAILURE",
+        "KNOWN_TERMINAL_FAILURE",
+        "RESPONSE_REJECTED",
+        "DEADLINE_EXCEEDED",
+        "ADMISSION_DENIED",
+        "NOT_RUN"
+      ]
+    },
+    "request_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "input_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "response": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "const": "1"
+            },
+            "request_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "decision": {
+              "enum": [
+                "PROPOSE",
+                "ABSTAIN"
+              ]
+            },
+            "assessment": {
+              "enum": [
+                "NO_FAILURE_OBSERVED",
+                "SOURCE_QUALITY_FAILURE",
+                "TRANSFORMATION_RECONCILIATION_FAILURE",
+                null
+              ]
+            },
+            "evidence_sha256": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "uniqueItems": true,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "version",
+            "request_sha256",
+            "decision",
+            "assessment",
+            "evidence_sha256"
+          ],
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "ABSTAIN"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "assessment": {
+                "type": "null"
+              },
+              "evidence_sha256": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "assessment": {
+                "enum": [
+                  "NO_FAILURE_OBSERVED",
+                  "SOURCE_QUALITY_FAILURE",
+                  "TRANSFORMATION_RECONCILIATION_FAILURE"
+                ]
+              },
+              "evidence_sha256": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "adapter_invocations": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000000
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "held_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000000
+        },
+        "charged_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000000
+        },
+        "held_cost_nusd": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000000
+        },
+        "charged_cost_nusd": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000000000
+        }
+      },
+      "required": [
+        "held_tokens",
+        "charged_tokens",
+        "held_cost_nusd",
+        "charged_cost_nusd"
+      ]
+    }
+  },
+  "required": [
+    "case_id",
+    "status",
+    "request_sha256",
+    "input_sha256",
+    "response",
+    "adapter_invocations",
+    "elapsed_ms",
+    "usage"
+  ]
+}
