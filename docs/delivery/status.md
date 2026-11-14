@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 44, signed pinned model-gateway dispatch and independent usage inquiry. Exact prepared-input/operation/quote/deadline checks and signed result verification connect to bounded mTLS. Queries release the ledger lock across I/O and reject stale evidence afterward. Local validation: 771 application + 13 security/hygiene methods; full coverage on Python 3.12/3.14; thirteen installed checks. PR/main CI records delivery. A concrete provider-specific adapter, activation decisions, managed gateway authority/receipt custody and independent real-model quality remain open.
+Latest implementation: increment 45, retained multi-case evaluation campaigns joining actual investigation, bounded dispatch, independent Judge, aggregate budgets and recomputed quality/latency reports. Crash-preserving artifacts, historical zero-call readback and integrated signed mTLS qualification are included. Validation: 794 application + 13 security/hygiene methods; full Python 3.12/3.14 coverage; fourteen installed checks. Provider-specific usage qualification and independent real-model acceptance remain open. [Increment 45 and next coherent packages](increment-45.md).
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -22,7 +22,7 @@ This record distinguishes delivered capabilities from the original target archit
 
 - MCP: local official SDK tools implemented; authenticated remote transport and operational quotas pending.
 - A2A: official stateless review implemented; remote durable Task lifecycle, delivery and production hosting pending.
-- LLM: offline advisory contracts, minimized versioned prompts and durable trusted-host token/cost/deadline admission are implemented. Offline dispatch, cooperative streaming, bounded retry and durable routing are implemented. Actual provider tokenization/pricing and real I/O enforcement remain pending; no live provider calls enabled.
+- LLM: offline advisory contracts, minimized versioned prompts and durable trusted-host token/cost/deadline admission are implemented. Offline dispatch, cooperative streaming, bounded retry and durable routing are implemented. Pinned signed mTLS gateway I/O is implemented; actual provider tokenization/pricing and vendor qualification remain pending; no live provider calls enabled.
 - RAG: retrieval adapters, tenant/source filtering, provenance/citation checks and retrieval evaluation are planned.
 - CAG: bounded context caching, identity-aware keys, invalidation, confidentiality and prompt-version isolation are planned.
 - Contracts: existing business JSON Schemas, official protocol models and MCP tool schemas implemented; specialist/model-specific contracts pending.

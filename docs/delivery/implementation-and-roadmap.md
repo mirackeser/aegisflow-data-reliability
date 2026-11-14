@@ -1,5 +1,7 @@
 # AegisFlow implementation inventory and complete target roadmap
 
+Current delivery overlay: [increment 45](increment-45.md) joins retained multi-case evaluation, raw-versus-accepted scoring, campaign budgets/latency and signed gateway qualification. The public CLI produces inspectable retained output with zero live model calls; independent quality acceptance remains blocked. The larger next packages are provider/usage evaluation, read-only real integration, retrieval/cache, supported specialists, and operational/API readiness before UI. Historical item counts below are not a completion percentage.
+
 Review date: 2026-11-11. Executable baseline: `c3205510e253172941521da0f50009e5f754b53a` ([commit](https://github.com/mirackeser/aegisflow-data-reliability/commit/c3205510e253172941521da0f50009e5f754b53a)).
 
 This is the complete work-package inventory for the currently agreed six-layer, 36-role research/product target. It is a scoped plan, not a claim that every future discovery is known. Re-estimate after each acceptance gate; new pilot findings require explicit backlog entries. Completed implementation increments are not elapsed weeks.

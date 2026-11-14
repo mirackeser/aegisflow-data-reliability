@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 45 adds [retained evaluation campaigns](docs/contracts/evaluation-campaign-v1.md): real investigation → bounded dispatch → independent Judge → raw/accepted predictions, shared expenditure and latency reports. Crash-preserving artifacts, zero-call historical readback and installed mTLS campaign qualification are included. The public fixture CLI needs no provider or credentials; its statistical quality gate correctly remains BLOCK. Validation covers 807 application/security methods and fourteen installed checks.
+
 Increment 44 adds [signed pinned model-gateway dispatch and independent usage inquiry](docs/contracts/model-gateway-v1.md). Exact operation/input/quote/deadline and signature checks connect the existing adapter/Judge to bounded mTLS; recovery queries revalidate freshness after I/O. Validation covers 784 application/security methods and thirteen installed checks. Qualification uses synthetic loopback gateways with zero live model calls.
 
 Increment 43 adds [explicit atomic usage reconciliation](docs/contracts/usage-reconciliation-v1.md) in a new opt-in v4 scope. Separate operator authority and independent issuer evidence finalize accounting while uncertain delivery remains blocked. Real process-exit/replay and late-worker tests are included; 772 application/security methods and twelve installed checks apply.
