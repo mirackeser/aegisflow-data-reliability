@@ -20,7 +20,7 @@ class RouteCandidate:
 
 
 def plan_route(ledger, candidates):
-    if (type(ledger) is not UsageLedger or ledger.version != 3 or type(candidates) is not tuple
+    if (type(ledger) is not UsageLedger or ledger.version not in (3, 4) or type(candidates) is not tuple
             or not 1 <= len(candidates) <= min(8, ledger.policy.max_total_attempts)):
         raise AdvisoryError('Bounded routing configuration required')
     deadline = decode('operation', ledger.operation.payload)['deadline_ms']

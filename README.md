@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 43 adds [explicit atomic usage reconciliation](docs/contracts/usage-reconciliation-v1.md) in a new opt-in v4 scope. Separate operator authority and independent issuer evidence finalize accounting while uncertain delivery remains blocked. Real process-exit/replay and late-worker tests are included; 772 application/security methods and twelve installed checks apply.
+
 Increment 42 adds [signed usage evidence and durable recovery decisions](docs/contracts/recovery-authority-v1.md). Operator signatures bind exact reviews and attached usage proofs; current operation-scoped grants, snapshot freshness and independent issuer keys are verified before durable recording. Validation covers 758 application/security methods and twelve installed checks. Install `.[recovery]` for these optional APIs.
 
 Increment 41 adds [route-result integrity](docs/adr/0041-route-outcome-integrity.md): replay and recovery validate final outcomes against event/plan/usage history. A reproduced unsupported-success defect is fixed. Validation includes 744 application/security methods and full statement/branch coverage.

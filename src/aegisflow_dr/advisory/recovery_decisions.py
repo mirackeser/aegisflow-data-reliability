@@ -60,7 +60,7 @@ def decision_payload(review, attestation=None, attestation_envelope=None):
 
 def record_decision(path, ledger, review, envelope, *, grant, now_ms,
                     attestation=None, attestation_envelope=None, issuer_grant=None):
-    if (type(ledger) is not UsageLedger or ledger.version!=3 or
+    if (type(ledger) is not UsageLedger or ledger.version not in (3,4) or
             Path(path).resolve()==ledger.path.resolve()):
         raise AdvisoryError('Separate decision and routing stores required')
     supplied=(attestation,attestation_envelope,issuer_grant)

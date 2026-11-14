@@ -79,7 +79,7 @@ def _verify_usage(connection, ledger, payload, envelope, *, grant, now_ms):
 
 
 def verify_usage_attestation(ledger, payload, envelope, *, grant, now_ms):
-    if type(ledger) is not UsageLedger or ledger.version!=3:
+    if type(ledger) is not UsageLedger or ledger.version not in (3,4):
         raise AdvisoryError('Routing ledger required for attestation')
     with database(ledger.path) as connection:
         ledger._validate(connection)

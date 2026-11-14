@@ -8,7 +8,8 @@
     "purpose": {
       "enum": [
         "usage-attestation",
-        "recovery-decision"
+        "recovery-decision",
+        "reconcile-usage"
       ]
     },
     "principal_id": {

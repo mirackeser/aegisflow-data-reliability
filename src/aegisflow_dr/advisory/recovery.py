@@ -15,7 +15,7 @@ def assess_recovery(ledger):
     The digest detects snapshot changes, not malicious host modification. No
     stale-worker inference, usage attestation, refund or state mutation is supplied.
     """
-    if type(ledger) is not UsageLedger or ledger.version != 3:
+    if type(ledger) is not UsageLedger or ledger.version not in (3, 4):
         raise AdvisoryError('Routing ledger required for recovery assessment')
     try:
         with closing(sqlite3.connect(ledger.path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:

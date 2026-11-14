@@ -402,3 +402,8 @@ Cross-system regression passed before fault injection reproduced unsupported his
 ## Increment 42 — signed recovery evidence and durable decisions
 
 B08 now has operation-scoped usage assertion verification and signed durable operator reviews, with exact attachment binding, snapshot freshness and idempotent append-only local records. 758 distinct tests and full coverage apply; see [increment 42](increment-42.md). Reconciliation writes, managed issuer deployment and live model activation remain gated. Next: explicit authorized reconciliation state transitions and crash/failure atomicity.
+
+
+## Increment 43 — atomic accounting reconciliation
+
+New opt-in v4 scopes accept separately authorized operator settlement approvals and independent issuer evidence. Atomic receipts finalize accounting without changing unknown delivery or permitting resend. Real process-exit/replay, conflict/concurrency and late-worker fencing are qualified. 772 distinct tests apply; see [increment 43](increment-43.md). Next: consolidate provider transport, independent usage acquisition and managed identity/custody acceptance before activation.

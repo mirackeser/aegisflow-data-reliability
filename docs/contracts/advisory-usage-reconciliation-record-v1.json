@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^(?:[0-9a-f]{2})+$"
+    },
+    "signature": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^(?:[0-9a-f]{2})+$"
+    },
+    "attestation": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^(?:[0-9a-f]{2})+$"
+    },
+    "attestation_signature": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^(?:[0-9a-f]{2})+$"
+    },
+    "recorded_at_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000000000
+    }
+  },
+  "required": [
+    "approval",
+    "signature",
+    "attestation",
+    "attestation_signature",
+    "recorded_at_ms"
+  ]
+}

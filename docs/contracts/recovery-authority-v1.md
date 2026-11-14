@@ -43,3 +43,8 @@ sequenceDiagram
 ## Boundaries and next gate
 
 This is a local trusted-host evidence and audit implementation. A privileged owner can replace or consistently rewrite/roll back the files; local hashes/triggers are not independent tamper attestation. Grant revocation/fresh time is host supplied. A durable decision does not prove provider delivery, model quality, human independence, or production process isolation. Actual reconciliation requires a separately reviewed state-transition policy, independent provider accounting, operator authorization and crash-safe atomicity; automatic retry/refund remains blocked. There are zero live provider calls in qualification.
+
+
+## Separate accounting authority (increment 43)
+
+A third signature purpose, `reconcile-usage`, is available only through the explicit new v4 reconciliation API. Ordinary review records retain their existing authority. See [explicit accounting reconciliation](usage-reconciliation-v1.md); it preserves unresolved delivery and does not authorize resend.
