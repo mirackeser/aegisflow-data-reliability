@@ -1,0 +1,19 @@
+# Local investigation workbench
+
+Zero external spending. This local pilot connects a disposable PostgreSQL source, existing retained deterministic investigations, lexical source retrieval, revision-bound references and an authenticated loopback observation screen. No paid API, model download, inference, production exposure or source repair is enabled.
+
+From the repository root with the package installed:
+
+```sh
+python apps/local/workbench.py --state-dir /tmp/aegis-local-private --postgres-bindir /path/to/postgresql/bin
+```
+
+Open the printed loopback address. Read `access-token` from the private state directory and paste it into the access field. It is kept only in page memory, never localStorage or a URL. Do not commit the state directory. The server binds only 127.0.0.1, checks Host/Origin and requires a bearer token for state and execution; assets are public but contain no investigation data. Restart rotates the token. This is a trusted single-user local process boundary, not production authentication, tenant hosting, distributed rate limiting or hardened Internet service.
+
+Run investigation creates a separate temporary PostgreSQL cluster, never accesses existing servers, and checks clean/missing/duplicate data through the existing evidence engine. Database writes are limited to fixture setup using the fixture owner; the inspected reader has SELECT only and three denied write operations are verified. Temporary server shutdown is attempted in finally. Unexpected process termination may require manual cleanup of a leftover temporary cluster; no automatic uncertain worker restart is permitted.
+
+The four displayed roles are narrow deterministic capability slices, not full autonomous specialist agents. A10 completion reflects the quality checks executed inside source qualification. Events represent actual execution boundaries, not simulated LLM progress. Knowledge retrieval is lexical, not vector/semantic RAG. Its text is untrusted reference material and never grants tool access. Cache entries are bound to tenant, grants, query and document revision; replacement/deletion invalidates entries. No local LLM is installed/configured, and the screen reports that explicitly. Model inference and calibrated quality, vector retrieval, full specialist orchestration and production operations remain separate acceptance work.
+
+The workbench retains the latest sanitized result and events, not a full multi-run audit archive. An interrupted state is reported after restart without automatic rerun. Existing core evidence, campaign and accounting APIs remain unchanged. PostgreSQL qualification creates temporary evidence that is removed with its fixture; the screen retains summaries and reference digests, not source evidence files. Do not treat these pilot summaries as enterprise audit retention.
+
+Validation: local retrieval/cache tests, HTTP authorization/origin/Host/body rejection, single-owner admission, sanitized failure and interrupted-state recovery. `tools/check_postgres_local.py --bindir ...` performs actual isolated PostgreSQL qualification. Existing application regression and security/hygiene checks remain required. No model accuracy or production readiness is claimed.
