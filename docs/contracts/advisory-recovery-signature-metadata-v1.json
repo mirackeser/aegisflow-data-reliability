@@ -9,7 +9,8 @@
       "enum": [
         "usage-attestation",
         "recovery-decision",
-        "reconcile-usage"
+        "reconcile-usage",
+        "model-gateway-result"
       ]
     },
     "principal_id": {

@@ -52,7 +52,7 @@ RECOVERY_REVIEW = closed({'version': {'const': '1'}, 'review_id': UUID, 'operato
     'operation_sha256': HASH, 'snapshot_sha256': HASH, 'assessment_sha256': HASH,
     'action': {'enum': ['KEEP_BLOCKED', 'REQUEST_USAGE_ATTESTATION']}})
 TIME = {'type':'integer','minimum':0,'maximum':10**18}
-PURPOSES = ('usage-attestation', 'recovery-decision', 'reconcile-usage')
+PURPOSES = ('usage-attestation', 'recovery-decision', 'reconcile-usage', 'model-gateway-result')
 SIGNED = closed({'version':{'const':'1'}, 'purpose':{'enum':list(PURPOSES)},
     'principal_id':UUID, 'operation_sha256':HASH, 'key_sha256':HASH, 'payload_sha256':HASH,
     'issued_at_ms':TIME, 'expires_at_ms':TIME})
@@ -75,7 +75,24 @@ RECONCILIATION_RECORD = closed({'approval':{'type':'string','maxLength':8192,'pa
     'attestation':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
     'attestation_signature':{'type':'string','maxLength':8192,'pattern':'^(?:[0-9a-f]{2})+$'},
     'recorded_at_ms':TIME})
-SCHEMAS = {'usage-reconciliation':RECONCILIATION,'usage-reconciliation-record':RECONCILIATION_RECORD,'recovery-decision':DECISION,'recovery-signature-metadata':SIGNED,'recovery-signature':ENVELOPE,
+GATEWAY_REQUEST = closed({'version':{'const':'1'},'operation_sha256':HASH,'request_sha256':HASH,
+    'input_sha256':HASH,'quote_sha256':HASH,'model_id':REQUEST['properties']['model_id'],
+    'messages_hex':{'type':'string','pattern':'^(?:[0-9a-f]{2})+$','maxLength':16384},
+    'output_limit':{'type':'integer','minimum':1,'maximum':10**6},
+    'remaining_ms':{'type':'integer','minimum':1,'maximum':10000}})
+GATEWAY_RESULT = closed({'version':{'const':'1'},'operation_sha256':HASH,'request_sha256':HASH,
+    'input_sha256':HASH,'quote_sha256':HASH,'model_id':REQUEST['properties']['model_id'],
+    'payload_hex':{'type':'string','pattern':'^(?:[0-9a-f]{2})+$','maxLength':8192},
+    'receipt_sha256':HASH,'input_tokens':{'type':'integer','minimum':0,'maximum':10**6},
+    'output_tokens':{'type':'integer','minimum':0,'maximum':10**6}})
+GATEWAY_RESPONSE = closed({'result':GATEWAY_RESULT,'signature_hex':{
+    'type':'string','pattern':'^(?:[0-9a-f]{2})+$','maxLength':4096}})
+USAGE_QUERY = closed({'version':{'const':'1'},'operation_sha256':HASH,'snapshot_sha256':HASH,
+    'assessment_sha256':HASH,'attempt_id':UUID,'request_sha256':HASH,'input_sha256':HASH,'quote_sha256':HASH})
+USAGE_REPLY = closed({'attestation_hex':{'type':'string','pattern':'^(?:[0-9a-f]{2})+$','maxLength':8192},
+    'signature_hex':{'type':'string','pattern':'^(?:[0-9a-f]{2})+$','maxLength':4096}})
+SCHEMAS = {'gateway-request':GATEWAY_REQUEST,'gateway-result':GATEWAY_RESULT,
+    'gateway-response':GATEWAY_RESPONSE,'usage-query':USAGE_QUERY,'usage-reply':USAGE_REPLY,'usage-reconciliation':RECONCILIATION,'usage-reconciliation-record':RECONCILIATION_RECORD,'recovery-decision':DECISION,'recovery-signature-metadata':SIGNED,'recovery-signature':ENVELOPE,
            'usage-attestation':ATTESTATION,'recovery-decision-scope':DECISION_SCOPE,'recovery-review': RECOVERY_REVIEW, 'request': REQUEST, 'response': RESPONSE, 'operation': OPERATION,
            'route-plan': ROUTE_PLAN, 'route-event': ROUTE_EVENT}
 

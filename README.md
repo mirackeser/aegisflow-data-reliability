@@ -4,6 +4,8 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
+Increment 44 adds [signed pinned model-gateway dispatch and independent usage inquiry](docs/contracts/model-gateway-v1.md). Exact operation/input/quote/deadline and signature checks connect the existing adapter/Judge to bounded mTLS; recovery queries revalidate freshness after I/O. Validation covers 784 application/security methods and thirteen installed checks. Qualification uses synthetic loopback gateways with zero live model calls.
+
 Increment 43 adds [explicit atomic usage reconciliation](docs/contracts/usage-reconciliation-v1.md) in a new opt-in v4 scope. Separate operator authority and independent issuer evidence finalize accounting while uncertain delivery remains blocked. Real process-exit/replay and late-worker tests are included; 772 application/security methods and twelve installed checks apply.
 
 Increment 42 adds [signed usage evidence and durable recovery decisions](docs/contracts/recovery-authority-v1.md). Operator signatures bind exact reviews and attached usage proofs; current operation-scoped grants, snapshot freshness and independent issuer keys are verified before durable recording. Validation covers 758 application/security methods and twelve installed checks. Install `.[recovery]` for these optional APIs.

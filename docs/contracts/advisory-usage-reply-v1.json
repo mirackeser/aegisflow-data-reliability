@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "attestation_hex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})+$",
+      "maxLength": 8192
+    },
+    "signature_hex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})+$",
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "attestation_hex",
+    "signature_hex"
+  ]
+}

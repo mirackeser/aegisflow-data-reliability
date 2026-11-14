@@ -150,3 +150,8 @@ B08 now has operation-scoped usage assertion verification and signed durable ope
 ## Increment 43 — atomic accounting reconciliation
 
 New opt-in v4 scopes accept separately authorized operator settlement approvals and independent issuer evidence. Atomic receipts finalize accounting without changing unknown delivery or permitting resend. Real process-exit/replay, conflict/concurrency and late-worker fencing are qualified. 772 distinct tests apply; see [increment 43](increment-43.md). Next: consolidate provider transport, independent usage acquisition and managed identity/custody acceptance before activation.
+
+
+## Increment 44 — signed gateway and independent usage inquiry
+
+Pinned mTLS now carries exact bound model requests and signed result metadata; a separate metadata-only query fetches signed usage evidence and revalidates current recovery state after I/O. Existing Judge, conservative accounting and operator authority remain enforced. 784 distinct tests and thirteen installed checks apply; see [increment 44](increment-44.md). Next: concrete provider-specific adapter/activation conditions and independent upstream usage qualification before real calls.
