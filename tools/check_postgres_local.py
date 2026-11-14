@@ -9,13 +9,17 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
-from aegisflow_dr.pipeline import generate_orders
+from aegisflow_dr.pipeline import generate_orders, diagnose_csv
+from dataclasses import asdict
 from aegisflow_dr.investigation import default_policy
 from aegisflow_dr.storage import IncidentStore, initialize
 from aegisflow_dr.storage.runs import InvestigationRuns
 
 
-def qualify(bindir):
+def qualify(bindir, scenario='suite'):
+    scenarios = {'suite': ('clean', 'null_total', 'duplicate_order'), **{name: (name,) for name in ('clean', 'null_total', 'duplicate_order', 'transformation')}}
+    if scenario not in scenarios:
+        raise ValueError('Unsupported investigation scenario')
     bindir = Path(bindir).resolve()
     def process(name, arguments, payload=None, allowed_failure=False):
         result = subprocess.run([str(bindir / name), *arguments], input=payload,
@@ -38,9 +42,9 @@ def qualify(bindir):
                     '-d', 'postgres', '-c', statement], allowed_failure=fail)
             sql("CREATE ROLE fixture_reader LOGIN; CREATE TABLE orders (order_id text, customer_id text, order_total text); GRANT SELECT ON orders TO fixture_reader;")
             results = []
-            for fault in ('clean', 'null_total', 'duplicate_order'):
+            for fault in scenarios[scenario]:
                 sql('TRUNCATE orders')
-                raw = generate_orders(fault=fault)
+                raw = generate_orders(fault='clean' if fault == 'transformation' else fault)
                 process('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-h', str(socket),
                     '-U', 'fixture_owner', '-d', 'postgres', '-c',
                     'COPY orders FROM STDIN WITH (FORMAT CSV, HEADER TRUE)'], raw)
@@ -51,11 +55,15 @@ def qualify(bindir):
                 initialize(evidence)
                 store = IncidentStore(evidence)
                 source = store.record(selected, request_key=fault)
-                record = InvestigationRuns(store).execute(source['incident_id'], default_policy(), request_key=fault)
-                expected = 'NO_FAILURE_OBSERVED' if fault == 'clean' else 'SOURCE_QUALITY_FAILURE'
+                record = InvestigationRuns(store).execute(source['incident_id'], default_policy(), request_key=fault, transform='exclude_first' if fault == 'transformation' else 'clean')
+                expected = ('TRANSFORMATION_RECONCILIATION_FAILURE' if fault == 'transformation' else
+                            'NO_FAILURE_OBSERVED' if fault == 'clean' else 'SOURCE_QUALITY_FAILURE')
                 if record['trace']['assessment'] != expected:
                     raise RuntimeError('PostgreSQL evidence assessment mismatch')
-                results.append({'case': fault, 'assessment': expected, 'rows': 24})
+                results.append({'case': fault, 'assessment': expected, 'rows': 24,
+                    'source_report': asdict(diagnose_csv(selected)),
+                    'steps': [{'tool': step['tool'], 'report_sha256': step['report_sha256'],
+                               'report': step['report']} for step in record['trace']['steps']]})
             # Permissions must reject writes even outside a READ ONLY transaction.
             for statement in ('DELETE FROM orders', "INSERT INTO orders VALUES ('x','y','1')", 'DROP TABLE orders'):
                 if sql(statement, reader=True, fail=True).returncode == 0:
