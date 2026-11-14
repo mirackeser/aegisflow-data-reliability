@@ -42,3 +42,33 @@ class WorkbenchTests(unittest.TestCase):
    self.assertEqual(call('/../workbench.py')[0],403)
    self.assertIn("frame-ancestors 'none'",call()[2]['Content-Security-Policy'])
   finally:server.shutdown();server.server_close();thread.join()
+
+ def test_scenario_selection_history_and_restart(self):
+  with patch('workbench.Thread'):
+   self.assertTrue(self.w.start('transformation'))
+   first=self.w.snapshot()['run_id']
+   self.assertEqual(self.w.snapshot()['scenario'],'transformation')
+   self.w.state['status']='COMPLETED';self.w.save()
+   self.assertTrue(self.w.start('null_total'))
+   self.assertEqual(self.w.snapshot()['history'][0]['run_id'],first)
+   self.assertEqual(self.w.snapshot()['history'][0]['scenario'],'transformation')
+  reopened=Workbench(self.tmp.name,'/missing')
+  self.assertEqual(reopened.snapshot()['status'],'INTERRUPTED')
+  self.assertEqual(reopened.snapshot()['history'][0]['run_id'],first)
+  with self.assertRaises(ValueError): self.w.start('../arbitrary')
+ def test_history_capacity_and_verified_result_persistence(self):
+  result={'cases':[{'case':'clean'}], 'references':[]}
+  with patch('workbench.Thread'):
+   for i in range(23):
+    self.w.start('clean');self.w.state.update(status='COMPLETED',result=result);self.w.save()
+  self.assertEqual(len(self.w.snapshot()['history']),20)
+  detached=self.w.snapshot();detached['history'][0]['result']['cases'].clear()
+  self.assertEqual(len(self.w.snapshot()['history'][0]['result']['cases']),1)
+
+ def test_transformation_retrieves_the_matching_contract(self):
+  self.w.state['scenario']='transformation'
+  with patch('workbench.qualify',return_value={'cases':[], 'write_denials':3}):
+   self.w.run()
+  self.assertEqual(self.w.snapshot()['status'],'COMPLETED')
+  self.assertEqual(self.w.snapshot()['result']['references'][0]['source'],'reconciliation-contract')
+  self.assertNotIn('detected',self.w.snapshot()['events'][2]['description'])
