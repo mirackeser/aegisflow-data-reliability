@@ -97,7 +97,7 @@ class WorkbenchTests(unittest.TestCase):
    def call(path,method='GET',body=None,headers=None):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=3)
     c.request(method,path,body=body,headers=headers or {});r=c.getresponse();status=r.status;r.read();c.close();return status
-   for page in ('/overview','/investigations','/activity','/knowledge','/history','/i18n.js'):
+   for page in ('/overview','/sources','/presentation.js','/investigations','/activity','/knowledge','/history','/i18n.js'):
     self.assertEqual(call(page),200)
    self.assertEqual(call('/api/inspect','POST',b'csv',{'Content-Type':'text/csv'}),403)
    auth={'Authorization':'Bearer local-csv-token','Content-Type':'text/csv'}
