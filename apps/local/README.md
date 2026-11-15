@@ -41,3 +41,17 @@ The operations overview contains source readiness, an actual execution path, cou
 Technical hashes are progressively disclosed. The primary screen names human-readable stages rather than displaying only role codes. The interface retains TR/EN, distinct routes and keyboard focus. Diagram and bar states have text equivalents; reduced motion and responsive layouts apply. `node apps/local/test_presentation.cjs` verifies grouping/count/truncation/provenance/reconciliation behavior without extra dependencies. Visual QA uses a separate local state directory and synthetic data; it must not populate the user's working history automatically.
 
 Connecting does not auto-select the last uploaded file as a new investigation. Saved results, including the most recent completed run, are explicitly opened from Reports/recent investigations; an ongoing run can still be observed. No original record/history is deleted by this UI change.
+
+### Guided use and readable reports
+
+The overview includes a collapsible product guide with links to sources, inspections,
+execution and saved reports. Every page explains its purpose and next action.
+Current local capabilities and future production/model capabilities are explicitly
+separated in the guide. A completed task is not presented as proof of data accuracy.
+
+Users can download a three-order synthetic CSV template without submitting data.
+Completed or saved inspections can be exported as a standalone, printable HTML
+report in the selected TR/EN language; JSON remains available for technical review.
+The HTML preserves source identity, run ID, timestamps, grouped record references,
+truncation warnings and reconciliation values. It escapes all interpolated values
+and forbids scripts and network resources via a restrictive content policy.
