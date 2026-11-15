@@ -156,8 +156,8 @@ def make_server(workbench, token, port=0):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in ('/', '/overview', '/investigations', '/activity', '/knowledge', '/history')},
-                      '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+            assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history')},
+                      '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'), '/presentation.js': ('presentation.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
             if self.path in assets:
                 name, mime = assets[self.path]
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)

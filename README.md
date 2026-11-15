@@ -4,7 +4,7 @@ Evidence-led investigation of batch data pipelines, with bounded tools and human
 
 ## Current increment
 
-The [local operations workspace](apps/local/README.md) now supports Turkish/English, separate overview/investigation/activity/knowledge/history screens and authenticated inspection of your own UTF-8 order CSV files. Actual source findings, logical record numbers, independently checked retained evidence and JSON report download are available with zero external spending. This local profile uses deterministic checks and lexical references; model inference and production hosting remain open.
+The [local operations workspace](apps/local/README.md) explains the order-data inspection workflow, separates user-file and explicitly labeled example modes, and supports Turkish/English across overview, source, investigation, activity and report screens. Authenticated UTF-8 order CSV inspection produces grouped findings with record numbers and review guidance. Actual source findings, logical record numbers, independently checked retained evidence and JSON report download are available with zero external spending. This local profile uses deterministic checks and lexical references; model inference and production hosting remain open.
 
 Increment 45 adds [retained evaluation campaigns](docs/contracts/evaluation-campaign-v1.md): real investigation → bounded dispatch → independent Judge → raw/accepted predictions, shared expenditure and latency reports. Crash-preserving artifacts, zero-call historical readback and installed mTLS campaign qualification are included. The public fixture CLI needs no provider or credentials; its statistical quality gate correctly remains BLOCK. Validation covers 807 application/security methods and fourteen installed checks.
 

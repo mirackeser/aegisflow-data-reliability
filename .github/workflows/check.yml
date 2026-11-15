@@ -24,6 +24,8 @@ jobs:
         run: python -m coverage run --branch --source=aegisflow_dr -m unittest discover -s tests -v
       - name: Test local workbench access, recovery and retrieval isolation
         run: python -m unittest discover -s apps/local -v
+      - name: Verify observed dashboard summaries
+        run: node apps/local/test_presentation.cjs
       - name: Enforce coordination/workflow coverage and report application coverage
         env:
           COVERAGE_FILE: ${{ runner.temp }}/application.coverage
