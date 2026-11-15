@@ -72,3 +72,48 @@ class WorkbenchTests(unittest.TestCase):
   self.assertEqual(self.w.snapshot()['status'],'COMPLETED')
   self.assertEqual(self.w.snapshot()['result']['references'][0]['source'],'reconciliation-contract')
   self.assertNotIn('detected',self.w.snapshot()['events'][2]['description'])
+ def test_real_csv_upload_retains_evidence_and_finds_actual_records(self):
+  from aegisflow_dr.pipeline import generate_orders
+  for fault,expected in [('clean','NO_FAILURE_OBSERVED'),('null_total','SOURCE_QUALITY_FAILURE'),('duplicate_order','SOURCE_QUALITY_FAILURE')]:
+   self.w.state.update(scenario='upload',run_id='upload-'+fault)
+   self.w.run(generate_orders(fault=fault))
+   snapshot=self.w.snapshot()
+   self.assertEqual(snapshot['status'],'COMPLETED')
+   case=snapshot['result']['cases'][0]
+   self.assertEqual(case['assessment'],expected)
+   self.assertIsNotNone(case['retained_run_id'])
+   if fault=='null_total':self.assertEqual(case['source_report']['findings'][0]['record_numbers'],[1])
+   self.assertIsNone(snapshot['result']['write_denials'])
+  self.assertTrue((self.w.root/'evidence.db').is_file())
+ def test_invalid_csv_and_upload_admission_bounds(self):
+  for raw in (b'',b'x'*1000001,None):
+   with self.assertRaises(ValueError):self.w.start('upload',raw)
+  self.w.state.update(scenario='upload',run_id='malformed')
+  self.w.run(b'\xff\xfe')
+  self.assertEqual(self.w.snapshot()['status'],'FAILED')
+ def test_page_routes_and_authenticated_csv_transport(self):
+  server=make_server(self.w,'local-csv-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def call(path,method='GET',body=None,headers=None):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=3)
+    c.request(method,path,body=body,headers=headers or {});r=c.getresponse();status=r.status;r.read();c.close();return status
+   for page in ('/overview','/investigations','/activity','/knowledge','/history','/i18n.js'):
+    self.assertEqual(call(page),200)
+   self.assertEqual(call('/api/inspect','POST',b'csv',{'Content-Type':'text/csv'}),403)
+   auth={'Authorization':'Bearer local-csv-token','Content-Type':'text/csv'}
+   self.assertEqual(call('/api/inspect','POST',b'',auth),413)
+   self.assertEqual(call('/api/inspect','POST',b'data',{**auth,'Content-Type':'application/json'}),403)
+   self.assertEqual(call('/api/inspect','POST',b'data',{**auth,'Origin':'https://evil.invalid'}),403)
+   with patch('workbench.Thread'):
+    self.assertEqual(call('/api/inspect','POST',b'order_id,customer_id,order_total\n',auth),202)
+    self.assertEqual(self.w.snapshot()['scenario'],'upload')
+    self.assertEqual(call('/api/inspect','POST',b'order_id,customer_id,order_total\n',auth),409)
+  finally:server.shutdown();server.server_close();thread.join()
+
+ def test_upload_requires_independent_judge_acceptance(self):
+  from aegisflow_dr.pipeline import generate_orders
+  self.w.state.update(scenario='upload',run_id='rejected-upload')
+  with patch('workbench.review',return_value={'decision':'REJECT'}):
+   self.w.run(generate_orders())
+  self.assertEqual(self.w.snapshot()['status'],'FAILED')
+  self.assertIsNone(self.w.snapshot()['result'])

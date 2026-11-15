@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Authenticated loopback workbench for synthetic PostgreSQL investigations."""
+"""Authenticated loopback workbench for retained local data investigations."""
 import argparse
 import hmac
 import json
@@ -15,6 +15,12 @@ from knowledge import Document, Knowledge
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
 from check_postgres_local import qualify
+from dataclasses import asdict
+from aegisflow_dr.pipeline import diagnose_csv
+from aegisflow_dr.investigation import default_policy
+from aegisflow_dr.storage import IncidentStore, initialize
+from aegisflow_dr.storage.runs import InvestigationRuns
+from aegisflow_dr.coordination.judge import review
 
 
 class Workbench:
@@ -58,8 +64,10 @@ class Workbench:
             self.state['events'].append({'agent': agent, 'state': state, 'description': description})
             self.save()
 
-    def start(self, scenario='suite'):
-        if scenario not in ('suite', 'clean', 'null_total', 'duplicate_order', 'transformation'):
+    def start(self, scenario='suite', payload=None):
+        if scenario == 'upload' and (type(payload) is not bytes or not 1 <= len(payload) <= 1000000):
+            raise ValueError('Invalid CSV payload')
+        if scenario not in ('suite', 'clean', 'null_total', 'duplicate_order', 'transformation', 'upload'):
             raise ValueError('Unsupported scenario')
         with self.lock:
             if self.state['status'] == 'RUNNING':
@@ -70,13 +78,38 @@ class Workbench:
             self.state.update(status='RUNNING', events=[], result=None, error=None, scenario=scenario,
                 run_id=str(uuid4()), started_at=datetime.now(timezone.utc).isoformat(), finished_at=None)
             self.save()
-        Thread(target=self.run, daemon=True).start()
+        Thread(target=self.run, args=(payload,), daemon=True).start()
         return True
 
-    def run(self):
+    def inspect_csv(self, payload):
+        path = self.root / 'evidence.db'
+        if not path.exists():
+            initialize(path)
+        store = IncidentStore(path)
+        source = store.record(payload, request_key=self.state['run_id'])
+        report = asdict(diagnose_csv(payload))
+        record = InvestigationRuns(store).execute(source['incident_id'], default_policy(), request_key=self.state['run_id'])
+        if record['trace']['status'] != 'COMPLETED':
+            raise ValueError('Incomplete investigation')
+        verified = InvestigationRuns(store).read(record['run_id'])
+        proposal = {'version':'1', 'run_id':record['run_id'], 'incident_id':source['incident_id'],
+            'assessment':record['trace']['assessment'],
+            'evidence_sha256':sorted({record['trace']['source_sha256'],
+                *(step['report_sha256'] for step in record['trace']['steps'])})}
+        verdict = review(verified, proposal)
+        if verdict['decision'] != 'ACCEPT':
+            raise ValueError('Independent evidence verification rejected')
+        return {'status':'PASS', 'judge':verdict, 'source':'local-upload', 'write_denials':None,
+            'existing_servers_accessed':False, 'live_model_calls':0,
+            'cases':[{'case':'upload','assessment':record['trace']['assessment'],'rows':report['row_count'],
+                'source_report':report, 'retained_run_id':record['run_id'],
+                'steps':[{'tool':step['tool'],'report_sha256':step['report_sha256'],'report':step['report']}
+                         for step in record['trace']['steps']]}]}
+
+    def run(self, payload=None):
         try:
-            self.event('A07 / Source inspection', 'RUNNING', 'Opening isolated PostgreSQL source')
-            result = qualify(self.bindir, self.state['scenario'])
+            self.event('A07 / Source inspection', 'RUNNING', 'Reading local CSV evidence' if payload is not None else 'Opening isolated PostgreSQL source')
+            result = self.inspect_csv(payload) if payload is not None else qualify(self.bindir, self.state['scenario'])
             self.event('A07 / Source inspection', 'COMPLETED', 'Selected source scenarios checked against retained evidence')
             self.event('A10 / Data quality', 'COMPLETED', 'Source checks completed; findings are recorded per scenario')
             self.event('A22 / Knowledge retrieval', 'RUNNING', 'Retrieving authorized, revision-bound reference')
@@ -87,10 +120,10 @@ class Workbench:
                     allowed_sources=allowed) for r in references):
                 raise ValueError('Reference validation failed')
             self.event('A22 / Knowledge retrieval', 'COMPLETED', 'Reference provenance verified')
-            self.event('A27 / Verification', 'COMPLETED', 'Expected assessments and three write denials verified')
+            self.event('A27 / Verification', 'COMPLETED', 'Retained CSV evidence and completed checks verified' if payload is not None else 'Expected assessments and three write denials verified')
             with self.lock:
                 self.state.update(status='COMPLETED', finished_at=datetime.now(timezone.utc).isoformat(), result={**result, 'references': references,
-                    'scope': 'synthetic deterministic capability slices; no LLM inference'})
+                    'scope': 'local deterministic inspection; no LLM inference'})
                 self.save()
         except Exception:
             with self.lock:
@@ -123,8 +156,8 @@ def make_server(workbench, token, port=0):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            assets = {'/': ('index.html', 'text/html; charset=utf-8'),
-                      '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+            assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in ('/', '/overview', '/investigations', '/activity', '/knowledge', '/history')},
+                      '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
             if self.path in assets:
                 name, mime = assets[self.path]
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)
@@ -134,6 +167,26 @@ def make_server(workbench, token, port=0):
                 self.respond(403, b'{}')
 
         def do_POST(self):
+            if self.path == '/api/inspect':
+                if (not self.authorized() or self.headers.get('Transfer-Encoding') is not None
+                        or len(self.headers.get_all('Content-Length', [])) != 1
+                        or self.headers.get('Content-Type') != 'text/csv'):
+                    self.respond(403, b'{}'); return
+                try:
+                    raw_length = self.headers['Content-Length']
+                    if not raw_length.isascii() or not raw_length.isdecimal():
+                        raise ValueError('Invalid length')
+                    length = int(raw_length)
+                    if not 1 <= length <= 1000000:
+                        self.respond(413, b'{}'); return
+                    self.connection.settimeout(5)
+                    payload = self.rfile.read(length)
+                    if len(payload) != length:
+                        raise ValueError('Incomplete body')
+                    self.respond(202 if workbench.start('upload', payload) else 409, b'{}')
+                except (ValueError, TimeoutError, OSError):
+                    self.respond(400, b'{}')
+                return
             scenario = self.path.removeprefix('/api/run/') if self.path.startswith('/api/run/') else 'suite'
             if (self.path not in ('/api/run', '/api/run/clean', '/api/run/null_total', '/api/run/duplicate_order', '/api/run/transformation') or not self.authorized()
                     or self.headers.get('Content-Length', '0') != '0'
