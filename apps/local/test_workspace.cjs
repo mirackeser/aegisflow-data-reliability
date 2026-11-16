@@ -41,3 +41,6 @@ console.log('workspace assertions passed: exact dimensions, rule-based order, co
  assert.ok(require('node:fs').readFileSync(__dirname+'/i18n.js','utf8').includes('"SYNTHETIC SAMPLE": "SENTETİK ÖRNEK"'),'Turkish report label missing');
 }
 console.log('synthetic sample labelling verified.');
+// a connected source is classified on its own, never as an upload or a sample
+assert.equal(P.summarizeResult({source:'connected-source',cases:[]}).source,'connected');
+assert.equal(P.summarizeResult({source:'local-upload',cases:[]}).source,'uploaded');

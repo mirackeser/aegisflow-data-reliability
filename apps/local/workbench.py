@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
 from check_postgres_local import qualify
 from dataclasses import asdict
 from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
+from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.execution_view import build_plan
 from aegisflow_dr.pipeline import FAULTS, InputRejected, diagnose_csv, generate_orders
 from aegisflow_dr.investigation import default_policy
@@ -123,7 +124,8 @@ class Workbench:
             raise ValueError('Independent evidence verification rejected')
         analysis = analyze_csv(payload)
         kind = (self.state.get('meta') or {}).get('kind')
-        return {'status':'PASS', 'judge':verdict, 'source':'synthetic-sample' if kind == 'synthetic_sample' else 'local-upload',
+        origin = {'synthetic_sample': 'synthetic-sample', 'connected': 'connected-source'}.get(kind, 'local-upload')
+        return {'status':'PASS', 'judge':verdict, 'source':origin,
             'write_denials':None,
             'existing_servers_accessed':False, 'live_model_calls':0,
             'cases':[{'case':'upload','assessment':record['trace']['assessment'],'rows':report['row_count'],
@@ -212,7 +214,7 @@ class Workbench:
             self.save()
 
 
-def make_server(workbench, token, port=0):
+def make_server(workbench, token, port=0, catalog=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
@@ -245,6 +247,9 @@ def make_server(workbench, token, port=0):
             if self.path in assets:
                 name, mime = assets[self.path]
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)
+            elif self.path == '/api/sources' and self.authorized():
+                listing = {'configured': catalog is not None, 'sources': catalog.sources() if catalog else []}
+                self.respond(200, json.dumps(listing).encode())
             elif self.path == '/api/state' and self.authorized():
                 self.respond(200, json.dumps(workbench.snapshot()).encode())
             else:
@@ -300,6 +305,34 @@ def make_server(workbench, token, port=0):
                 except (ValueError, TypeError):
                     self.respond(400, b'{}')
                 return
+            if self.path in ('/api/source/tables', '/api/source/discover', '/api/source/inspect'):
+                body = self.read_body('application/json', 2048)
+                if body is None:
+                    return
+                try:
+                    if catalog is None:
+                        raise InputRejected('No source directory is configured')
+                    request = json.loads(body)
+                    name, table = request['source'], request.get('table')
+                    if self.path == '/api/source/tables':
+                        self.respond(200, json.dumps(catalog.tables(name)).encode()); return
+                    payload, provenance = catalog.export(name, table)
+                    if self.path == '/api/source/discover':
+                        self.respond(200, json.dumps({**discover_schema(payload), 'provenance': provenance}).encode()); return
+                    mapping = request.get('mapping')
+                    meta = {'kind': 'connected', 'name': name if table is None else f'{name}:{table}',
+                            'source_sha256': hashlib.sha256(payload).hexdigest(), 'mapping': mapping,
+                            'provenance': provenance}
+                    if mapping:
+                        payload = apply_mapping(payload, mapping)
+                    else:
+                        diagnose_csv(payload)
+                    self.respond(202 if workbench.start('upload', payload, meta) else 409, b'{}')
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (KeyError, ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
             if self.path == '/api/review':
                 body = self.read_body('application/json', 1024)
                 if body is None:
@@ -336,12 +369,13 @@ if __name__ == '__main__':
     parser.add_argument('--state-dir', required=True)
     parser.add_argument('--postgres-bindir', required=True)
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--source-dir', help='directory whose CSV and SQLite files are exposed read-only')
     args = parser.parse_args()
     workbench = Workbench(args.state_dir, args.postgres_bindir)
     token = secrets.token_urlsafe(32)
     descriptor = os.open(Path(args.state_dir) / 'access-token', os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, 'w') as stream:
         stream.write(token)
-    server = make_server(workbench, token, args.port)
+    server = make_server(workbench, token, args.port, SourceCatalog(args.source_dir) if args.source_dir else None)
     print(f'Local workbench: http://127.0.0.1:{server.server_port}; access token is in the private state directory.', flush=True)
     server.serve_forever()

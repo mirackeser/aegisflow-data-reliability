@@ -32,7 +32,7 @@ const reviewsOf=run=>(run&&state?.reviews?.[run.run_id])||{};
 const progressOf=run=>reviewProgress(analysisOf(run)?.actions,reviewsOf(run));
 function originKey(run){
  const s=summarizeResult(run?.result).source;
- return s==='uploaded'?'origin.file':s==='sample'?'origin.sample':s==='example'?'origin.example':'origin.none';
+ return s==='uploaded'?'origin.file':s==='connected'?'origin.connected':s==='sample'?'origin.sample':s==='example'?'origin.example':'origin.none';
 }
 function setNotice(message,error=false){const n=$('notice');n.textContent=message||'';n.classList.toggle('error',error);n.hidden=!message;}
 async function request(path,method='GET',body,headers={}){

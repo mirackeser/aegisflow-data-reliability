@@ -1,6 +1,6 @@
 'use strict';
 // Investigation workspace and source workflow.
-let selectedGroupId=null,showAllRecords=false,sourceMode='file',selectedFile=null,discovery=null,mappingOn={},awaiting=false;
+let selectedGroupId=null,showAllRecords=false,sourceMode='file',selectedFile=null,discovery=null,mappingOn={},awaiting=false,folder=null,folderSource=null,folderTables=null,folderTable=null;
 const RECORD_PAGE=25;
 
 // ---------- starting work ----------
@@ -13,6 +13,29 @@ async function begin(path,body,headers){
  try{await request(path,'POST',body,headers);awaiting=true;setNotice(t('notice.running'));await refresh();}
  catch(error){setNotice(error.message,true);}
 }
+const JSON_HEADERS={'Content-Type':'application/json'};
+const folderChoice=()=>JSON.stringify({source:folderSource.id,table:folderTable||undefined,mapping:Object.keys(mappingOn).length?mappingOn:undefined});
+const folderReady=()=>!!folderSource&&(folderSource.kind==='csv'||!!folderTable);
+async function loadFolder(){
+ if(!connected){folder=null;return;}
+ try{folder=await request('/api/sources');}catch(error){folder=null;setNotice(error.message,true);}
+ render();
+}
+async function chooseFolderSource(id){
+ folderSource=(folder?.sources||[]).find(x=>x.id===id)||null;folderTables=null;folderTable=null;discovery=null;mappingOn={};
+ if(folderSource?.kind==='sqlite'){
+  try{folderTables=(await request('/api/source/tables','POST',JSON.stringify({source:id}),JSON_HEADERS)).tables;setNotice('');}
+  catch(error){folderSource=null;setNotice(error.message,true);}
+ }
+ render();
+}
+async function discoverFolder(){
+ if(!folderReady()||!requireSession())return;
+ try{discovery=await request('/api/source/discover','POST',JSON.stringify({source:folderSource.id,table:folderTable||undefined}),JSON_HEADERS);mappingOn={};setNotice('');}
+ catch(error){discovery=null;setNotice(error.message,true);}
+ render();
+}
+const startFolder=()=>folderReady()&&begin('/api/source/inspect',folderChoice(),JSON_HEADERS);
 const startSample=fault=>begin(`/api/sample/${fault}`);
 const startExample=scenario=>begin(scenario==='suite'?'/api/run':`/api/run/${scenario}`);
 async function startFile(){
@@ -135,7 +158,7 @@ function renderExampleDetail(run,root){
 // ---------- sources ----------
 const CONTRACT=[['order_id','contract.order_id'],['customer_id','contract.customer_id'],['order_total','contract.order_total']];
 function sourceCard(mode,titleKey,textKey,tone,stateKey){
- return h('button',{type:'button',class:'source-card'+(sourceMode===mode?' selected':''),'aria-pressed':String(sourceMode===mode),onclick:()=>{sourceMode=mode;render();}},
+ return h('button',{type:'button',class:'source-card'+(sourceMode===mode?' selected':''),'aria-pressed':String(sourceMode===mode),onclick:()=>{sourceMode=mode;discovery=null;mappingOn={};if(mode==='folder')loadFolder();else render();}},
   h('strong',{text:t(titleKey)}),h('span',{text:t(textKey)}),chip(t(stateKey),tone));
 }
 function futureCard(titleKey,textKey){
@@ -156,6 +179,7 @@ function discoveryPanel(){
     h('label',{class:'map-choice'},h('input',{type:'checkbox',checked:!!mappingOn[item.candidate.column],onchange:e=>{mappingOn[item.candidate.column]=item.name;if(!e.target.checked)delete mappingOn[item.candidate.column];render();}}),
      ' ',t('disc.use',{column:item.candidate.column,target:item.name}),' ',chip(t('basis.'+item.candidate.basis),'info')))))),
   candidates.length?h('p',{class:'hint',text:t('disc.confirm')}):null,
+  d.provenance?.sampled?h('p',{class:'hint bad',text:t('folder.sampled',{limit:N(d.row_count),total:N(d.provenance.total_rows)})}):null,
   h('h3',{text:t('disc.columns')}),
   h('div',{class:'table-wrap'},h('table',{class:'data-table compact'},h('thead',{},h('tr',{},...['disc.col.name','disc.col.type','disc.col.filled','disc.col.empty','disc.col.distinct','disc.col.role'].map(k=>h('th',{scope:'col',text:t(k)})))),
    h('tbody',{},d.columns.map(col=>h('tr',{},h('th',{scope:'row',text:col.name}),h('td',{text:t('type.'+col.inferred_type)}),h('td',{text:N(col.non_empty)}),h('td',{text:N(col.empty)}),h('td',{text:N(col.distinct)}),
@@ -165,12 +189,24 @@ function renderSources(){
  const root=$('screen-sources'),chosen=Object.keys(mappingOn).length;
  const cards=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'1 · '+t('src.step1')})),
   h('div',{class:'source-cards',role:'group','aria-label':t('src.step1')},
-   sourceCard('file','src.csv','src.csv.x','ok','state.ok'),sourceCard('sample','src.sample','src.sample.x','ok','state.ok'),sourceCard('example','src.pg','src.pg.x','info','state.info'),
+   sourceCard('file','src.csv','src.csv.x','ok','state.ok'),sourceCard('sample','src.sample','src.sample.x','ok','state.ok'),sourceCard('folder','src.folder','src.folder.x','ok','state.ok'),sourceCard('example','src.pg','src.pg.x','info','state.info'),
    futureCard('src.company','src.company.x'),futureCard('src.warehouse','src.warehouse.x')));
  let config;
  if(sourceMode==='sample'){
   config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.sample')}),chip(t('origin.sample'),'info')),h('p',{text:t('sample.intro')}),
    h('div',{class:'sample-grid'},SAMPLES.map(f=>h('article',{class:'sample'},h('strong',{text:t('sample.'+f)}),h('p',{text:t('sample.'+f+'.x')}),h('button',{type:'button',class:'secondary',onclick:()=>startSample(f)},t('sample.run'))))));
+ }else if(sourceMode==='folder'){
+  const sources=folder?.sources||[],note=!connected?'folder.needsSession':!folder?null:!folder.configured?'folder.unconfigured':!sources.length?'folder.empty':null;
+  const pick=h('select',{id:'folder-source',onchange:e=>chooseFolderSource(e.target.value)},h('option',{value:'',text:t('folder.source.choose')}),sources.map(x=>h('option',{value:x.id,selected:folderSource?.id===x.id,text:`${x.id} · ${t('folder.kind.'+x.kind)}`})));
+  const tablePick=folderTables?h('select',{id:'folder-table',onchange:e=>{folderTable=e.target.value||null;discovery=null;mappingOn={};render();}},h('option',{value:'',text:t('folder.table.choose')}),folderTables.map(x=>h('option',{value:x.name,selected:folderTable===x.name,text:t('folder.table.opt',{name:x.name,rows:N(x.rows)})}))):null;
+  const chosenCount=Object.keys(mappingOn).length;
+  config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.folder')}),chip(t('origin.connected'),'ok')),h('p',{text:t('folder.intro')}),
+   note?h('p',{class:'hint',text:t(note)}):null,
+   sources.length?h('div',{class:'stack'},h('label',{for:'folder-source',text:t('folder.source')}),pick,tablePick?h('label',{for:'folder-table',text:t('folder.table')}):null,tablePick):null,
+   h('p',{class:'hint',text:t('folder.limits')}),
+   h('div',{class:'button-row'},h('button',{type:'button',class:'secondary',disabled:!folderReady(),onclick:discoverFolder},t('folder.validate')),
+    h('button',{type:'button',class:'primary',disabled:!folderReady()||state?.status==='RUNNING',onclick:startFolder},chosenCount?t('file.inspect.mapped',{n:chosenCount}):t('folder.inspect'))),
+   discoveryPanel(),h('p',{class:'panel-note',text:t('folder.privacy')}));
  }else if(sourceMode==='example'){
   const select=h('select',{id:'scenario'},EXAMPLES.map(s=>h('option',{value:s,text:t('ex.case.'+s)})));
   config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.example')}),chip(t('origin.example'),'info')),h('p',{text:t('example.intro')}),
@@ -190,7 +226,7 @@ function renderSources(){
    selectedFile&&selectedFile.size>1000000?h('p',{class:'hint bad',text:t('err.size')}):null,
    discoveryPanel(),h('p',{class:'panel-note',text:t('file.privacy')}));
  }
- const conn=[['conn.session',connected?'ok':'warn',connected?'conn.on':'conn.off','conn.session.x'],['src.csv','ok','state.ok','conn.csv.x'],['src.pg','info','state.info','conn.pg.x'],['src.company','muted','state.muted','conn.company.x']];
+ const conn=[['conn.session',connected?'ok':'warn',connected?'conn.on':'conn.off','conn.session.x'],['src.csv','ok','state.ok','conn.csv.x'],['src.folder',folder?.configured?'ok':'muted',folder?.configured?'state.ok':'state.muted','conn.folder.x'],['src.pg','info','state.info','conn.pg.x'],['src.company','muted','state.muted','conn.company.x']];
  const side=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.connections')})),
   h('ul',{class:'ready-list'},conn.map(([name,tone,stateKey,text])=>h('li',{},h('div',{},h('strong',{text:t(name)}),h('small',{text:t(text)})),chip(t(stateKey),tone)))),
   h('p',{class:'panel-note',text:t('conn.note')}));

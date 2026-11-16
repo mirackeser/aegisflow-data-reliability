@@ -303,6 +303,7 @@ const translations={
   "Upload a file and inspect actual records.": "Dosya yükleyin, gerçek kayıtları denetleyin.",
   "Uploaded CSV": "Yüklenen CSV",
   "Uploaded file": "Yüklenen dosya",
+  "Connected source": "Bağlı kaynak",
   "Uploaded order file": "Yüklenen sipariş dosyası",
   "Verified report": "Doğrulanmış rapor",
   "Verified source references": "Doğrulanmış kaynak referansları",

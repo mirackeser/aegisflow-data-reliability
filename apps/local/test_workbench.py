@@ -200,3 +200,50 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(call('/api/review',body=b'{}',headers={**js,'Content-Type':'text/csv'})[0],403)
    self.assertEqual(call('/api/review',body=b'x'*2000,headers=js)[0],413)
   finally:server.shutdown();server.server_close();thread.join()
+ def test_http_connected_sources_are_read_only_listed_and_inspected(self):
+  import json,sqlite3
+  from pathlib import Path
+  from aegisflow_dr.connectors import SourceCatalog
+  src=Path(self.tmp.name)/'sources';src.mkdir()
+  (src/'orders.csv').write_bytes(self.DRIFT)
+  db=sqlite3.connect(src/'shop.sqlite');db.execute('CREATE TABLE orders (order_id TEXT, customer_id TEXT, order_total TEXT)')
+  db.executemany('INSERT INTO orders VALUES (?,?,?)',[('A1','C1','10.00'),('A1','C1','10.00'),('A2','C2','')]);db.commit();db.close()
+  before=(src/'shop.sqlite').read_bytes()
+  server=make_server(self.w,'connect-token',catalog=SourceCatalog(src));thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  bare=make_server(self.w,'connect-token');bare_thread=Thread(target=bare.serve_forever,daemon=True);bare_thread.start()
+  try:
+   def call(path,method='POST',body=None,headers=None,port=None):
+    c=HTTPConnection('127.0.0.1',port or server.server_port,timeout=3)
+    c.request(method,path,body=body,headers=headers or {});r=c.getresponse();value=(r.status,r.read());c.close();return value
+   auth={'Authorization':'Bearer connect-token'};js={**auth,'Content-Type':'application/json'}
+   self.assertEqual(call('/api/sources','GET',headers={'Host':'evil'})[0],403)
+   self.assertEqual(call('/api/sources','GET')[0],403)
+   listing=json.loads(call('/api/sources','GET',headers=auth)[1])
+   self.assertEqual((listing['configured'],[s['id'] for s in listing['sources']]),(True,['orders.csv','shop.sqlite']))
+   self.assertEqual(json.loads(call('/api/sources','GET',headers=auth,port=bare.server_port)[1]),{'configured':False,'sources':[]})
+   self.assertEqual(call('/api/source/tables',body=b'{"source":"x"}',headers=js,port=bare.server_port)[0],422)
+   tables=json.loads(call('/api/source/tables',body=b'{"source":"shop.sqlite"}',headers=js)[1])
+   self.assertEqual(tables['tables'][0]['rows'],3)
+   found=json.loads(call('/api/source/discover',body=b'{"source":"shop.sqlite","table":"orders"}',headers=js)[1])
+   self.assertEqual((found['status'],found['provenance']['connector']),('COMPATIBLE',"sqlite"))
+   self.assertEqual(call('/api/source/discover',body=b'{"source":"../etc/passwd"}',headers=js)[0],422)
+   self.assertEqual(call('/api/source/inspect',body=b'{"table":"orders"}',headers=js)[0],400)
+   self.assertEqual(call('/api/source/inspect',body=b'{"source":"shop.sqlite","table":"orders","mapping":{"zz":"order_total"}}',headers=js)[0],422)
+   with patch('workbench.Thread'):
+    self.assertEqual(call('/api/source/inspect',body=b'{"source":"shop.sqlite","table":"orders"}',headers=js)[0],202)
+    meta=self.w.snapshot()['meta'];self.assertEqual((meta['kind'],meta['name']),('connected','shop.sqlite:orders'))
+    self.assertEqual(meta['provenance']['total_rows'],3)
+    self.w.state['status']='COMPLETED'
+    self.assertEqual(call('/api/source/inspect',body=b'{"source":"orders.csv","mapping":{"total_amount":"order_total"}}',headers=js)[0],202)
+    self.assertEqual(self.w.snapshot()['meta']['mapping'],{'total_amount':'order_total'})
+   self.w.state['status']='IDLE'
+   self.assertEqual(call('/api/source/tables',body=b'{"source":"shop.sqlite"}',headers={**auth,'Content-Type':'text/csv'})[0],403)
+   self.assertEqual((src/'shop.sqlite').read_bytes(),before)
+  finally:
+   for s,t in ((server,thread),(bare,bare_thread)):s.shutdown();s.server_close();t.join()
+ def test_connected_run_is_labelled_connected_source(self):
+  from aegisflow_dr.pipeline import generate_orders
+  meta={'kind':'connected','name':'shop.sqlite:orders'}
+  self.w.state.update(scenario='upload',run_id='run-conn',meta=meta)
+  self.w.run(generate_orders(fault='clean'),meta)
+  self.assertEqual(self.w.snapshot()['result']['source'],'connected-source')
