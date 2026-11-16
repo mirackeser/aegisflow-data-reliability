@@ -188,3 +188,7 @@ An opt-in `--source-dir` exposes CSV and SQLite files from one folder through `c
 
 `monitoring.py` derives per-source series and rule-based change alerts (quality, new failing checks, schema change and restoration, row count, average amount, recovery) from retained inspections; every value is an exact count from the analysis and a source needs two inspections. The Overview and Reports pages show a multi-series change monitor with marked inspections and plain-language sentences (TR/EN); Execution flow shows a measured timeline from real event timestamps and a staged, animated capability graph. A real sample sequence exposed a rule defect (a repaired schema was labelled as degradation), fixed by separating `SCHEMA_RESTORED`. Package coverage stays 100%. Drift rules are fixed thresholds, not statistical tests or root-cause inference.
 
+## Increment 44 — check accuracy page
+
+A new Check accuracy page and `GET /api/evaluation` surface the record-level evaluation (increment 42) inside the workbench in Turkish and English, with the same limits stated next to the numbers. Executive-summary and print-ready report polish remain open.
+

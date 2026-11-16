@@ -59,3 +59,13 @@ assert.equal(P.pickStream({streams:[]}),null);assert.equal(P.pickStream(undefine
 const series=P.driftSeries(monitoring.streams[0]);
 assert.deepEqual(series.map(s=>s.key),['record_health','completeness','uniqueness','validity']);assert.deepEqual(series[2].values,[null]);
 console.log('timeline and drift helpers verified.');
+// evidence rows keep counts, and an undefined rate stays null
+const rate=(value,numerator,denominator,interval)=>({value,numerator,denominator,interval_95:interval});
+const split=()=>({per_check:{unique:{recall:rate(1,4,4,[0.51,1]),precision:rate(null,0,0,null),false_positives:0,false_negatives:0}},overall:{recall:rate(0.5,2,4,[0.1,0.9]),precision:rate(1,2,2,[0.34,1]),false_positives:1,false_negatives:2}});
+const report={results:{diagnose_csv:{development:split(),heldout:split()}}};
+const evidence=P.evidenceRows(report,'diagnose_csv');
+assert.deepEqual(evidence.map(r=>r.check),['unique','overall']);
+assert.deepEqual(evidence[0].cells.development.precision,{value:null,numerator:0,denominator:0,low:null});
+assert.equal(evidence[0].cells.heldout.recall.low,0.51);assert.equal(evidence[1].cells.development.errors,3);
+assert.deepEqual(P.evidenceRows(report,'missing'),[]);assert.deepEqual(P.evidenceRows(undefined,'x'),[]);
+console.log('evidence rows verified.');

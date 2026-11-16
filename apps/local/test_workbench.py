@@ -257,3 +257,18 @@ class WorkflowTests(unittest.TestCase):
   self.w.run(generate_orders(fault='duplicate_order'),meta)
   stream=self.w.snapshot()['monitoring']['streams'][0]
   self.assertEqual((len(stream['runs']),stream['status']),(2,'DEGRADED'))
+ def test_http_evaluation_is_authorized_and_reports_all_splits(self):
+  import json
+  server=make_server(self.w,'eval-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=30);c.request('GET','/api/evaluation',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   self.assertEqual(get({})[0],403)
+   status,body=get({'Authorization':'Bearer eval-token'})
+   report=json.loads(body)
+   self.assertEqual(status,200)
+   self.assertTrue(report['heldout_evaluated'] and report['leakage']['clean'])
+   self.assertEqual(set(report['results']['diagnose_csv']),{'development','validation','heldout'})
+   self.assertEqual(self.w.snapshot()['status'],'IDLE')
+  finally:
+   server.shutdown();server.server_close();thread.join()
