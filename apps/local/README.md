@@ -67,3 +67,10 @@ The interface is a multi-page dark operations workspace (Overview, Investigation
 - **Overview** charts only observed values: exact quality-dimension counts, a column×check problem map, a valid-amount histogram, saved-run trend and source readiness. Nothing is simulated.
 
 Computation lives in `src/aegisflow_dr/analysis.py` (deterministic, bounded, 100% branch-covered). Verification: `python -m unittest discover -s apps/local`, `node apps/local/test_workspace.cjs`, `node apps/local/test_strings.cjs` (bilingual integrity) and the existing presentation tests.
+
+## Change monitor and execution timeline
+
+`monitoring.py` compares retained inspections of the same source (an uploaded file name, a connected folder table, or all labelled synthetic samples together) and `/api/state` returns the result as `monitoring`. Fixed rules over exact counts raise: `QUALITY_DEGRADED` (share of affected records up 5 points or more), `NEW_CHECK_FAILURE`, `SCHEMA_CHANGED` / `SCHEMA_RESTORED`, `ROW_COUNT_SHIFT` (50% or more), `AMOUNT_LEVEL_SHIFT` (average valid amount moves 50% or more) and `RECOVERED`. A source needs two inspections before it can be compared. These are prompts to look, not statistical tests, forecasts or causes; the Overview and Reports pages draw the retained ratios per inspection and mark the inspections where a rule fired.
+
+The Execution flow page adds a timeline drawn from the real timestamps of the run's events: bar widths are measured spans, a step with a single recorded event is shown as a marker, and nothing is estimated. The capability graph gained stage headers and animated edges for steps that actually completed (disabled when the person prefers reduced motion). Role IDs still name design-catalog capabilities; no autonomous agent or model call is shown because none runs.
+

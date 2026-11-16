@@ -247,3 +247,13 @@ class WorkflowTests(unittest.TestCase):
   self.w.state.update(scenario='upload',run_id='run-conn',meta=meta)
   self.w.run(generate_orders(fault='clean'),meta)
   self.assertEqual(self.w.snapshot()['result']['source'],'connected-source')
+ def test_snapshot_reports_drift_across_retained_runs(self):
+  from aegisflow_dr.pipeline import generate_orders
+  meta={'kind':'synthetic_sample','name':'synthetic-clean'}
+  self.assertEqual(self.w.snapshot()['monitoring']['streams'],[])
+  self.w.state.update(scenario='upload',run_id='run-a',meta=meta);self.w.run(generate_orders(fault='clean'),meta)
+  with patch('workbench.Thread'):
+   self.w.start('upload',generate_orders(fault='duplicate_order'),meta)
+  self.w.run(generate_orders(fault='duplicate_order'),meta)
+  stream=self.w.snapshot()['monitoring']['streams'][0]
+  self.assertEqual((len(stream['runs']),stream['status']),(2,'DEGRADED'))

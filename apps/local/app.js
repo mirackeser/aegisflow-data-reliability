@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -155,6 +155,42 @@ function trendPanel(){
  else body.append(trendSvg(runs.map(r=>({value:r.result.cases[0].analysis.impact.affected_records,label:runLabel(r)})),{label:t('panel.trend')}));
  return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.trend')}),chip(t('badge.saved'),'muted')),body,h('p',{class:'panel-note',text:t('panel.trend.note')}));
 }
+function changeTone(code){return code==='RECOVERED'||code==='SCHEMA_RESTORED'?'ok':'bad';}
+const checkLabel=key=>{const [check,column]=String(key).split(':');return column?`${t('check.'+check)} · ${column}`:t('check.'+check);};
+function describeChange(change){
+ const d=change.detail,list=values=>(values||[]).map(checkLabel).join(', ')||'—';
+ const params={QUALITY_DEGRADED:()=>({before:P(d.before),after:P(d.after)}),NEW_CHECK_FAILURE:()=>({checks:list(d.checks)}),SCHEMA_CHANGED:()=>({items:list(d.after)}),
+  SCHEMA_RESTORED:()=>({items:list(d.before)}),ROW_COUNT_SHIFT:()=>({before:N(d.before),after:N(d.after)}),AMOUNT_LEVEL_SHIFT:()=>({before:A(d.before),after:A(d.after)}),RECOVERED:()=>({before:N(d.before)})}[change.code]();
+ return t('drift.'+change.code,params);
+}
+function driftPanel(){
+ const stream=pickStream(state?.monitoring,driftKey),streams=state?.monitoring?.streams||[];
+ const tone={STABLE:'ok',RECOVERED:'ok',DEGRADED:'bad',INSUFFICIENT_HISTORY:'muted'};
+ const head=h('div',{class:'panel-heading'},h('h2',{text:t('panel.drift')}),stream?chip(t('drift.status.'+stream.status),tone[stream.status]):chip(t('badge.waiting'),'muted'));
+ const body=h('div',{class:'chart-area flow-scroll'});
+ const extras=[];
+ if(!stream)body.append(empty('empty.drift.t','empty.drift.x',link('/sources',t('cta.start'),'primary route')));
+ else if(stream.runs.length<2)body.append(empty('empty.drift1.t','empty.drift1.x'));
+ else{
+  const runs=stream.runs.map(r=>({...r,changes:r.changes.map(c=>({...c,tone:changeTone(c.code)}))}));
+  const series=driftSeries(stream).map(x=>({...x,label:t('dim.'+x.key)}));
+  body.append(driftSvg(series,runs,{label:t('panel.drift'),percent:v=>P(v),changeLabel:r=>r.changes.map(describeChange).join(' ')}));
+  const latest=runs[runs.length-1];
+  extras.push(h('h3',{text:t('drift.latest',{n:runs.length})}),latest.changes.length
+   ?h('ul',{class:'drift-changes'},latest.changes.map(c=>h('li',{},chip(t('drift.code.'+c.code),c.tone),h('span',{text:describeChange(c)}))))
+   :h('p',{class:'panel-note',text:t('drift.nochange')}));
+ }
+ const pick=streams.length>1?h('label',{class:'drift-pick'},h('span',{text:t('drift.source')}),h('select',{id:'drift-stream',onchange:e=>{driftKey=e.target.value;render();}},streams.map(x=>h('option',{value:x.key,selected:stream?.key===x.key,text:`${x.label} (${x.runs.length})`})))):null;
+ return h('section',{class:'panel drift-panel wide'},head,pick,body,...extras,h('p',{class:'panel-note',text:t('drift.note')}));
+}
+const msText=ms=>ms>=1000?`${(ms/1000).toFixed(2)} s`:`${ms<10?ms.toFixed(1):Math.round(ms)} ms`;
+function timelinePanel(run){
+ const layout=timelineRows(run.events,run.started_at,run.finished_at);
+ const body=h('div',{class:'chart-area flow-scroll'});
+ if(!layout||!layout.rows.length)body.append(empty('empty.gantt.t','empty.gantt.x'));
+ else body.append(timelineSvg(layout,{label:t('panel.gantt'),names:eventLabel,duration:msText,pointLabel:t('gantt.point')}));
+ return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.gantt')}),chip(layout?t('gantt.total',{t:msText(layout.total)}):t('badge.waiting'),'muted')),body,h('p',{class:'panel-note',text:t('gantt.note')}));
+}
 function describeStep(run,progress){
  const a=analysisOf(run),c=caseOf(run);
  return step=>{
@@ -171,7 +207,7 @@ function describeStep(run,progress){
 function flowPanel(run,wide=false){
  const plan=run?.result?.plan||WAITING_PLAN,progress=progressOf(run);
  const input=run?.result?{role:'',title:t(originKey(run)),meta:run.result.cases?.[0]?.rows!==undefined?t('meta.records',{n:N(run.result.cases[0].rows)}):'',state:'completed',statusText:t('status.completed')}:{role:'',title:t('flow.source'),meta:t('flow.waiting'),state:'waiting',statusText:t('status.waiting')};
- const svg=flowGraph(plan,describeStep(run,progress),{source:input,label:t('panel.flow')});
+ const svg=flowGraph(plan,describeStep(run,progress),{source:input,label:t('panel.flow'),lanes:FLOW_LANES.map(k=>t(k))});
  const list=h('ol',{class:'flow-list'},...plan.map(step=>{const s=stepState(step,progress);return h('li',{class:'flow-item '+s},h('span',{class:'dot '+s}),h('div',{},h('strong',{text:`${step.role} · ${t('step.'+step.id)}`}),h('small',{text:`${t('status.'+s)}${step.reason?' — '+t('reason.'+step.reason):''}`})));}));
  return h('section',{class:'panel flow-panel'+(wide?' wide':'')},h('div',{class:'panel-heading'},h('h2',{text:t('panel.flow')}),chip(run?.result?t('badge.real'):t('badge.waiting'),run?.result?'ok':'muted')),
   h('div',{class:'flow-scroll'},svg),list,h('p',{class:'panel-note',text:t('panel.flow.note')}),h('div',{class:'panel-bottom'},link('/activity',t('flow.more')),h('span',{text:t('flow.readonly')})));
@@ -201,7 +237,7 @@ function renderOverview(){
    kpi('kpi.health',a?P(a.dimensions.record_health.ratio):'—',a?t('kpi.health.x',{p:N(a.dimensions.record_health.passed),n:N(a.dimensions.record_health.total)}):t('kpi.health.none'),a&&a.status==='FAIL'?'warn':''),
    kpi('kpi.findings',a?N(a.impact.affected_records):'—',a?t('kpi.findings.x',{c:N(a.impact.affected_customers)}):t('kpi.findings.none'),a&&a.status==='FAIL'?'bad':''),
    kpi('kpi.verdict',verdict,judge?t('kpi.verdict.x'):t('kpi.verdict.none'),a?(a.status==='FAIL'?'bad':'ok'):'')),
-  h('div',{class:'dash-grid'},flowPanel(run,true),dimensionPanel(a),heatmapPanel(a),histogramPanel(a),trendPanel(),attentionPanel(run),readinessPanel()));
+  h('div',{class:'dash-grid'},flowPanel(run,true),dimensionPanel(a),heatmapPanel(a),histogramPanel(a),driftPanel(),trendPanel(),attentionPanel(run),readinessPanel()));
 }
 function readinessPanel(){
  const rows=[['src.csv','ok','src.csv.x'],['src.sample','ok','src.sample.x'],['src.pg','info','src.pg.x'],['src.company','muted','src.company.x'],['src.warehouse','muted','src.warehouse.x']];
@@ -226,10 +262,11 @@ function renderActivity(){
     h('small',{class:'mode',text:(st==='completed'||st==='rejected')?t('lane.deterministic'):t('lane.planned')}));})):h('p',{class:'panel-note',text:t('lane.none')}));
  });
  const events=(run.events||[]).map(e=>h('li',{class:'event '+e.state.toLowerCase()},h('time',{text:e.at?new Date(e.at).toLocaleTimeString(locale()):''}),h('span',{},h('strong',{text:eventLabel(e.agent)}),h('small',{text:eventText(e.description)})),chip(t('status.'+e.state),e.state==='COMPLETED'?'ok':'info')));
- root.replaceChildren(flowPanel(run,true),h('div',{class:'lane-grid'},laneNodes),
+ root.replaceChildren(flowPanel(run,true),timelinePanel(run),h('div',{class:'lane-grid'},laneNodes),
   h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.events')}),chip(run.status,'muted')),events.length?h('ol',{class:'timeline'},events):empty('empty.events.t','empty.events.x'),
    h('p',{class:'panel-note',text:t('panel.events.note')})));
 }
+const FLOW_LANES=['flow.lane.source','flow.lane.contract','flow.lane.analysis','flow.lane.evidence','flow.lane.verify','flow.lane.decide','flow.lane.act'];
 const eventLabel=value=>{const key='event.'+value.split(' / ')[0];return (STRINGS[key]?t(key):value);};
 const eventText=value=>{const key='eventtext.'+value;return STRINGS[key]?t(key):value;};
 
@@ -257,7 +294,7 @@ function renderHistory(){
  });
  root.replaceChildren(h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.runs')}),chip(t('hist.kept'),'muted')),
   h('div',{class:'table-wrap'},h('table',{class:'data-table'},h('thead',{},h('tr',{},...['hist.col.run','hist.col.source','hist.col.when','hist.col.rows','hist.col.affected','hist.col.health','hist.col.status','hist.col.review','hist.col.actions'].map(k=>h('th',{scope:'col',text:t(k)})))),h('tbody',{},rows))),
-  h('p',{class:'panel-note',text:t('hist.note')})),trendPanel());
+  h('p',{class:'panel-note',text:t('hist.note')})),driftPanel(),trendPanel());
 }
 
 // ---------- evidence references ----------

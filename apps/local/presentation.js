@@ -98,4 +98,32 @@ function runLabel(run){
  if(input?.name)return input.name;
  return run?.scenario&&run.scenario!=='upload'?run.scenario:'—';
 }
-if(typeof module!=='undefined')module.exports={summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
+// Execution timeline rows from the real event timestamps; null when the run has no usable time span.
+function timelineRows(events,startedAt,finishedAt){
+ const t0=Date.parse(startedAt),t1=Date.parse(finishedAt);
+ if(!Number.isFinite(t0)||!Number.isFinite(t1)||t1<=t0)return null;
+ const rows=[],by=new Map();
+ for(const e of events||[]){
+  const at=Date.parse(e.at);
+  if(!Number.isFinite(at))continue;
+  const id=String(e.agent).split(' / ')[0];
+  let row=by.get(id);
+  if(!row){row={id,agent:e.agent,start:at,end:at,state:e.state};by.set(id,row);rows.push(row);}
+  row.start=Math.min(row.start,at);row.end=Math.max(row.end,at);row.state=e.state;
+ }
+ return {total:t1-t0,rows:rows.map(r=>({id:r.id,agent:r.agent,state:r.state,offset:Math.max(0,r.start-t0),duration:r.end-r.start}))};
+}
+// Which stream to show: the one holding the newest run, unless a stream was chosen explicitly.
+function pickStream(monitoring,chosen){
+ const streams=monitoring?.streams||[];
+ if(!streams.length)return null;
+ const picked=streams.find(s=>s.key===chosen);
+ if(picked)return picked;
+ const stamp=s=>s.runs[s.runs.length-1].at||'';
+ return streams.reduce((best,s)=>stamp(s)>stamp(best)?s:best,streams[0]);
+}
+// Chart series straight from retained ratios; a null ratio stays null and is drawn as a gap.
+function driftSeries(stream){
+ return ['record_health','completeness','uniqueness','validity'].map(key=>({key,values:stream.runs.map(r=>r.dimensions[key]??null)}));
+}
+if(typeof module!=='undefined')module.exports={timelineRows,pickStream,driftSeries,summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
