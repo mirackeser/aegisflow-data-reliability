@@ -20,6 +20,7 @@ from dataclasses import asdict
 from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
 from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.execution_view import build_plan
+from aegisflow_dr.monitoring import monitor
 from aegisflow_dr.pipeline import FAULTS, InputRejected, diagnose_csv, generate_orders
 from aegisflow_dr.investigation import default_policy
 from aegisflow_dr.storage import IncidentStore, initialize
@@ -76,7 +77,10 @@ class Workbench:
 
     def snapshot(self):
         with self.lock:
-            return json.loads(json.dumps(self.state))
+            data = json.loads(json.dumps(self.state))
+        current = [data] if data.get('run_id') and data.get('result') else []
+        data['monitoring'] = monitor([*reversed(data['history']), *current])
+        return data
 
     def event(self, agent, state, description):
         with self.lock:

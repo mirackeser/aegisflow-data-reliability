@@ -44,3 +44,18 @@ console.log('synthetic sample labelling verified.');
 // a connected source is classified on its own, never as an upload or a sample
 assert.equal(P.summarizeResult({source:'connected-source',cases:[]}).source,'connected');
 assert.equal(P.summarizeResult({source:'local-upload',cases:[]}).source,'uploaded');
+// execution timeline: measured spans only, one row per step, null when the run has no usable time span
+const events=[{agent:'A09 / Contract check',state:'RUNNING',at:'2026-01-01T00:00:00.010Z'},{agent:'A09 / Contract check',state:'COMPLETED',at:'2026-01-01T00:00:00.030Z'},{agent:'A10 / Data profiling',state:'COMPLETED',at:'2026-01-01T00:00:00.040Z'},{agent:'A26 / x',state:'COMPLETED',at:'bad'}];
+const gantt=P.timelineRows(events,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.100Z');
+assert.equal(gantt.total,100);assert.deepEqual(gantt.rows.map(r=>[r.id,r.offset,r.duration,r.state]),[['A09',10,20,'COMPLETED'],['A10',40,0,'COMPLETED']]);
+assert.equal(P.timelineRows(events,'2026-01-01T00:00:00.100Z','2026-01-01T00:00:00.100Z'),null);
+assert.equal(P.timelineRows(events,'nope','2026-01-01T00:00:00.100Z'),null);
+assert.deepEqual(P.timelineRows(undefined,'2026-01-01T00:00:00Z','2026-01-01T00:00:01Z').rows,[]);
+// drift stream choice and series never invent a value
+const mk=(key,at,v)=>({key,label:key,runs:[{at,dimensions:{record_health:v,completeness:1,uniqueness:null,validity:1}}]});
+const monitoring={streams:[mk('a','2026-01-01',0.5),mk('b','2026-02-01',1),mk('c',undefined,1)]};
+assert.equal(P.pickStream(monitoring).key,'b');assert.equal(P.pickStream(monitoring,'a').key,'a');assert.equal(P.pickStream(monitoring,'zzz').key,'b');
+assert.equal(P.pickStream({streams:[]}),null);assert.equal(P.pickStream(undefined),null);
+const series=P.driftSeries(monitoring.streams[0]);
+assert.deepEqual(series.map(s=>s.key),['record_health','completeness','uniqueness','validity']);assert.deepEqual(series[2].values,[null]);
+console.log('timeline and drift helpers verified.');
