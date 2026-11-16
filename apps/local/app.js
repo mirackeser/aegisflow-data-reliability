@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -78,12 +78,12 @@ function nextStep(run){
  return {text:t('next.pass'),href:'/history'};
 }
 function renderBrief(screen,run){
- const next=nextStep(run);
+ const next=screen==='evidence'?{text:t('next.evidence'),href:null}:nextStep(run);
  const cell=(label,body)=>h('div',{},h('b',{text:t(label)}),body);
  $('page-brief').replaceChildren(
   cell('brief.purpose',h('span',{text:t(`brief.${screen}.purpose`)})),
   cell('brief.can',h('span',{text:t(`brief.${screen}.can`)})),
-  cell('brief.happened',h('span',{text:happened(run)})),
+  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():happened(run)})),
   cell('brief.next',next.href?link(next.href,next.text,'text-link'):h('span',{text:next.text})));
 }
 
@@ -309,6 +309,50 @@ function renderKnowledge(){
   h('p',{class:'panel-note',text:t('panel.refs.note')})));
 }
 
+// ---------- check accuracy ----------
+function evidenceHappened(){
+ if(!connected)return t('evidence.connect');
+ if(!evaluation)return t('evidence.loading');
+ const errors=['diagnose_csv','record_issues'].flatMap(d=>Object.values(evaluation.results[d])).reduce((n,r)=>n+r.overall.false_positives+r.overall.false_negatives,0);
+ return t('evidence.happened',{cases:N(evaluation.corpus.cases),errors:N(errors)});
+}
+async function loadEvaluation(){
+ if(evaluationLoading||evaluation||!connected)return;
+ evaluationLoading=true;
+ try{evaluation=await request('/api/evaluation');}catch(error){setNotice(error.message,true);}
+ evaluationLoading=false;render();
+}
+const SPLIT_ORDER=['development','validation','heldout'];
+function rateCell(rate){
+ if(rate.value===null)return h('td',{class:'rate na',text:t('evidence.na')});
+ return h('td',{class:'rate'},h('strong',{text:P(rate.value)}),h('small',{text:`${N(rate.numerator)}/${N(rate.denominator)}`}),h('small',{text:t('evidence.low',{p:P(rate.low)})}));
+}
+function detectorPanel(name){
+ const rows=evidenceRows(evaluation,name),splits=SPLIT_ORDER.filter(s=>evaluation.results[name][s]);
+ const head=h('tr',{},h('th',{scope:'col',text:t('evidence.check')}),...splits.flatMap(s=>[h('th',{scope:'colgroup',colspan:'2',text:t('split.'+s)})]));
+ const sub=h('tr',{},h('td'),...splits.flatMap(()=>[h('th',{scope:'col',text:t('evidence.recall')}),h('th',{scope:'col',text:t('evidence.precision')})]));
+ const body=rows.map(r=>h('tr',{class:r.check==='overall'?'overall':''},h('th',{scope:'row',text:r.check==='overall'?t('evidence.overall'):t('check.'+r.check)}),...splits.flatMap(s=>[rateCell(r.cells[s].recall),rateCell(r.cells[s].precision)])));
+ return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.detector.'+name)}),chip(t('evidence.synthetic'),'info')),
+  h('p',{class:'panel-note',text:t('evidence.detector.'+name+'.x')}),h('div',{class:'table-wrap'},h('table',{class:'data-table rate-table'},h('thead',{},head,sub),h('tbody',{},body))));
+}
+function renderEvidence(){
+ const root=$('screen-evidence');
+ if(!connected){root.replaceChildren(h('section',{class:'panel'},empty('evidence.connect.t','evidence.connect.x')));return;}
+ if(!evaluation){loadEvaluation();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
+ const c=evaluation.corpus,leak=evaluation.leakage;
+ const tile=(key,value,sub,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t(key)}),h('strong',{text:value}),h('small',{text:sub}));
+ root.replaceChildren(
+  h('div',{class:'kpi-grid'},tile('evidence.k.cases',N(c.cases),t('evidence.k.cases.x',{g:N(c.groups),v:N(c.variants)})),
+   tile('evidence.k.splits',SPLIT_ORDER.map(s=>N(c.per_split[s].cases)).join(' / '),t('evidence.k.splits.x')),
+   tile('evidence.k.leak',leak.clean?t('evidence.k.leak.none'):t('evidence.k.leak.found'),t('evidence.k.leak.x'),leak.clean?'ok':'bad'),
+   tile('evidence.k.digest',c.sha256.slice(0,12),t('evidence.k.digest.x'))),
+  detectorPanel('diagnose_csv'),detectorPanel('record_issues'),
+  h('div',{class:'dash-grid two'},
+   h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.how')})),h('ul',{class:'plain-list'},['evidence.how.1','evidence.how.2','evidence.how.3','evidence.how.4'].map(k=>h('li',{text:t(k)})))),
+   h('section',{class:'panel not-shown'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.not')}),chip(t('evidence.limits'),'warn')),h('ul',{class:'plain-list'},['evidence.not.1','evidence.not.2','evidence.not.3','evidence.not.4'].map(k=>h('li',{text:t(k)}))))),
+  h('p',{class:'panel-note',text:t('evidence.foot')}));
+}
+
 // ---------- router / lifecycle ----------
 function render(){
  const screen=PAGES[route]||'overview',run=currentRun();
@@ -317,7 +361,7 @@ function render(){
  document.title=`${t(`page.${screen}.title`)} · AegisFlow`;
  $('page-actions').replaceChildren(...(screen==='overview'||screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge})[screen]();
+ ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

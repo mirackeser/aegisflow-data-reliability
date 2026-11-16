@@ -74,3 +74,7 @@ Computation lives in `src/aegisflow_dr/analysis.py` (deterministic, bounded, 100
 
 The Execution flow page adds a timeline drawn from the real timestamps of the run's events: bar widths are measured spans, a step with a single recorded event is shown as a marker, and nothing is estimated. The capability graph gained stage headers and animated edges for steps that actually completed (disabled when the person prefers reduced motion). Role IDs still name design-catalog capabilities; no autonomous agent or model call is shown because none runs.
 
+## Check accuracy page
+
+`/evidence` (authenticated `GET /api/evaluation`, computed once per process on your machine) shows the record-level evaluation from `docs/evaluation/`: labelled corpus size, split sizes, leakage status, corpus fingerprint, and per-check recall and precision for `diagnose_csv` and `record_issues` across development, validation and held-out splits, each with exact counts and the lower bound of a 95% Wilson interval (an undefined rate is shown as n/a, never 100%). The page states what is not measured: real data, fault kinds nobody injected, and any language model.
+

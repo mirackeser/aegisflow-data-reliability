@@ -126,4 +126,14 @@ function pickStream(monitoring,chosen){
 function driftSeries(stream){
  return ['record_health','completeness','uniqueness','validity'].map(key=>({key,values:stream.runs.map(r=>r.dimensions[key]??null)}));
 }
-if(typeof module!=='undefined')module.exports={timelineRows,pickStream,driftSeries,summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
+// Per-check rows of one detector across splits; rates keep their counts and never become 100% when undefined.
+function evidenceRows(report,detector){
+ const splits=report?.results?.[detector];
+ if(!splits)return [];
+ const names=Object.keys(splits),checks=Object.keys(splits[names[0]].per_check);
+ const cell=rate=>({value:rate.value,numerator:rate.numerator,denominator:rate.denominator,low:rate.interval_95?rate.interval_95[0]:null});
+ return [...checks,'overall'].map(check=>({check,cells:Object.fromEntries(names.map(split=>{
+  const row=check==='overall'?splits[split].overall:splits[split].per_check[check];
+  return [split,{recall:cell(row.recall),precision:cell(row.precision),errors:row.false_positives+row.false_negatives}];}))}));
+}
+if(typeof module!=='undefined')module.exports={evidenceRows,timelineRows,pickStream,driftSeries,summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
