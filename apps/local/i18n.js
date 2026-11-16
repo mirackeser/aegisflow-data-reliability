@@ -93,6 +93,7 @@ const translations={
   "Evidence-led investigation · Local pilot": "Kanıta dayalı veri incelemesi · Yerel çalışma",
   "Exact source evidence": "Kaynak verinin içerik özeti",
   "EXAMPLE DATA": "ÖRNEK VERİ",
+  "SYNTHETIC SAMPLE": "SENTETİK ÖRNEK",
   "Example environment": "Örnek ortam",
   "Execution flow": "İşlem akışı",
   "Expected assessments and three write denials verified": "Test sonuçları ve üç yazma engeli doğrulandı",

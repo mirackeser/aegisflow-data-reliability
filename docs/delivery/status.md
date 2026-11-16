@@ -171,3 +171,7 @@ One terminal key disable now affects all bindings using the shared policy. Hash-
 ## Increment 39 — checkpoint publication and recovery
 
 Managed disable now commits an exact intent before policy mutation, blocks reads while pending, and publishes only the verified successor. Recovery handles a tested process exit after policy commit without duplicate events. 716 distinct tests apply. See [increment 39](increment-39.md); control-state custody remains a deployment prerequisite.
+
+## Increment 40 — investigation workspace and honest execution view
+
+The local interface was rebuilt as a dark multi-page workspace around one vertical slice: validate a source, investigate grouped findings with affected records, evidence and downstream impact, and record human decisions. New deterministic modules compute schema discovery with suggested (never auto-applied) mappings, exact quality dimensions, decimal amount exposure and duplicate-pattern observations (`analysis.py`), and a dependency/reason-coded execution plan from the real tool trace (`execution_view.py`). Per-finding references reuse the existing revision-bound knowledge store. 825 Python tests, 20 local-app tests and JavaScript presentation/workspace/i18n assertions pass; package coverage remains 100%. This is a deterministic local inspection: no live model, root-cause inference, enterprise connector or measured model accuracy is claimed.
