@@ -154,3 +154,4 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:v
 .rate-table th[scope=colgroup]{text-align:center;border-left:1px solid var(--line)}.rate-table td.rate,.rate-table th{white-space:nowrap}.rate-table td.rate{border-left:0}.rate-table .rate strong{display:block}.rate-table .rate small{display:block;color:var(--muted);font-size:.7rem}.rate-table tr.overall{background:rgba(53,240,216,.05)}.rate.na{color:var(--muted)}
 .dash-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.plain-list{margin:0;padding-left:1.1rem;display:grid;gap:8px;color:var(--text)}.not-shown{border-color:rgba(246,189,74,.35)}
 @media (max-width:1280px){.dash-grid.two{grid-template-columns:1fr}}
+.kpi{min-width:0}.kpi strong{overflow-wrap:anywhere}@media (max-width:760px){.kpi strong{font-size:1.35rem}}
