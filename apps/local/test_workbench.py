@@ -117,3 +117,86 @@ class WorkbenchTests(unittest.TestCase):
    self.w.run(generate_orders())
   self.assertEqual(self.w.snapshot()['status'],'FAILED')
   self.assertIsNone(self.w.snapshot()['result'])
+
+
+class WorkflowTests(unittest.TestCase):
+ DRIFT=b'order_id,customer_id,total_amount\nA1,C1,10.00\nA2,C2,5.50\n'
+ def setUp(self):
+  self.tmp=TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+  self.w=Workbench(self.tmp.name,'/missing')
+ def inspect(self,fault):
+  from aegisflow_dr.pipeline import generate_orders
+  self.w.state.update(scenario='upload',run_id='run-'+fault)
+  self.w.run(generate_orders(fault=fault),{'kind':'synthetic_sample','fault':fault})
+  return self.w.snapshot()
+ def test_failed_source_plan_explains_each_skipped_blocked_and_pending_step(self):
+  plan={s['id']:s for s in self.inspect('duplicate_order')['result']['plan']}
+  self.assertEqual(plan['reconciliation']['status'],'skipped')
+  self.assertEqual(plan['reconciliation']['reason'],'SOURCE_QUALITY_FAILURE')
+  self.assertEqual(plan['verification']['status'],'completed')
+  self.assertEqual(plan['human_review']['status'],'awaiting')
+  self.assertEqual((plan['root_cause']['status'],plan['root_cause']['reason']),('unavailable','NO_MODEL_CONFIGURED'))
+  self.assertEqual((plan['remediation']['status'],plan['remediation']['reason']),('disabled','READ_ONLY_POLICY'))
+  self.assertEqual(plan['impact']['depends_on'],['contract_check'])
+ def test_clean_source_runs_reconciliation_and_needs_no_review(self):
+  result=self.inspect('clean')['result']
+  plan={s['id']:s for s in result['plan']}
+  self.assertEqual(plan['reconciliation']['status'],'completed')
+  self.assertEqual(plan['human_review']['status'],'skipped')
+  self.assertEqual(result['cases'][0]['analysis']['actions'],[])
+  self.assertEqual(result['finding_references'],{})
+ def test_each_finding_class_gets_a_verified_revision_bound_reference(self):
+  result=self.inspect('duplicate_order')['result']
+  reference=result['finding_references']['unique'][0]
+  self.assertEqual(reference['source'],'duplicate-guidance')
+  self.assertTrue(self.w.knowledge.verify('local',reference['citation_sha256'],allowed_sources=frozenset({'duplicate-guidance'})))
+  drift=self.inspect('schema_drift')['result']['finding_references']
+  self.assertEqual({k:v[0]['source'] for k,v in drift.items()},{'missing_column':'schema-contract','unexpected_column':'schema-contract'})
+ def test_review_records_a_human_decision_without_touching_data_and_survives_restart(self):
+  snapshot=self.inspect('null_total')
+  action=snapshot['result']['cases'][0]['analysis']['actions'][0]
+  self.w.review('run-null_total',action['id'],'accepted')
+  reopened=Workbench(self.tmp.name,'/missing')
+  decision=reopened.snapshot()['reviews']['run-null_total'][action['id']]
+  self.assertEqual((decision['decision'],decision['reviewer']),('accepted','local-user'))
+  for run,act,choice,error in (('run-null_total','ACT-99','accepted',KeyError),('nope',action['id'],'accepted',KeyError),
+                               ('run-null_total',action['id'],'approve_and_apply',ValueError)):
+   with self.assertRaises(error):self.w.review(run,act,choice)
+ def test_reviews_are_pruned_to_retained_runs(self):
+  self.inspect('null_total');self.w.review('run-null_total','ACT-01','dismissed')
+  with patch('workbench.Thread'):
+   for i in range(22):
+    self.w.state.update(status='COMPLETED',result={'cases':[]});self.w.start('clean')
+  self.assertNotIn('run-null_total',self.w.snapshot()['reviews'])
+ def test_http_discovery_mapping_samples_and_review_boundaries(self):
+  server=make_server(self.w,'workflow-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def call(path,method='POST',body=None,headers=None):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=3)
+    c.request(method,path,body=body,headers=headers or {});r=c.getresponse();value=(r.status,r.read());c.close();return value
+   csv={'Authorization':'Bearer workflow-token','Content-Type':'text/csv'}
+   self.assertEqual(call('/api/discover',body=self.DRIFT,headers={'Content-Type':'text/csv'})[0],403)
+   status,body=call('/api/discover',body=self.DRIFT,headers=csv)
+   self.assertEqual(status,200);found=__import__('json').loads(body)
+   self.assertEqual(found['status'],'MAPPING_NEEDED')
+   self.assertEqual(call('/api/discover',body=b'a,a\n1,2\n',headers=csv)[0],422)
+   self.assertEqual(self.w.snapshot()['status'],'IDLE')
+   with patch('workbench.Thread'):
+    bad={**csv,'X-Column-Mapping':'{"total_amount":"nonsense"}'}
+    self.assertEqual(call('/api/inspect',body=self.DRIFT,headers=bad)[0],422)
+    self.assertEqual(call('/api/inspect',body=self.DRIFT,headers={**csv,'X-Column-Mapping':'not json'})[0],400)
+    self.assertEqual(call('/api/inspect',body=self.DRIFT,headers={**csv,'X-Column-Mapping':'{"total_amount":"order_total"}','X-Source-Name':'q3<x>.csv'})[0],202)
+    self.assertEqual(self.w.snapshot()['meta']['mapping'],{'total_amount':'order_total'})
+    self.assertEqual(self.w.snapshot()['meta']['name'],'q3x.csv')
+    self.w.state['status']='COMPLETED'
+    self.assertEqual(call('/api/sample/duplicate_order',headers={'Authorization':'Bearer workflow-token'})[0],202)
+    self.assertEqual(self.w.snapshot()['meta']['kind'],'synthetic_sample')
+    self.w.state['status']='COMPLETED'
+    self.assertEqual(call('/api/sample/../../etc',headers={'Authorization':'Bearer workflow-token'})[0],403)
+    self.assertEqual(call('/api/sample/clean')[0],403)
+   js={'Authorization':'Bearer workflow-token','Content-Type':'application/json'}
+   self.assertEqual(call('/api/review',body=b'{"run_id":"x","action_id":"y","decision":"accepted"}',headers=js)[0],404)
+   self.assertEqual(call('/api/review',body=b'[]',headers=js)[0],400)
+   self.assertEqual(call('/api/review',body=b'{}',headers={**js,'Content-Type':'text/csv'})[0],403)
+   self.assertEqual(call('/api/review',body=b'x'*2000,headers=js)[0],413)
+  finally:server.shutdown();server.server_close();thread.join()

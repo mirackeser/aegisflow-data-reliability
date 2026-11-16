@@ -55,3 +55,14 @@ report in the selected TR/EN language; JSON remains available for technical revi
 The HTML preserves source identity, run ID, timestamps, grouped record references,
 truncation warnings and reconciliation values. It escapes all interpolated values
 and forbids scripts and network resources via a restrictive content policy.
+
+## Investigation workspace (current interface)
+
+The interface is a multi-page dark operations workspace (Overview, Investigations, Data sources, Execution flow, Reports, Evidence references) in Turkish and English. Every page opens with a four-part guide: what it is for, what you can do, what happened, and what to do next.
+
+- **Data sources** validates a CSV against the order contract before any investigation (`POST /api/discover`): record/column counts, inferred column types, exact contract match, and *suggested* column mappings for renamed fields (alias or similar name; mostly-numeric amount columns only). Suggestions are never applied silently; a mapping is sent only after the person ticks it (`X-Column-Mapping`) and only renames the header of a copy. Labelled synthetic samples (`POST /api/sample/<fault>`) and the isolated PostgreSQL example remain separate, clearly labelled sources. Company databases and warehouses are shown as *not connected*.
+- **Investigations** groups findings by rule-based priority (schema, then findings that change totals, then the rest — not a model score). For each finding it shows the affected record numbers with masked identifiers, observed duplicate patterns (identical repeat vs. conflicting values, labelled as observations, never as confirmed causes), exact decimal amount exposure, declared downstream blocking, retained-evidence hashes, the revision-bound reference retrieved for that finding class, and read-only proposed actions. A person can accept, defer or dismiss each action (`POST /api/review`); the decision is stored for audit and changes no data.
+- **Execution flow** is derived from the executed tool trace (`aegisflow_dr.execution_view`): completed, needs-you, skipped/blocked and unavailable steps, each with dependencies and a reason code. Root-cause inference is shown as unavailable (no model configured) and remediation as disabled (read-only policy). Role IDs refer to the design catalog; no autonomous agent or model call occurs.
+- **Overview** charts only observed values: exact quality-dimension counts, a column×check problem map, a valid-amount histogram, saved-run trend and source readiness. Nothing is simulated.
+
+Computation lives in `src/aegisflow_dr/analysis.py` (deterministic, bounded, 100% branch-covered). Verification: `python -m unittest discover -s apps/local`, `node apps/local/test_workspace.cjs`, `node apps/local/test_strings.cjs` (bilingual integrity) and the existing presentation tests.
