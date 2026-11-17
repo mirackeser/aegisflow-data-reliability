@@ -200,3 +200,7 @@ The downloadable HTML report opens with an executive summary built only from the
 
 A Capability map page and `GET /api/capabilities` show all 36 design-catalog roles with an honest status: 7 implemented, 6 partly implemented (each with its stated limit), 1 unavailable (root cause needs a model), 1 disabled (read-only policy) and 21 planned. Every claim is tied to named code that a test resolves. Next: implement further deterministic roles one at a time, each with its own evaluation, before it is shown as running.
 
+## Increment 47 — cross-source consistency (A21)
+
+`consistency.py` compares two order extracts by identifier and reports identical, differing (per column), one-sided and ambiguous records, with masked bounded samples. A randomized test injects known one-sided, amount and customer differences into 60 table pairs and requires exact recovery; writing it exposed a real defect (an id repeated in only one source was reported as one-sided), fixed by excluding ambiguous ids from both sides. The Data sources page gained the comparison panel and `POST /api/source/compare`; the Capability map now lists A21 as implemented (8 implemented, 20 planned). It compares only the order contract columns, and only sources inside the connected folder.
+

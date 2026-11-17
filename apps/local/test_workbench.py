@@ -280,7 +280,40 @@ class WorkflowTests(unittest.TestCase):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/capabilities',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
    self.assertEqual(get({})[0],403)
    status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
-   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,21))
+   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,20))
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_compare_sources_is_read_only_masked_and_flags_sampling(self):
+  import json,sqlite3
+  from pathlib import Path
+  from unittest import mock
+  from aegisflow_dr import connectors
+  from aegisflow_dr.connectors import SourceCatalog
+  src=Path(self.tmp.name)/'cmp';src.mkdir()
+  (src/'a.csv').write_bytes(b'order_id,customer_id,order_total\nORDER-0001,C1,10.00\nORDER-0002,C1,5\nORDER-0003,C9,1\n')
+  db=sqlite3.connect(src/'b.sqlite');db.execute('CREATE TABLE orders (order_id TEXT, customer_id TEXT, order_total TEXT)')
+  db.executemany('INSERT INTO orders VALUES (?,?,?)',[('ORDER-0001','C1','10'),('ORDER-0002','C2','5.00'),('ORDER-0004','C1','2')]);db.commit();db.close()
+  before=(src/'a.csv').read_bytes(),(src/'b.sqlite').read_bytes()
+  server=make_server(self.w,'cmp-token',catalog=SourceCatalog(src));thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  bare=make_server(self.w,'cmp-token');bare_thread=Thread(target=bare.serve_forever,daemon=True);bare_thread.start()
+  try:
+   def post(body,port=None,headers=None):
+    c=HTTPConnection('127.0.0.1',port or server.server_port,timeout=3);c.request('POST','/api/source/compare',body=body,headers=headers or {'Authorization':'Bearer cmp-token','Content-Type':'application/json'});r=c.getresponse();value=(r.status,r.read());c.close();return value
+   good=json.dumps({'first':{'source':'a.csv'},'second':{'source':'b.sqlite','table':'orders'}}).encode()
+   status,body=post(good);report=json.loads(body)
+   self.assertEqual(status,200)
+   self.assertEqual((report['identical'],report['differing'],report['only_in_first'],report['only_in_second'],report['complete']),(1,1,1,1,True))
+   self.assertNotIn('ORDER-0001',body.decode());self.assertEqual(report['samples']['differing'][0]['columns'],['customer_id'])
+   self.assertEqual(report['provenance']['second']['connector'],'sqlite')
+   with mock.patch.object(connectors,'MAX_ROWS',2):
+    self.assertFalse(json.loads(post(good)[1])['complete'])
+   self.assertEqual(post(good,headers={'Content-Type':'application/json'})[0],403)
+   self.assertEqual(post(good,port=bare.server_port)[0],422)
+   self.assertEqual(post(json.dumps({'first':{'source':'../x'},'second':{'source':'a.csv'}}).encode())[0],422)
+   self.assertEqual(post(json.dumps({'first':{'source':'a.csv'}}).encode())[0],400)
+   self.assertEqual(post(b'[1]')[0],400)
+   self.assertEqual(((src/'a.csv').read_bytes(),(src/'b.sqlite').read_bytes()),before)
+   self.assertEqual(self.w.snapshot()['status'],'IDLE')
+  finally:
+   for s,t in ((server,thread),(bare,bare_thread)):s.shutdown();s.server_close();t.join()
