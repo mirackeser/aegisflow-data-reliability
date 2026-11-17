@@ -163,6 +163,13 @@ function describeChange(change){
   SCHEMA_RESTORED:()=>({items:list(d.before)}),ROW_COUNT_SHIFT:()=>({before:N(d.before),after:N(d.after)}),AMOUNT_LEVEL_SHIFT:()=>({before:A(d.before),after:A(d.after)}),RECOVERED:()=>({before:N(d.before)})}[change.code]();
  return t('drift.'+change.code,params);
 }
+function reportExtras(run){
+ const stream=(state?.monitoring?.streams||[]).find(x=>x.runs.some(p=>p.run_id===run.run_id));
+ if(!stream)return {reviews:state?.reviews?.[run.run_id]};
+ const index=stream.runs.findIndex(p=>p.run_id===run.run_id);
+ const status=index===0?'INSUFFICIENT_HISTORY':(()=>{const codes=stream.runs[index].changes.map(c=>c.code);return codes.some(c=>c==='RECOVERED'||c==='SCHEMA_RESTORED')?'RECOVERED':codes.length?'DEGRADED':'STABLE';})();
+ return {reviews:state?.reviews?.[run.run_id],drift:{status,changes:stream.runs[index].changes}};
+}
 function driftPanel(){
  const stream=pickStream(state?.monitoring,driftKey),streams=state?.monitoring?.streams||[];
  const tone={STABLE:'ok',RECOVERED:'ok',DEGRADED:'bad',INSUFFICIENT_HISTORY:'muted'};
@@ -289,7 +296,7 @@ function renderHistory(){
    h('td',{text:p.total?`${p.decided}/${p.total}`:'—'}),
    h('td',{class:'row-actions'},
     h('button',{type:'button',class:'secondary',onclick:()=>{viewId=r.run_id===state.run_id?null:r.run_id;navigate('/investigations');}},t('hist.open')),
-    h('button',{type:'button',class:'secondary',disabled:!r.result,onclick:()=>download(`aegisflow-report-${r.run_id.slice(0,8)}.html`,'text/html',readableReport(r,translate,language))},t('hist.html')),
+    h('button',{type:'button',class:'secondary',disabled:!r.result,onclick:()=>download(`aegisflow-report-${r.run_id.slice(0,8)}.html`,'text/html',readableReport(r,translate,language,reportExtras(r)))},t('hist.html')),
     h('button',{type:'button',class:'secondary',disabled:!r.result,onclick:()=>download(`aegisflow-evidence-${r.run_id.slice(0,8)}.json`,'application/json',JSON.stringify({run:r,reviews:state.reviews?.[r.run_id]||{}},null,2))},t('hist.json'))));
  });
  root.replaceChildren(h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.runs')}),chip(t('hist.kept'),'muted')),
