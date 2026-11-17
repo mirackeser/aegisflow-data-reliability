@@ -1,6 +1,6 @@
 'use strict';
 // Investigation workspace and source workflow.
-let selectedGroupId=null,showAllRecords=false,sourceMode='file',selectedFile=null,discovery=null,mappingOn={},awaiting=false,folder=null,folderSource=null,folderTables=null,folderTable=null;
+let selectedGroupId=null,showAllRecords=false,sourceMode='file',selectedFile=null,discovery=null,mappingOn={},awaiting=false,folder=null,folderSource=null,folderTables=null,folderTable=null,cmpSource=null,cmpTables=null,cmpTable=null,cmpResult=null;
 const RECORD_PAGE=25;
 
 // ---------- starting work ----------
@@ -22,7 +22,7 @@ async function loadFolder(){
  render();
 }
 async function chooseFolderSource(id){
- folderSource=(folder?.sources||[]).find(x=>x.id===id)||null;folderTables=null;folderTable=null;discovery=null;mappingOn={};
+ folderSource=(folder?.sources||[]).find(x=>x.id===id)||null;folderTables=null;folderTable=null;discovery=null;mappingOn={};cmpResult=null;
  if(folderSource?.kind==='sqlite'){
   try{folderTables=(await request('/api/source/tables','POST',JSON.stringify({source:id}),JSON_HEADERS)).tables;setNotice('');}
   catch(error){folderSource=null;setNotice(error.message,true);}
@@ -34,6 +34,42 @@ async function discoverFolder(){
  try{discovery=await request('/api/source/discover','POST',JSON.stringify({source:folderSource.id,table:folderTable||undefined}),JSON_HEADERS);mappingOn={};setNotice('');}
  catch(error){discovery=null;setNotice(error.message,true);}
  render();
+}
+async function chooseCompare(id){
+ cmpSource=(folder?.sources||[]).find(x=>x.id===id)||null;cmpTables=null;cmpTable=null;cmpResult=null;
+ if(cmpSource?.kind==='sqlite'){
+  try{cmpTables=(await request('/api/source/tables','POST',JSON.stringify({source:id}),JSON_HEADERS)).tables;setNotice('');}
+  catch(error){cmpSource=null;setNotice(error.message,true);}
+ }
+ render();
+}
+const cmpReady=()=>folderReady()&&!!cmpSource&&(cmpSource.kind==='csv'||!!cmpTable);
+async function runCompare(){
+ if(!cmpReady()||!requireSession())return;
+ const side=(source,table)=>({source:source.id,table:table||undefined});
+ try{cmpResult=await request('/api/source/compare','POST',JSON.stringify({first:side(folderSource,folderTable),second:side(cmpSource,cmpTable)}),JSON_HEADERS);setNotice('');}
+ catch(error){cmpResult=null;setNotice(error.message,true);}
+ render();
+}
+function comparePanel(){
+ const sources=folder?.sources||[];
+ const pick=h('select',{id:'cmp-source',onchange:e=>chooseCompare(e.target.value)},h('option',{value:'',text:t('folder.source.choose')}),sources.map(x=>h('option',{value:x.id,selected:cmpSource?.id===x.id,text:`${x.id} · ${t('folder.kind.'+x.kind)}`})));
+ const tablePick=cmpTables?h('select',{id:'cmp-table',onchange:e=>{cmpTable=e.target.value||null;cmpResult=null;render();}},h('option',{value:'',text:t('folder.table.choose')}),cmpTables.map(x=>h('option',{value:x.name,selected:cmpTable===x.name,text:t('folder.table.opt',{name:x.name,rows:N(x.rows)})}))):null;
+ const r=cmpResult,tile=(key,value,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t('cmp.k.'+key)}),h('strong',{text:N(value)}),h('small',{text:t('cmp.k.'+key+'.x')}));
+ const result=!r?null:h('div',{class:'stack'},
+  h('div',{class:'kpi-grid'},tile('identical',r.identical,'ok'),tile('differing',r.differing,r.differing?'bad':''),tile('first',r.only_in_first,r.only_in_first?'bad':''),tile('second',r.only_in_second,r.only_in_second?'bad':'')),
+  h('p',{class:'hint',text:t('cmp.total',{a:N(r.first.rows),b:N(r.second.rows)})}),
+  r.complete?null:h('p',{class:'hint bad',text:t('cmp.incomplete')}),
+  r.first.ambiguous_rows||r.second.ambiguous_rows?h('p',{class:'hint',text:t('cmp.ambiguous',{a:N(r.first.ambiguous_rows),b:N(r.second.ambiguous_rows)})}):null,
+  r.not_compared.length?h('p',{class:'hint',text:t('cmp.notcompared',{cols:r.not_compared.map(c=>t('cmp.col.'+c)).join(', ')})}):null,
+  r.differing?h('div',{},h('h3',{text:t('cmp.columns')}),h('p',{text:r.compared_columns.map(c=>`${t('cmp.col.'+c)}: ${N(r.differing_by_column[c])}`).join(' · ')}),
+   h('h3',{text:t('cmp.samples')}),h('div',{class:'table-wrap'},h('table',{class:'data-table'},h('thead',{},h('tr',{},h('th',{scope:'col',text:t('cmp.sample.id')}),h('th',{scope:'col',text:t('cmp.sample.first')}),h('th',{scope:'col',text:t('cmp.sample.second')}))),
+    h('tbody',{},r.samples.differing.map(x=>h('tr',{},h('th',{scope:'row',text:x.id}),h('td',{text:x.columns.map(c=>`${t('cmp.col.'+c)}: ${x.first[c]||'—'}`).join(' · ')}),h('td',{text:x.columns.map(c=>`${t('cmp.col.'+c)}: ${x.second[c]||'—'}`).join(' · ')}))))))):null,
+  r.only_in_first?h('p',{},h('strong',{text:t('cmp.only.first')+': '}),h('span',{text:r.samples.only_in_first.join(', ')})):null,
+  r.only_in_second?h('p',{},h('strong',{text:t('cmp.only.second')+': '}),h('span',{text:r.samples.only_in_second.join(', ')})):null);
+ return h('section',{class:'panel compare-panel'},h('div',{class:'panel-heading'},h('h2',{text:t('cmp.title')}),chip('A21','info')),h('p',{text:t('cmp.intro')}),
+  h('div',{class:'stack'},h('label',{for:'cmp-source',text:t('cmp.pick')}),pick,tablePick?h('label',{for:'cmp-table',text:t('folder.table')}):null,tablePick),
+  h('p',{class:'hint',text:t('cmp.rules')}),h('div',{class:'button-row'},h('button',{type:'button',class:'primary',disabled:!cmpReady(),onclick:runCompare},t('cmp.run'))),result);
 }
 const startFolder=()=>folderReady()&&begin('/api/source/inspect',folderChoice(),JSON_HEADERS);
 const startSample=fault=>begin(`/api/sample/${fault}`);
@@ -206,7 +242,7 @@ function renderSources(){
    h('p',{class:'hint',text:t('folder.limits')}),
    h('div',{class:'button-row'},h('button',{type:'button',class:'secondary',disabled:!folderReady(),onclick:discoverFolder},t('folder.validate')),
     h('button',{type:'button',class:'primary',disabled:!folderReady()||state?.status==='RUNNING',onclick:startFolder},chosenCount?t('file.inspect.mapped',{n:chosenCount}):t('folder.inspect'))),
-   discoveryPanel(),h('p',{class:'panel-note',text:t('folder.privacy')}));
+   discoveryPanel(),h('p',{class:'panel-note',text:t('folder.privacy')}),folderReady()?comparePanel():null);
  }else if(sourceMode==='example'){
   const select=h('select',{id:'scenario'},EXAMPLES.map(s=>h('option',{value:s,text:t('ex.case.'+s)})));
   config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.example')}),chip(t('origin.example'),'info')),h('p',{text:t('example.intro')}),

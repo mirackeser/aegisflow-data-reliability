@@ -23,6 +23,7 @@ from functools import lru_cache
 from aegisflow_dr.capability_map import capability_map
 from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
 from aegisflow_dr.connectors import SourceCatalog
+from aegisflow_dr.consistency import compare as compare_sources
 from aegisflow_dr.execution_view import build_plan
 from aegisflow_dr.monitoring import monitor
 from aegisflow_dr.pipeline import FAULTS, InputRejected, diagnose_csv, generate_orders
@@ -321,6 +322,24 @@ def make_server(workbench, token, port=0, catalog=None):
                 except InputRejected as error:
                     self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
                 except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path == '/api/source/compare':
+                body = self.read_body('application/json', 2048)
+                if body is None:
+                    return
+                try:
+                    if catalog is None:
+                        raise InputRejected('No source directory is configured')
+                    request = json.loads(body)
+                    exports = [catalog.export(request[side]['source'], request[side].get('table')) for side in ('first', 'second')]
+                    result = compare_sources(exports[0][0], exports[1][0])
+                    result['provenance'] = {'first': exports[0][1], 'second': exports[1][1]}
+                    result['complete'] = not any(meta['sampled'] for _, meta in exports)
+                    self.respond(200, json.dumps(result).encode())
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (KeyError, ValueError, TypeError, AttributeError):
                     self.respond(400, b'{}')
                 return
             if self.path in ('/api/source/tables', '/api/source/discover', '/api/source/inspect'):
