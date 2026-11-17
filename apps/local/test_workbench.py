@@ -280,7 +280,7 @@ class WorkflowTests(unittest.TestCase):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/capabilities',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
    self.assertEqual(get({})[0],403)
    status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
-   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,20))
+   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,19))
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()
@@ -306,6 +306,7 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual((report['identical'],report['differing'],report['only_in_first'],report['only_in_second'],report['complete']),(1,1,1,1,True))
    self.assertNotIn('ORDER-0001',body.decode());self.assertEqual(report['samples']['differing'][0]['columns'],['customer_id'])
    self.assertEqual(report['provenance']['second']['connector'],'sqlite')
+   self.assertEqual((report['cardinality']['shared_keys'],report['cardinality']['join_rows'],report['cardinality']['fan_out']),(2,2,False))
    with mock.patch.object(connectors,'MAX_ROWS',2):
     self.assertFalse(json.loads(post(good)[1])['complete'])
    self.assertEqual(post(good,headers={'Content-Type':'application/json'})[0],403)

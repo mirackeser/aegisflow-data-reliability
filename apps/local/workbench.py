@@ -23,6 +23,7 @@ from functools import lru_cache
 from aegisflow_dr.capability_map import capability_map
 from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
 from aegisflow_dr.connectors import SourceCatalog
+from aegisflow_dr.cardinality import join_cardinality
 from aegisflow_dr.consistency import compare as compare_sources
 from aegisflow_dr.execution_view import build_plan
 from aegisflow_dr.monitoring import monitor
@@ -334,6 +335,7 @@ def make_server(workbench, token, port=0, catalog=None):
                     request = json.loads(body)
                     exports = [catalog.export(request[side]['source'], request[side].get('table')) for side in ('first', 'second')]
                     result = compare_sources(exports[0][0], exports[1][0])
+                    result['cardinality'] = join_cardinality(exports[0][0], exports[1][0])
                     result['provenance'] = {'first': exports[0][1], 'second': exports[1][1]}
                     result['complete'] = not any(meta['sampled'] for _, meta in exports)
                     self.respond(200, json.dumps(result).encode())

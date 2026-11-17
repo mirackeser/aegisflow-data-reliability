@@ -51,6 +51,16 @@ async function runCompare(){
  catch(error){cmpResult=null;setNotice(error.message,true);}
  render();
 }
+function joinPanel(c){
+ if(!c)return null;
+ const sideName=k=>t('join.side.'+k),rel=c.relationship;
+ return h('div',{class:'stack join-panel'},h('h3',{text:t('join.title')}),h('p',{class:'hint',text:t('join.intro')}),
+  h('p',{class:c.fan_out?'hint bad':'hint',text:c.fan_out?t('join.fanout',{extra:N(c.extra_rows_from_join),rows:N(c.join_rows),shared:N(c.shared_keys)}):t('join.safe')}),
+  h('p',{text:t('join.rel')+': '+Object.keys(rel).map(k=>`${t('join.rel.'+k)}: ${N(rel[k])}`).join(' · ')}),
+  h('p',{class:'hint',text:t('join.amount')}),
+  h('ul',{class:'dup-list'},['first','second'].map(k=>{const a=c.amount_inflation[k];return h('li',{text:t('join.inflation',{side:sideName(k),before:a.before,after:a.after_join,inflation:a.inflation})});})),
+  h('ul',{class:'dup-list'},['first','second'].map(k=>{const p=c[k];return h('li',{text:t('join.keys',{side:sideName(k),rows:N(p.rows),distinct:N(p.distinct_keys),blank:N(p.blank_keys),max:N(p.max_multiplicity)})});})));
+}
 function comparePanel(){
  const sources=folder?.sources||[];
  const pick=h('select',{id:'cmp-source',onchange:e=>chooseCompare(e.target.value)},h('option',{value:'',text:t('folder.source.choose')}),sources.map(x=>h('option',{value:x.id,selected:cmpSource?.id===x.id,text:`${x.id} · ${t('folder.kind.'+x.kind)}`})));
@@ -66,8 +76,9 @@ function comparePanel(){
    h('h3',{text:t('cmp.samples')}),h('div',{class:'table-wrap'},h('table',{class:'data-table'},h('thead',{},h('tr',{},h('th',{scope:'col',text:t('cmp.sample.id')}),h('th',{scope:'col',text:t('cmp.sample.first')}),h('th',{scope:'col',text:t('cmp.sample.second')}))),
     h('tbody',{},r.samples.differing.map(x=>h('tr',{},h('th',{scope:'row',text:x.id}),h('td',{text:x.columns.map(c=>`${t('cmp.col.'+c)}: ${x.first[c]||'—'}`).join(' · ')}),h('td',{text:x.columns.map(c=>`${t('cmp.col.'+c)}: ${x.second[c]||'—'}`).join(' · ')}))))))):null,
   r.only_in_first?h('p',{},h('strong',{text:t('cmp.only.first')+': '}),h('span',{text:r.samples.only_in_first.join(', ')})):null,
-  r.only_in_second?h('p',{},h('strong',{text:t('cmp.only.second')+': '}),h('span',{text:r.samples.only_in_second.join(', ')})):null);
- return h('section',{class:'panel compare-panel'},h('div',{class:'panel-heading'},h('h2',{text:t('cmp.title')}),chip('A21','info')),h('p',{text:t('cmp.intro')}),
+  r.only_in_second?h('p',{},h('strong',{text:t('cmp.only.second')+': '}),h('span',{text:r.samples.only_in_second.join(', ')})):null,
+  joinPanel(r.cardinality));
+ return h('section',{class:'panel compare-panel'},h('div',{class:'panel-heading'},h('h2',{text:t('cmp.title')}),chip('A21','info'),chip('A18','info')),h('p',{text:t('cmp.intro')}),
   h('div',{class:'stack'},h('label',{for:'cmp-source',text:t('cmp.pick')}),pick,tablePick?h('label',{for:'cmp-table',text:t('folder.table')}):null,tablePick),
   h('p',{class:'hint',text:t('cmp.rules')}),h('div',{class:'button-row'},h('button',{type:'button',class:'primary',disabled:!cmpReady(),onclick:runCompare},t('cmp.run'))),result);
 }
