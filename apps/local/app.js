@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -78,12 +78,12 @@ function nextStep(run){
  return {text:t('next.pass'),href:'/history'};
 }
 function renderBrief(screen,run){
- const next=screen==='evidence'?{text:t('next.evidence'),href:null}:nextStep(run);
+ const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
  const cell=(label,body)=>h('div',{},h('b',{text:t(label)}),body);
  $('page-brief').replaceChildren(
   cell('brief.purpose',h('span',{text:t(`brief.${screen}.purpose`)})),
   cell('brief.can',h('span',{text:t(`brief.${screen}.can`)})),
-  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():happened(run)})),
+  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run)})),
   cell('brief.next',next.href?link(next.href,next.text,'text-link'):h('span',{text:next.text})));
 }
 
@@ -360,6 +360,43 @@ function renderEvidence(){
   h('p',{class:'panel-note',text:t('evidence.foot')}));
 }
 
+// ---------- capability map ----------
+function agentsHappened(run){
+ const implemented=capabilities?.counts?.implemented??7;
+ const ran=roleView(capabilities,run?.result?.plan).ran;
+ return run?.result?.plan?t('agents.happened',{ran:N(ran),impl:N(implemented)}):t('agents.happened.none',{impl:N(implemented)});
+}
+async function loadCapabilities(){
+ if(capabilitiesLoading||capabilities||!connected)return;
+ capabilitiesLoading=true;
+ try{capabilities=await request('/api/capabilities');}catch(error){setNotice(error.message,true);}
+ capabilitiesLoading=false;render();
+}
+const ROLE_TONE={implemented:'ok',partial:'info',unavailable:'warn',disabled:'warn',planned:'muted'};
+function roleCard(role){
+ const limit=role.status==='planned'?t('agents.planned.limit'):t('role.'+role.agent_id+'.limit');
+ const field=(label,value)=>h('div',{class:'role-field'},h('b',{text:t(label)}),h('span',{text:value}));
+ return h('article',{class:'role-card '+role.status},
+  h('div',{class:'role-head'},h('span',{class:'role-id',text:role.agent_id}),h('strong',{text:role.name}),chip(role.priority,'muted')),
+  h('div',{class:'role-chips'},chip(t('agents.status.'+role.status),ROLE_TONE[role.status]),role.current?chip(t(role.current==='ran'?'agents.ran':'agents.skipped'),role.current==='ran'?'ok':'muted'):null),
+  field('agents.does',t('role.'+role.agent_id+'.does')),field('agents.when',t('role.'+role.agent_id+'.when')),field('agents.limit',limit),
+  role.implemented_by.length?h('div',{class:'role-field'},h('b',{text:t('agents.code')}),h('code',{text:role.implemented_by.join('  ·  ')})):null);
+}
+function renderAgents(){
+ const root=$('screen-agents');
+ if(!connected){root.replaceChildren(h('section',{class:'panel'},empty('evidence.connect.t','evidence.connect.x')));return;}
+ if(!capabilities){loadCapabilities();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
+ const view=roleView(capabilities,currentRun()?.result?.plan,roleFilter),c=capabilities.counts;
+ const tile=(key,value,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t('agents.k.'+key)}),h('strong',{text:N(value)}),h('small',{text:t('agents.k.'+key+'.x')}));
+ const filters=['all','implemented','partial','unavailable','disabled','planned'];
+ root.replaceChildren(
+  h('div',{class:'kpi-grid'},tile('total',capabilities.total),tile('implemented',c.implemented,'ok'),tile('partial',c.partial),tile('blocked',c.unavailable+c.disabled),tile('planned',c.planned)),
+  h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('agents.filter')}),chip(t('agents.count',{n:N(view.roles.length)}),'muted')),
+   h('div',{class:'filter-row',role:'group','aria-label':t('agents.filter')},filters.map(f=>h('button',{type:'button',class:'secondary filter','aria-pressed':String(roleFilter===f),onclick:()=>{roleFilter=f;render();}},f==='all'?t('agents.filter.all'):t('agents.status.'+f)))),
+   h('div',{class:'role-grid'},view.roles.map(roleCard)),
+   h('p',{class:'panel-note',text:t('agents.note')})));
+}
+
 // ---------- router / lifecycle ----------
 function render(){
  const screen=PAGES[route]||'overview',run=currentRun();
@@ -368,7 +405,7 @@ function render(){
  document.title=`${t(`page.${screen}.title`)} · AegisFlow`;
  $('page-actions').replaceChildren(...(screen==='overview'||screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence})[screen]();
+ ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

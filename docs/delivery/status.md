@@ -196,3 +196,7 @@ A new Check accuracy page and `GET /api/evaluation` surface the record-level eva
 
 The downloadable HTML report opens with an executive summary built only from the retained analysis: verdict, records and customers affected, valid amount in affected records, amount that could be counted twice, where to look first, quality-dimension bars (ratios floored, never rounded up), the change since the previous inspection of the same source, and counts of review decisions. It prints on A4 (use the browser's Print to save as PDF; the report allows no scripts). Turkish and English, escaped against injection, and absent when a run has no retained analysis. The report still makes no model or root-cause claim.
 
+## Increment 46 — capability map
+
+A Capability map page and `GET /api/capabilities` show all 36 design-catalog roles with an honest status: 7 implemented, 6 partly implemented (each with its stated limit), 1 unavailable (root cause needs a model), 1 disabled (read-only policy) and 21 planned. Every claim is tied to named code that a test resolves. Next: implement further deterministic roles one at a time, each with its own evaluation, before it is shown as running.
+

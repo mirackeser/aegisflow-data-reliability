@@ -272,3 +272,15 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(self.w.snapshot()['status'],'IDLE')
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_capabilities_are_authorized_and_honest_about_coverage(self):
+  import json
+  server=make_server(self.w,'cap-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/capabilities',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   self.assertEqual(get({})[0],403)
+   status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
+   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,21))
+   self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
+  finally:
+   server.shutdown();server.server_close();thread.join()

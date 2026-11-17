@@ -69,3 +69,12 @@ assert.deepEqual(evidence[0].cells.development.precision,{value:null,numerator:0
 assert.equal(evidence[0].cells.heldout.recall.low,0.51);assert.equal(evidence[1].cells.development.errors,3);
 assert.deepEqual(P.evidenceRows(report,'missing'),[]);assert.deepEqual(P.evidenceRows(undefined,'x'),[]);
 console.log('evidence rows verified.');
+// role cards never show a role as running unless a plan step for it completed
+const map={roles:[{agent_id:'A09',status:'implemented'},{agent_id:'A23',status:'unavailable'},{agent_id:'A01',status:'planned'}]};
+const planned=[{role:'A09',status:'completed'},{role:'A23',status:'unavailable'}];
+const rv=P.roleView(map,planned);
+assert.deepEqual(rv.roles.map(r=>r.current),['ran','skipped',null]);assert.equal(rv.ran,1);
+assert.deepEqual(P.roleView(map,undefined).roles.map(r=>r.current),[null,null,null]);
+assert.deepEqual(P.roleView(map,planned,'planned').roles.map(r=>r.agent_id),['A01']);
+assert.equal(P.roleView(map,planned,'all').roles.length,3);assert.equal(P.roleView(undefined,undefined).roles.length,0);
+console.log('role view verified.');

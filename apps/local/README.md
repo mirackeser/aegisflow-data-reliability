@@ -78,3 +78,7 @@ The Execution flow page adds a timeline drawn from the real timestamps of the ru
 
 `/evidence` (authenticated `GET /api/evaluation`, computed once per process on your machine) shows the record-level evaluation from `docs/evaluation/`: labelled corpus size, split sizes, leakage status, corpus fingerprint, and per-check recall and precision for `diagnose_csv` and `record_issues` across development, validation and held-out splits, each with exact counts and the lower bound of a 95% Wilson interval (an undefined rate is shown as n/a, never 100%). The page states what is not measured: real data, fault kinds nobody injected, and any language model.
 
+## Capability map
+
+`/agents` (authenticated `GET /api/capabilities`) separates the 36-role design catalog from the code that exists. `capability_map.py` states per role whether it is implemented (7), partly implemented (6), unavailable because it needs a model (1), disabled by the read-only policy (1) or only planned (21), and names the code behind each claim; a test imports every named anchor so a claim cannot outlive its code, and checks that unavailable and disabled roles agree with the execution plan. Partly implemented roles state their limit (for example, volume shifts are flagged but freshness is not measured). The page also marks which roles ran in the current inspection; a role never shows as running unless a plan step for it completed.
+

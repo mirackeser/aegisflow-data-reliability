@@ -148,4 +148,10 @@ function evidenceRows(report,detector){
   const row=check==='overall'?splits[split].overall:splits[split].per_check[check];
   return [split,{recall:cell(row.recall),precision:cell(row.precision),errors:row.false_positives+row.false_negatives}];}))}));
 }
-if(typeof module!=='undefined')module.exports={evidenceRows,timelineRows,pickStream,driftSeries,summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
+// Role cards: catalog status merged with what the current plan actually did; nothing is shown as running unless a step completed.
+function roleView(map,plan,filter){
+ const steps=new Map((plan||[]).map(step=>[step.role,step.status]));
+ const roles=(map?.roles||[]).map(role=>({...role,current:steps.has(role.agent_id)?(steps.get(role.agent_id)==='completed'?'ran':'skipped'):null}));
+ return {roles:filter&&filter!=='all'?roles.filter(role=>role.status===filter):roles,ran:roles.filter(role=>role.current==='ran').length};
+}
+if(typeof module!=='undefined')module.exports={roleView,evidenceRows,timelineRows,pickStream,driftSeries,summarizeResult,groupFindings,readableReport,dimensionRows,priorityOf,workspaceGroups,recordsFor,reviewProgress,laneOf,stepState,formatAmount,percent,runLabel};
