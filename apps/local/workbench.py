@@ -20,6 +20,7 @@ from dataclasses import asdict
 from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
 from functools import lru_cache
 
+from aegisflow_dr.capability_map import capability_map
 from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
 from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.execution_view import build_plan
@@ -252,7 +253,7 @@ def make_server(workbench, token, port=0, catalog=None):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence')
+            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
                       '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'),
@@ -260,6 +261,8 @@ def make_server(workbench, token, port=0, catalog=None):
             if self.path in assets:
                 name, mime = assets[self.path]
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)
+            elif self.path == '/api/capabilities' and self.authorized():
+                self.respond(200, json.dumps(capability_map()).encode())
             elif self.path == '/api/evaluation' and self.authorized():
                 self.respond(200, evaluation_report())
             elif self.path == '/api/sources' and self.authorized():
