@@ -34,3 +34,22 @@ assert.ok(readableReport({result:{cases:[{rows:2}]}}).includes('Details unavaila
 assert.ok(!readableReport(run,()=>malicious).includes('<script>'));
 assert.ok(readableReport({result:{cases:[]}}).includes('EXAMPLE DATA'));
 console.log('12 readable report assertions passed: injection safety, provenance, missing details, localization and reconciliation.');
+// executive summary: real analysis figures only, escaped, with honest limits and optional drift/review context
+const analysis={status:'FAIL',row_count:24,impact:{affected_records:2,affected_customers:2,valid_amount_in_affected_records:'1234.50',double_count_exposure:'99.00'},
+ dimensions:{completeness:{passed:22,total:24,ratio:0.9166},uniqueness:{passed:24,total:24,ratio:1},validity:{passed:24,total:24,ratio:1},record_health:{passed:22,total:24,ratio:0.9166}},
+ schema_issues:[],heatmap:[{check:'not_null',column:malicious,records:2}],actions:[{id:'ACT-01'},{id:'ACT-02'},{id:'ACT-03'}]};
+const withAnalysis={...run,result:{...run.result,cases:[{...run.result.cases[0],analysis}]}};
+const full=readableReport(withAnalysis,x=>x,'en',{reviews:{'ACT-01':'accepted','ACT-02':'dismissed'},drift:{status:'DEGRADED',changes:[{code:'QUALITY_DEGRADED'}]}});
+assert.ok(full.includes('Executive summary')&&full.includes('Needs attention'));
+assert.ok(full.includes('1,234.50')&&full.includes('99.00'));
+assert.ok(full.includes('91.6%'),'ratios are floored, never rounded up');
+assert.ok(full.includes('Accepted: 1 · Deferred: 0 · Dismissed: 1 · Pending: 1'));
+assert.ok(full.includes('More records affected')&&full.includes('Changed for the worse'));
+assert.ok(full.includes('No language model was used'));
+assert.ok(!full.includes('<script>')&&full.includes('@page'));
+const turkish=readableReport(withAnalysis,x=>`«${x}»`,'tr');
+assert.ok(turkish.includes('1.234,50')&&turkish.includes('91,6%'));
+assert.ok(!readableReport(run).includes('Executive summary'),'no summary without a retained analysis');
+const clean=readableReport({...withAnalysis,result:{...withAnalysis.result,cases:[{...withAnalysis.result.cases[0],analysis:{...analysis,status:'PASS',heatmap:[],actions:[]}}]}});
+assert.ok(clean.includes('No findings in the checked rows')&&!clean.includes('Where to look first')&&!clean.includes('Review decisions')&&!clean.includes('Change since'));
+console.log('executive summary assertions passed.');

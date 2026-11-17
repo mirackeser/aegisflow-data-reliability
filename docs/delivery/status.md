@@ -192,3 +192,7 @@ An opt-in `--source-dir` exposes CSV and SQLite files from one folder through `c
 
 A new Check accuracy page and `GET /api/evaluation` surface the record-level evaluation (increment 42) inside the workbench in Turkish and English, with the same limits stated next to the numbers. Executive-summary and print-ready report polish remain open.
 
+## Increment 45 — report executive summary and print layout
+
+The downloadable HTML report opens with an executive summary built only from the retained analysis: verdict, records and customers affected, valid amount in affected records, amount that could be counted twice, where to look first, quality-dimension bars (ratios floored, never rounded up), the change since the previous inspection of the same source, and counts of review decisions. It prints on A4 (use the browser's Print to save as PDF; the report allows no scripts). Turkish and English, escaped against injection, and absent when a run has no retained analysis. The report still makes no model or root-cause claim.
+
