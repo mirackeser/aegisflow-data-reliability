@@ -7,6 +7,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from ..storage.store import canonical, sha
+from .context_cache import CacheIdentity, ContextCache
 from .contracts import AdvisoryError, HASH, RESPONSE, closed, decode
 from .session import AdvisorySession
 
@@ -87,11 +88,18 @@ class PreparedAdvisory:
     Trusted hosts must separately approve provider/data residency and accounting.
     This class supplies no provider transport, retries, token/cost or deadline enforcement.
     """
-    def __init__(self, runs, run_id, *, model_id, policy=ContextPolicy()):
+    def __init__(self, runs, run_id, *, model_id, policy=ContextPolicy(), cache=None, tenant='local'):
         if type(policy) is not ContextPolicy:
             raise AdvisoryError('Trusted context policy required')
+        if cache is not None and type(cache) is not ContextCache:
+            raise AdvisoryError('Trusted context cache required')
         record = runs.read(run_id)
-        context = project(record)
+        if cache is None:
+            context = project(record)
+        else:
+            # Keyed by the exact record digest, so changed evidence or another tenant or version never shares an entry.
+            identity = CacheIdentity(tenant, 'evidence-projection', 'v1', sha(canonical(record)))
+            context = cache.get_or_build(identity, lambda: project(record))
         if len(context) > policy.max_context_bytes:
             raise AdvisoryError('Evidence context budget exceeded')
         policy_value = {'max_context_bytes': policy.max_context_bytes, 'max_prompt_bytes': policy.max_prompt_bytes}
