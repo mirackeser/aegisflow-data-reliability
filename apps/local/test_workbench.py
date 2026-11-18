@@ -257,6 +257,17 @@ class WorkflowTests(unittest.TestCase):
   self.w.run(generate_orders(fault='duplicate_order'),meta)
   stream=self.w.snapshot()['monitoring']['streams'][0]
   self.assertEqual((len(stream['runs']),stream['status']),(2,'DEGRADED'))
+ def test_snapshot_links_similar_earlier_inspections(self):
+  from aegisflow_dr.pipeline import generate_orders
+  meta={'kind':'synthetic_sample','name':'synthetic-null_total'}
+  self.assertEqual(self.w.snapshot()['similar']['matches'],{})
+  self.w.state.update(scenario='upload',run_id='run-a',meta=meta);self.w.run(generate_orders(fault='null_total'),meta)
+  with patch('workbench.Thread'):
+   self.w.start('upload',generate_orders(fault='null_total'),meta)
+  self.w.run(generate_orders(fault='null_total'),meta)
+  snap=self.w.snapshot()
+  matches=snap['similar']['matches'][snap['run_id']]
+  self.assertEqual((len(matches),matches[0]['score']),(1,1.0))
  def test_http_evaluation_is_authorized_and_reports_all_splits(self):
   import json
   server=make_server(self.w,'eval-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -280,7 +291,7 @@ class WorkflowTests(unittest.TestCase):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/capabilities',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
    self.assertEqual(get({})[0],403)
    status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
-   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,19))
+   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,18))
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()

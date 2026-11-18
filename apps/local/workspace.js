@@ -149,6 +149,19 @@ function actionCard(run,action,decision){
    ...['accepted','deferred','dismissed'].map(d=>h('button',{type:'button',class:'secondary',
     'aria-pressed':String(decided===d),onclick:()=>decide(run,action,d)},t('decide.'+d)))));
 }
+const tokenLabel=token=>{const [, check, column]=token.split(':');return `${t('check.'+check)} · ${column}`;};
+function similarPanel(run,a){
+ const matches=state?.similar?.matches?.[run.run_id]||[];
+ const clean=a.status!=='FAIL'&&!a.heatmap.some(x=>x.records)&&!a.schema_issues.length;
+ const list=!matches.length?h('p',{class:'panel-note',text:clean?t('sim.clean'):t('sim.none')}):h('ul',{class:'similar-list'},matches.map(m=>h('li',{},
+  h('div',{class:'similar-head'},h('strong',{text:`${m.source} · ${when(m.at)}`}),chip(t('sim.score',{p:Math.round(m.score*100)}),m.score===1?'warn':'info')),
+  h('small',{text:t('sim.affected',{n:N(m.affected_records),rows:N(m.row_count)})}),
+  h('p',{},h('strong',{text:t('sim.shared')+': '}),h('span',{text:m.shared.map(tokenLabel).join(', ')})),
+  m.only_here.length?h('p',{class:'hint'},h('strong',{text:t('sim.here')+': '}),h('span',{text:m.only_here.map(tokenLabel).join(', ')})):null,
+  m.only_there.length?h('p',{class:'hint'},h('strong',{text:t('sim.there')+': '}),h('span',{text:m.only_there.map(tokenLabel).join(', ')})):null,
+  h('button',{type:'button',class:'secondary',onclick:()=>{viewId=m.run_id===state.run_id?null:m.run_id;navigate('/investigations');}},t('sim.open')))));
+ return h('section',{class:'panel similar-panel'},h('div',{class:'panel-heading'},h('h2',{text:t('sim.title')}),chip('A22','info')),list,h('p',{class:'panel-note',text:t('sim.note')}));
+}
 function renderWorkspace(){
  const run=currentRun(),root=$('screen-investigations');
  if(!run?.result){root.replaceChildren(h('section',{class:'panel'},empty('empty.ws.t','empty.ws.x',link('/sources',t('cta.start'),'primary route'))));return;}
@@ -192,7 +205,7 @@ function renderWorkspace(){
   h('p',{class:'panel-note',text:t('ws.exposure.note')}));
  const actions=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('ws.actions')}),chip(progress.total?t('ws.reviewed',{d:progress.decided,n:progress.total}):t('decision.none'),progress.total&&!progress.pending?'ok':'muted')),
   a.actions.length?a.actions.map(x=>actionCard(run,x,reviews[x.id])):h('p',{class:'panel-note',text:t('ws.noactions')}),h('p',{class:'panel-note',text:t('ws.actions.note')}));
- root.replaceChildren(banner,h('div',{class:'ws-layout'},findings,detail,h('div',{class:'ws-side'},impact,exposure,actions)));
+ root.replaceChildren(banner,h('div',{class:'ws-layout'},findings,detail,h('div',{class:'ws-side'},impact,exposure,actions,similarPanel(run,a))));
 }
 function renderExampleDetail(run,root){
  const cases=run.result.cases||[],s=summarizeResult(run.result);

@@ -15,7 +15,7 @@ class CapabilityMapTests(unittest.TestCase):
         ids = [r["agent_id"] for r in self.report["roles"]]
         self.assertEqual((len(ids), len(set(ids)), self.report["total"]), (36, 36, 36))
         self.assertEqual(sum(self.report["counts"].values()), 36)
-        self.assertEqual(self.report["counts"], {"implemented": 9, "partial": 6, "unavailable": 1, "disabled": 1, "planned": 19})
+        self.assertEqual(self.report["counts"], {"implemented": 9, "partial": 7, "unavailable": 1, "disabled": 1, "planned": 18})
 
     def test_only_catalog_roles_are_mapped_and_statuses_are_known(self):
         ids = {r["agent_id"] for r in self.report["roles"]}
