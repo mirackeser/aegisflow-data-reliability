@@ -34,7 +34,7 @@ class PlatformMapTests(unittest.TestCase):
     def test_nothing_is_live_and_nothing_is_called_fully_implemented(self):
         summary = pm.platform_map()
         self.assertEqual(summary["live"], 0)
-        self.assertEqual(summary["counts"], {"implemented": 0, "partial": 9, "not_implemented": 1})
+        self.assertEqual(summary["counts"], {"implemented": 0, "partial": 10, "not_implemented": 0})
         self.assertEqual(summary["total"], 10)
 
     def test_live_components_are_counted(self):

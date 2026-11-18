@@ -45,6 +45,29 @@ class ContextTests(unittest.TestCase):
         return encode('response', {'version': '1', 'request_sha256': sha(prepared.request),
             'decision': 'PROPOSE', 'assessment': assessment, 'evidence_sha256': metadata['evidence_sha256']})
 
+    def test_cached_context_is_identical_isolated_and_follows_the_evidence(self):
+        from aegisflow_dr.advisory.context_cache import ContextCache
+        cache = ContextCache()
+        record = self.record()
+        plain = self.prepare(record)
+        first = self.prepare(record, cache=cache)
+        second = self.prepare(record, cache=cache)
+        evidence = lambda prepared: json.loads(prepared.messages[1]['content'])['evidence']
+        for field in ('context_sha256', 'context_bytes', 'record_sha256'):  # request ids are unique per preparation
+            self.assertEqual(first.manifest[field], plain.manifest[field])
+        self.assertEqual((evidence(first), evidence(second)), (evidence(plain), evidence(plain)))
+        self.assertEqual((cache.stats()['hits'], cache.stats()['misses']), (1, 1))
+        self.prepare(record, cache=cache, tenant='other')
+        self.assertEqual(cache.stats()['entries'], 2)
+        changed = self.record(generate_orders(fault='null_total').decode())
+        self.prepare(changed, cache=cache)
+        self.assertEqual(cache.stats()['entries'], 3)
+        self.assertEqual(cache.invalidate(tenant='other'), 1)
+        with self.assertRaises(AdvisoryError):
+            self.prepare(record, cache=object())
+        with self.assertRaises(AdvisoryError):
+            self.prepare(record, cache=cache, tenant='Not Valid')
+
     def test_clean_source_and_batch_project_without_assessment_or_amounts(self):
         record = self.record()
         value = json.loads(project(record))
