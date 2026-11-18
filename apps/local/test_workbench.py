@@ -295,6 +295,18 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_platform_map_is_authorized_and_claims_nothing_live(self):
+  import json
+  server=make_server(self.w,'plat-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/platform',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   self.assertEqual(get({})[0],403)
+   status,body=get({'Authorization':'Bearer plat-token'});report=json.loads(body)
+   self.assertEqual((status,report['total'],report['live'],report['counts']['not_implemented']),(200,10,0,1))
+   self.assertEqual({c['id']:c['status'] for c in report['components']}['CAG'],'not_implemented')
+  finally:
+   server.shutdown();server.server_close();thread.join()
  def test_http_compare_sources_is_read_only_masked_and_flags_sampling(self):
   import json,sqlite3
   from pathlib import Path
