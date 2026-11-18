@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from knowledge import Document, Knowledge
+from knowledge import Knowledge
+from reference_documents import REFERENCE_DOCUMENTS
+from retrieval_eval import evaluate as evaluate_retrieval
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
 from check_postgres_local import qualify
@@ -43,26 +45,7 @@ class Workbench:
         self.bindir = bindir
         self.lock = Lock()
         self.knowledge = Knowledge()
-        self.knowledge.replace((Document('local', 'quality-contract', 'v1',
-            'Source quality failure: check missing order_total values and duplicate order_id records. '
-            'A finding is an observation, not a causal explanation. Never repair source data automatically.'),
-            Document('local', 'reconciliation-contract', 'v1',
-                'Transformation reconciliation compares expected and observed order count and amount cents. '
-                'A mismatch is evidence of loss or inconsistent transformation, not proof of a causal root cause.'),
-            Document('local', 'schema-contract', 'v1',
-                'Schema contract: order_id, customer_id and order_total are required and no other column is allowed. '
-                'A missing or unexpected column often means a renamed or reordered export field. A rename is a candidate '
-                'explanation to confirm with the data owner, never proof; map columns only after confirmation.'),
-            Document('local', 'missing-value-guidance', 'v1',
-                'Empty required value: a blank order_total understates revenue and a blank identifier prevents matching. '
-                'The inspection reports the record number only. Fix the value at its source system and inspect a new export.'),
-            Document('local', 'duplicate-guidance', 'v1',
-                'Duplicate order_id: identical repeated records are consistent with a repeated load or export; records with '
-                'conflicting values indicate a key collision or conflicting updates. Repeats counted twice overstate revenue. '
-                'The observed pattern does not prove the cause; confirm in the source system before removing anything.'),
-            Document('local', 'amount-format-guidance', 'v1',
-                'Invalid amount format: order_total must be a nonnegative decimal with at most two decimal places and no '
-                'currency symbol, thousands separator or exponent. A locale decimal comma or text value cannot be summed safely.')))
+        self.knowledge.replace(REFERENCE_DOCUMENTS)
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -233,6 +216,11 @@ def evaluation_report():
     return json.dumps(evaluate_checks(include_heldout=True)).encode()
 
 
+@lru_cache(maxsize=1)
+def retrieval_report():
+    return json.dumps(evaluate_retrieval()).encode()
+
+
 def make_server(workbench, token, port=0, catalog=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -270,6 +258,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(capability_map()).encode())
             elif self.path == '/api/platform' and self.authorized():
                 self.respond(200, json.dumps(platform_map()).encode())
+            elif self.path == '/api/retrieval' and self.authorized():
+                self.respond(200, retrieval_report())
             elif self.path == '/api/evaluation' and self.authorized():
                 self.respond(200, evaluation_report())
             elif self.path == '/api/sources' and self.authorized():

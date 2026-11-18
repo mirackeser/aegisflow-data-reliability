@@ -8,6 +8,14 @@ from threading import RLock
 from time import monotonic
 
 
+STOPWORDS = frozenset('a an and are as at be but by for from how i if in into is it its me my of on or that the their then there these this to was were what when where which who why will with you your do does not no can'.split())
+
+
+def terms(text):
+    """Lower-cased word set without function words, so that 'the' or 'is' never counts as evidence."""
+    return set(re.findall(r'\w+', text.casefold())) - STOPWORDS
+
+
 def digest(value):
     return sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
@@ -69,10 +77,10 @@ class Knowledge:
             cached = self.cache.get(key)
             if cached is not None and cached[0] <= now < cached[0] + self.ttl:
                 return json.loads(cached[1])
-            tokens = set(re.findall(r'\w+', query.casefold()))
+            tokens = terms(query)
             ranked = []
             for d in selected:
-                score = len(tokens & set(re.findall(r'\w+', d.text.casefold())))
+                score = len(tokens & terms(d.text))
                 if score:
                     ranked.append((score, d))
             ranked.sort(key=lambda item: (-item[0], item[1].source))
