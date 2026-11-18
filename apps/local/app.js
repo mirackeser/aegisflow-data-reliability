@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let platform=null,capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -367,9 +367,9 @@ function agentsHappened(run){
  return run?.result?.plan?t('agents.happened',{ran:N(ran),impl:N(implemented)}):t('agents.happened.none',{impl:N(implemented)});
 }
 async function loadCapabilities(){
- if(capabilitiesLoading||capabilities||!connected)return;
+ if(capabilitiesLoading||(capabilities&&platform)||!connected)return;
  capabilitiesLoading=true;
- try{capabilities=await request('/api/capabilities');}catch(error){setNotice(error.message,true);}
+ try{[capabilities,platform]=await Promise.all([request('/api/capabilities'),request('/api/platform')]);}catch(error){setNotice(error.message,true);}
  capabilitiesLoading=false;render();
 }
 const ROLE_TONE={implemented:'ok',partial:'info',unavailable:'warn',disabled:'warn',planned:'muted'};
@@ -382,14 +382,28 @@ function roleCard(role){
   field('agents.does',t('role.'+role.agent_id+'.does')),field('agents.when',t('role.'+role.agent_id+'.when')),field('agents.limit',limit),
   role.implemented_by.length?h('div',{class:'role-field'},h('b',{text:t('agents.code')}),h('code',{text:role.implemented_by.join('  ·  ')})):null);
 }
+function platformPanel(){
+ const tone={partial:'info',not_implemented:'muted',implemented:'ok'};
+ const card=c=>h('article',{class:'role-card '+(c.status==='partial'?'partial':'planned')},
+  h('div',{class:'role-head'},h('span',{class:'role-id',text:c.id}),h('strong',{text:t('plat.'+c.id+'.name')})),
+  h('div',{class:'role-chips'},chip(t('plat.status.'+c.status),tone[c.status])),
+  h('div',{class:'role-field'},h('b',{text:t('plat.exists')}),h('span',{text:t('plat.'+c.id+'.does')})),
+  h('div',{class:'role-field'},h('b',{text:t('plat.missing')}),h('span',{text:t('plat.'+c.id+'.missing')})),
+  c.implemented_by.length?h('div',{class:'role-field'},h('b',{text:t('agents.code')}),h('code',{text:c.implemented_by.join('  ·  ')})):null,
+  c.tests.length?h('div',{class:'role-field'},h('b',{text:t('plat.tests')}),h('code',{text:c.tests.join('  ·  ')})):null);
+ return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('plat.title')}),chip(t('plat.counts',{partial:N(platform.counts.partial),none:N(platform.counts.not_implemented)}),'muted')),
+  h('p',{class:'panel-note',text:t('plat.intro')}),h('div',{class:'role-grid'},platform.components.map(card)),
+  h('p',{class:'panel-note',text:t('plat.live',{n:N(platform.live),total:N(platform.total)})}));
+}
 function renderAgents(){
  const root=$('screen-agents');
  if(!connected){root.replaceChildren(h('section',{class:'panel'},empty('evidence.connect.t','evidence.connect.x')));return;}
- if(!capabilities){loadCapabilities();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
+ if(!capabilities||!platform){loadCapabilities();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
  const view=roleView(capabilities,currentRun()?.result?.plan,roleFilter),c=capabilities.counts;
  const tile=(key,value,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t('agents.k.'+key)}),h('strong',{text:N(value)}),h('small',{text:t('agents.k.'+key+'.x')}));
  const filters=['all','implemented','partial','unavailable','disabled','planned'];
  root.replaceChildren(
+  platformPanel(),
   h('div',{class:'kpi-grid'},tile('total',capabilities.total),tile('implemented',c.implemented,'ok'),tile('partial',c.partial),tile('blocked',c.unavailable+c.disabled),tile('planned',c.planned)),
   h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('agents.filter')}),chip(t('agents.count',{n:N(view.roles.length)}),'muted')),
    h('div',{class:'filter-row',role:'group','aria-label':t('agents.filter')},filters.map(f=>h('button',{type:'button',class:'secondary filter','aria-pressed':String(roleFilter===f),onclick:()=>{roleFilter=f;render();}},f==='all'?t('agents.filter.all'):t('agents.status.'+f)))),

@@ -21,6 +21,7 @@ from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
 from functools import lru_cache
 
 from aegisflow_dr.capability_map import capability_map
+from aegisflow_dr.platform_map import platform_map
 from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
 from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.cardinality import join_cardinality
@@ -267,6 +268,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)
             elif self.path == '/api/capabilities' and self.authorized():
                 self.respond(200, json.dumps(capability_map()).encode())
+            elif self.path == '/api/platform' and self.authorized():
+                self.respond(200, json.dumps(platform_map()).encode())
             elif self.path == '/api/evaluation' and self.authorized():
                 self.respond(200, evaluation_report())
             elif self.path == '/api/sources' and self.authorized():
