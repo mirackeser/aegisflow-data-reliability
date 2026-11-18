@@ -26,6 +26,7 @@ COVERAGE: dict[str, tuple[str, tuple[str, ...]]] = {
     "A19": ("implemented", ("aegisflow_dr.batch:run_batch",)),
     "A20": ("partial", ("aegisflow_dr.monitoring:monitor",)),
     "A21": ("implemented", ("aegisflow_dr.consistency:compare",)),
+    "A22": ("partial", ("aegisflow_dr.similar:similar_runs",)),
     "A23": ("unavailable", ()),
     "A26": ("implemented", ("aegisflow_dr.storage.store:IncidentStore",)),
     "A27": ("implemented", ("aegisflow_dr.coordination.judge:review",)),

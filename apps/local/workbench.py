@@ -25,6 +25,7 @@ from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
 from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.cardinality import join_cardinality
 from aegisflow_dr.consistency import compare as compare_sources
+from aegisflow_dr.similar import similar_index
 from aegisflow_dr.execution_view import build_plan
 from aegisflow_dr.monitoring import monitor
 from aegisflow_dr.pipeline import FAULTS, InputRejected, diagnose_csv, generate_orders
@@ -86,6 +87,7 @@ class Workbench:
             data = json.loads(json.dumps(self.state))
         current = [data] if data.get('run_id') and data.get('result') else []
         data['monitoring'] = monitor([*reversed(data['history']), *current])
+        data['similar'] = similar_index([*current, *data['history']])
         return data
 
     def event(self, agent, state, description):
