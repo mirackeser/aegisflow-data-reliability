@@ -19,7 +19,7 @@ COMPONENTS = (
      "anchors": ("aegisflow_dr.advisory.dispatch:dispatch", "aegisflow_dr.advisory.usage:UsageLedger"),
      "tests": ("tests/test_advisory.py", "tests/test_dispatch.py", "tests/test_usage.py")},
     {"id": "RAG", "status": "partial", "live": False,
-     "anchors": ("apps/local/knowledge.py:Knowledge.retrieve",), "tests": ("apps/local/test_knowledge.py",)},
+     "anchors": ("apps/local/knowledge.py:Knowledge.retrieve",), "tests": ("apps/local/test_knowledge.py", "apps/local/test_retrieval_eval.py")},
     {"id": "CAG", "status": "not_implemented", "live": False, "anchors": (), "tests": ()},
     {"id": "CONTRACTS", "status": "partial", "live": False,
      "anchors": ("aegisflow_dr.coordination.contracts:parse", "aegisflow_dr.advisory.contracts:decode", "aegisflow_dr.pipeline:diagnose_csv"),

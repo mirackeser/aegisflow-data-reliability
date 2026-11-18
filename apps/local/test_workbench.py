@@ -295,6 +295,18 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_retrieval_report_is_authorized_and_measured(self):
+  import json
+  server=make_server(self.w,'ret-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/retrieval',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   self.assertEqual(get({})[0],403)
+   status,body=get({'Authorization':'Bearer ret-token'});report=json.loads(body)
+   self.assertEqual((status,report['queries'],report['authored_with_corpus_in_view']),(200,32,True))
+   self.assertEqual(report['groups']['out_of_scope']['false_retrieval']['numerator'],0)
+  finally:
+   server.shutdown();server.server_close();thread.join()
  def test_http_platform_map_is_authorized_and_claims_nothing_live(self):
   import json
   server=make_server(self.w,'plat-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
