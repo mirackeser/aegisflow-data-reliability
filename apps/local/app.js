@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let retrieval=null,platform=null,capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let passages=null,retrieval=null,platform=null,capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -328,9 +328,9 @@ function evidenceHappened(){
  return t('evidence.happened',{cases:N(evaluation.corpus.cases),errors:N(errors)});
 }
 async function loadEvaluation(){
- if(evaluationLoading||(evaluation&&retrieval)||!connected)return;
+ if(evaluationLoading||(evaluation&&retrieval&&passages)||!connected)return;
  evaluationLoading=true;
- try{[evaluation,retrieval]=await Promise.all([request('/api/evaluation'),request('/api/retrieval')]);}catch(error){setNotice(error.message,true);}
+ try{[evaluation,retrieval,passages]=await Promise.all([request('/api/evaluation'),request('/api/retrieval'),request('/api/passages')]);}catch(error){setNotice(error.message,true);}
  evaluationLoading=false;render();
 }
 const SPLIT_ORDER=['development','validation','heldout'];
@@ -357,10 +357,19 @@ function retrievalPanel(){
   h('div',{class:'table-wrap'},h('table',{class:'data-table evidence-table'},h('thead',{},h('tr',{},['ret.col.group','ret.col.n','ret.col.first','ret.col.top3','ret.col.mrr'].map(k=>h('th',{scope:'col',text:t(k)})))),h('tbody',{},rows))),
   h('p',{class:'panel-note',text:t('ret.note')}));
 }
+function passagePanel(){
+ const cell=r=>rateCell({value:r.value,numerator:r.numerator,denominator:r.denominator,low:r.wilson95[0]});
+ const rows=Object.entries(passages.groups).flatMap(([group,g])=>[
+  h('tr',{},h('th',{scope:'row',text:t('psg.group.'+group)}),h('td',{text:t('psg.method.document')}),cell(g.document_level.right_document_first),h('td',{class:'rate na',text:'—'}),h('td',{class:'rate'},h('strong',{text:N(g.document_level.mean_returned_bytes)}))),
+  h('tr',{},h('th',{scope:'row',text:t('psg.group.'+group)}),h('td',{text:t('psg.method.passage')}),cell(g.passage_level.right_document_first),cell(g.passage_level.right_passage_first),h('td',{class:'rate'},h('strong',{text:N(g.passage_level.mean_returned_bytes)})))]);
+ return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('psg.title')}),chip('RAG','info')),h('p',{class:'panel-note',text:t('psg.intro')}),
+  h('div',{class:'table-wrap'},h('table',{class:'data-table evidence-table'},h('thead',{},h('tr',{},['psg.col.group','psg.col.method','psg.col.doc','psg.col.passage','psg.col.bytes'].map(k=>h('th',{scope:'col',text:t(k)})))),h('tbody',{},rows))),
+  h('p',{class:'panel-note',text:t('psg.note')}));
+}
 function renderEvidence(){
  const root=$('screen-evidence');
  if(!connected){root.replaceChildren(h('section',{class:'panel'},empty('evidence.connect.t','evidence.connect.x')));return;}
- if(!evaluation||!retrieval){loadEvaluation();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
+ if(!evaluation||!retrieval||!passages){loadEvaluation();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
  const c=evaluation.corpus,leak=evaluation.leakage;
  const tile=(key,value,sub,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t(key)}),h('strong',{text:value}),h('small',{text:sub}));
  root.replaceChildren(
@@ -368,7 +377,7 @@ function renderEvidence(){
    tile('evidence.k.splits',SPLIT_ORDER.map(s=>N(c.per_split[s].cases)).join(' / '),t('evidence.k.splits.x')),
    tile('evidence.k.leak',leak.clean?t('evidence.k.leak.none'):t('evidence.k.leak.found'),t('evidence.k.leak.x'),leak.clean?'ok':'bad'),
    tile('evidence.k.digest',c.sha256.slice(0,12),t('evidence.k.digest.x'))),
-  detectorPanel('diagnose_csv'),detectorPanel('record_issues'),retrievalPanel(),
+  detectorPanel('diagnose_csv'),detectorPanel('record_issues'),retrievalPanel(),passagePanel(),
   h('div',{class:'dash-grid two'},
    h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.how')})),h('ul',{class:'plain-list'},['evidence.how.1','evidence.how.2','evidence.how.3','evidence.how.4'].map(k=>h('li',{text:t(k)})))),
    h('section',{class:'panel not-shown'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.not')}),chip(t('evidence.limits'),'warn')),h('ul',{class:'plain-list'},['evidence.not.1','evidence.not.2','evidence.not.3','evidence.not.4'].map(k=>h('li',{text:t(k)}))))),

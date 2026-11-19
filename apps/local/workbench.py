@@ -14,6 +14,7 @@ from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
+from passage_eval import evaluate as evaluate_passages
 from retrieval_eval import evaluate as evaluate_retrieval
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
@@ -217,6 +218,11 @@ def evaluation_report():
 
 
 @lru_cache(maxsize=1)
+def passage_report():
+    return json.dumps(evaluate_passages()).encode()
+
+
+@lru_cache(maxsize=1)
 def retrieval_report():
     return json.dumps(evaluate_retrieval()).encode()
 
@@ -261,6 +267,8 @@ def make_server(workbench, token, port=0, catalog=None):
             elif self.path == '/api/knowledge' and self.authorized():
                 self.respond(200, json.dumps({'documents': workbench.kb.documents(), 'rejected_on_load': workbench.kb.rejected_on_load,
                                               'limits': {'documents': MAX_USER_DOCUMENTS, 'bytes': MAX_TEXT_BYTES}}).encode())
+            elif self.path == '/api/passages' and self.authorized():
+                self.respond(200, passage_report())
             elif self.path == '/api/retrieval' and self.authorized():
                 self.respond(200, retrieval_report())
             elif self.path == '/api/evaluation' and self.authorized():

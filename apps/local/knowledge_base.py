@@ -155,8 +155,8 @@ class KnowledgeBase:
         with self.lock:
             allowed = frozenset(self._builtin_sources | set(self._user))
             try:
-                found = self.knowledge.retrieve(TENANT, query, allowed_sources=allowed, limit=limit)
+                found = self.knowledge.retrieve_passages(TENANT, query, allowed_sources=allowed, limit=limit)
             except ValueError as error:
                 raise InputRejected("The search must be 1 to 1024 bytes and the limit 1 to 10") from error
             return [{**item, "builtin": item["source"] in self._builtin_sources,
-                     "verified": self.knowledge.verify(TENANT, item["citation_sha256"], allowed_sources=allowed)} for item in found]
+                     "verified": self.knowledge.verify_passage(TENANT, item["citation_sha256"], allowed_sources=allowed)} for item in found]
