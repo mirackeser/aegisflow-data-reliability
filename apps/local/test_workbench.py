@@ -327,6 +327,18 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(len(call('GET','/api/knowledge')[1]['documents']),6)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_passage_report_is_authorized_and_synthetic(self):
+  import json
+  server=make_server(self.w,'psg-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/passages',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   self.assertEqual(get({})[0],403)
+   status,body=get({'Authorization':'Bearer psg-token'});report=json.loads(body)
+   self.assertEqual((status,report['synthetic'],report['queries_per_group']),(200,True,96))
+   self.assertEqual(report['groups']['4_distinctive_words']['passage_level']['right_passage_first']['numerator'],96)
+  finally:
+   server.shutdown();server.server_close();thread.join()
  def test_http_retrieval_report_is_authorized_and_measured(self):
   import json
   server=make_server(self.w,'ret-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()

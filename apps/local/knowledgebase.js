@@ -29,8 +29,8 @@ async function searchKnowledge(){
 function kbResultCard(r){
  return h('article',{class:'reference'},
   h('div',{class:'ref-head'},h('strong',{text:tt('ref.'+r.source,r.source)}),chip(r.builtin?t('kb.origin.built-in'):t('kb.origin.added'),r.builtin?'muted':'info'),chip(r.verified?t('badge.verified'):t('kb.unverified'),r.verified?'ok':'warn')),
-  h('small',{text:t('kb.terms',{n:N(r.matching_terms)})+' · '+r.source+' · '+r.revision}),
-  h('blockquote',{text:r.text}),h('small',{text:t('ref.hash')}),h('code',{text:r.citation_sha256}));
+  h('small',{text:t('kb.terms',{n:N(r.matching_terms)})+' · '+r.source+' · '+r.revision}),h('small',{class:'block',text:t('kb.span',{n:N(r.chunk+1),start:N(r.start+1),end:N(r.end)})}),
+  h('blockquote',{text:r.text}),h('small',{text:t('kb.hash.passage')}),h('code',{text:r.citation_sha256}));
 }
 function knowledgeBasePanel(){
  if(!kbDocs)return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('kb.title')})),empty('evidence.loading.t','evidence.loading.x'));
