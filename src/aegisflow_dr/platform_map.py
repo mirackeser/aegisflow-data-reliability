@@ -19,7 +19,7 @@ COMPONENTS = (
      "anchors": ("aegisflow_dr.advisory.dispatch:dispatch", "aegisflow_dr.advisory.usage:UsageLedger"),
      "tests": ("tests/test_advisory.py", "tests/test_dispatch.py", "tests/test_usage.py")},
     {"id": "RAG", "status": "partial", "live": False,
-     "anchors": ("apps/local/knowledge.py:Knowledge.retrieve",), "tests": ("apps/local/test_knowledge.py", "apps/local/test_retrieval_eval.py")},
+     "anchors": ("apps/local/knowledge.py:Knowledge.retrieve", "apps/local/knowledge_base.py:KnowledgeBase.add"), "tests": ("apps/local/test_knowledge.py", "apps/local/test_retrieval_eval.py", "apps/local/test_knowledge_base.py")},
     {"id": "CAG", "status": "partial", "live": False,
      "anchors": ("aegisflow_dr.advisory.context_cache:ContextCache",), "tests": ("tests/test_context_cache.py", "tests/test_context.py")},
     {"id": "CONTRACTS", "status": "partial", "live": False,

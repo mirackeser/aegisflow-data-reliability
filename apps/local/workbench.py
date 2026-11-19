@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from knowledge import Knowledge
+from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
 from retrieval_eval import evaluate as evaluate_retrieval
 
@@ -44,8 +44,8 @@ class Workbench:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.bindir = bindir
         self.lock = Lock()
-        self.knowledge = Knowledge()
-        self.knowledge.replace(REFERENCE_DOCUMENTS)
+        self.kb = KnowledgeBase(self.root, REFERENCE_DOCUMENTS)
+        self.knowledge = self.kb.knowledge
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -249,7 +249,7 @@ def make_server(workbench, token, port=0, catalog=None):
             pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if self.path in assets:
                 name, mime = assets[self.path]
@@ -258,6 +258,9 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(capability_map()).encode())
             elif self.path == '/api/platform' and self.authorized():
                 self.respond(200, json.dumps(platform_map()).encode())
+            elif self.path == '/api/knowledge' and self.authorized():
+                self.respond(200, json.dumps({'documents': workbench.kb.documents(), 'rejected_on_load': workbench.kb.rejected_on_load,
+                                              'limits': {'documents': MAX_USER_DOCUMENTS, 'bytes': MAX_TEXT_BYTES}}).encode())
             elif self.path == '/api/retrieval' and self.authorized():
                 self.respond(200, retrieval_report())
             elif self.path == '/api/evaluation' and self.authorized():
@@ -315,6 +318,27 @@ def make_server(workbench, token, port=0, catalog=None):
                     else:
                         diagnose_csv(payload)
                     self.respond(202 if workbench.start('upload', payload, meta) else 409, b'{}')
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path in ('/api/knowledge/add', '/api/knowledge/remove', '/api/knowledge/search'):
+                body = self.read_body('application/json', 60000)
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/add'):
+                        result = workbench.kb.add(request.get('name'), request.get('text'))
+                    elif self.path.endswith('/remove'):
+                        workbench.kb.remove(request.get('source'))
+                        result = {'removed': request['source']}
+                    else:
+                        result = {'results': workbench.kb.search(request.get('query'), request.get('limit', 5))}
+                    self.respond(200, json.dumps(result).encode())
                 except InputRejected as error:
                     self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
                 except (ValueError, TypeError):

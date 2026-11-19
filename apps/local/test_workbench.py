@@ -97,7 +97,7 @@ class WorkbenchTests(unittest.TestCase):
    def call(path,method='GET',body=None,headers=None):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=3)
     c.request(method,path,body=body,headers=headers or {});r=c.getresponse();status=r.status;r.read();c.close();return status
-   for page in ('/overview','/sources','/presentation.js','/investigations','/activity','/knowledge','/history','/i18n.js'):
+   for page in ('/overview','/sources','/presentation.js','/knowledgebase.js','/investigations','/activity','/knowledge','/history','/i18n.js'):
     self.assertEqual(call(page),200)
    self.assertEqual(call('/api/inspect','POST',b'csv',{'Content-Type':'text/csv'}),403)
    auth={'Authorization':'Bearer local-csv-token','Content-Type':'text/csv'}
@@ -293,6 +293,38 @@ class WorkflowTests(unittest.TestCase):
    status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
    self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,18))
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
+  finally:
+   server.shutdown();server.server_close();thread.join()
+ def test_http_knowledge_base_add_search_remove_and_refusals(self):
+  import json
+  server=make_server(self.w,'kb-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  auth={'Authorization':'Bearer kb-token'}
+  def call(method,path,body=None,headers=None,mime='application/json'):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+   h=dict(auth if headers is None else headers)
+   data=None if body is None else (body if isinstance(body,bytes) else json.dumps(body).encode())
+   if data is not None:
+    h.update({'Content-Type':mime,'Content-Length':str(len(data))})
+   c.request(method,path,body=data,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  try:
+   self.assertEqual(call('GET','/api/knowledge',headers={})[0],403)
+   self.assertEqual(call('POST','/api/knowledge/add',{'name':'x','text':'y'},headers={})[0],403)
+   self.assertEqual(call('POST','/api/knowledge/add',b'{}',mime='text/plain')[0],403)
+   status,listing=call('GET','/api/knowledge')
+   self.assertEqual((status,len(listing['documents']),listing['limits']['documents']),(200,6,50))
+   status,added=call('POST','/api/knowledge/add',{'name':'Gecikme Notu','text':'Ödeme gecikmeleri üç iş günü sürebilir.'})
+   self.assertEqual((status,added['status'],added['source']),(200,'added','gecikme-notu'))
+   self.assertEqual(call('GET','/api/knowledge')[1]['documents'][-1]['source'],'gecikme-notu')
+   status,found=call('POST','/api/knowledge/search',{'query':'ödeme gecikmeleri'})
+   self.assertEqual((status,found['results'][0]['source'],found['results'][0]['verified']),(200,'gecikme-notu',True))
+   self.assertEqual(call('POST','/api/knowledge/add',{'name':'Schema Contract','text':'x'})[0],422)
+   self.assertEqual(call('POST','/api/knowledge/add',{'name':'ok','text':''})[0],422)
+   self.assertEqual(call('POST','/api/knowledge/add',[1])[0],400)
+   self.assertEqual(call('POST','/api/knowledge/search',{'query':'ok','limit':'x'})[0],422)
+   self.assertEqual(call('POST','/api/knowledge/search',{'query':''})[0],422)
+   self.assertEqual(call('POST','/api/knowledge/remove',{'source':'gecikme-notu'})[0],200)
+   self.assertEqual(call('POST','/api/knowledge/remove',{'source':'gecikme-notu'})[0],422)
+   self.assertEqual(len(call('GET','/api/knowledge')[1]['documents']),6)
   finally:
    server.shutdown();server.server_close();thread.join()
  def test_http_retrieval_report_is_authorized_and_measured(self):
