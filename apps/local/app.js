@@ -305,15 +305,19 @@ function renderHistory(){
 }
 
 // ---------- evidence references ----------
-function renderKnowledge(){
- const run=currentRun(),root=$('screen-knowledge'),result=run?.result;
- if(!result){root.replaceChildren(h('section',{class:'panel'},empty('empty.refs.t','empty.refs.x',link('/sources',t('cta.start'),'primary route'))));return;}
- const card=(reference,context)=>h('article',{class:'reference'},h('div',{class:'ref-head'},h('strong',{text:t('ref.'+reference.source)||reference.source}),chip(`${reference.source} · ${reference.revision}`,'muted')),
+function referencePanel(result){
+ const card=(reference,context)=>h('article',{class:'reference'},h('div',{class:'ref-head'},h('strong',{text:tt('ref.'+reference.source,reference.source)}),chip(`${reference.source} · ${reference.revision}`,'muted')),
   context?h('p',{class:'ref-context',text:context}):null,h('blockquote',{text:reference.text}),h('small',{text:t('ref.hash')}),h('code',{text:reference.citation_sha256}));
  const byFinding=Object.entries(result.finding_references||{}).map(([check,refs])=>card(refs[0],t('ref.for',{check:t('check.'+check)})));
- root.replaceChildren(h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.refs')}),chip(t('badge.verified'),'ok')),
+ return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.refs')}),chip(t('badge.verified'),'ok')),
   h('div',{class:'ref-grid'},byFinding,(result.references||[]).map(r=>card(r,t('ref.general')))),
-  h('p',{class:'panel-note',text:t('panel.refs.note')})));
+  h('p',{class:'panel-note',text:t('panel.refs.note')}));
+}
+function renderKnowledge(){
+ const run=currentRun(),root=$('screen-knowledge'),result=run?.result;
+ if(connected&&!kbDocs)loadKnowledgeBase();
+ const refs=result?referencePanel(result):h('section',{class:'panel'},empty('empty.refs.t','empty.refs.x',link('/sources',t('cta.start'),'primary route')));
+ root.replaceChildren(knowledgeBasePanel(),refs);
 }
 
 // ---------- check accuracy ----------
