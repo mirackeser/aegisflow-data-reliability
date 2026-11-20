@@ -113,7 +113,7 @@ May run alongside B; required before live activation.
 - **A02:** Define latency/capacity/availability/recovery targets and retention budgets from pilot needs.
 - **A03:** Review threat model, trust boundaries, data classification and tenant model.
 - **A04:** Delivered in increment 31: retained-evidence/CLI defensive rejection and rollback tests close the recorded coverage gap; whole-application statement/branch CI gate is 100%.
-- **A05:** Lock transitive/build dependencies; pin scanner/container digests; produce SBOM and license checks.
+- **A05:** Lock transitive/build dependencies; pin scanner/container digests; produce SBOM and license checks. Partly delivered in increment 56: SBOM and fail-closed licence check exist; transitive lock files, build-dependency pinning and container digests remain open.
 - **A06:** Define versioning, schema compatibility/deprecation and release evidence conventions.
 
 Phase exit: its behavior is implemented, relevant positive/negative/integration tests pass, installed distribution works, trust/quality limits are documented, security checks and exact-revision CI pass, and the reviewable PR is merged. External activation additionally requires the named approval gate.
