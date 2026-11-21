@@ -22,6 +22,12 @@ from aegisflow_dr.storage.store import sha
 class RoutingTests(unittest.TestCase):
     def setUp(self):
         test_operation.OperationTests.setUp(self)
+        # Route deadlines compare a real monotonic clock with a 1 s budget (2000 - 1000 ms).
+        # A slow CI runner could expire that budget mid-route, so tests that do not pass their
+        # own clock get a frozen one. Tests that exercise clocks pass clock= explicitly.
+        frozen = patch.dict(execute_route.__kwdefaults__, {'clock': lambda: 0.0})
+        frozen.start()
+        self.addCleanup(frozen.stop)
         self.route_path=self.root/'route.db'
         initialize_usage(self.route_path,UsagePolicy(max_total_attempts=2),operation=self.binding,routing=True)
         self.route=self.open_route()
