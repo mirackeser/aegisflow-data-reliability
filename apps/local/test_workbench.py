@@ -327,6 +327,40 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(len(call('GET','/api/knowledge')[1]['documents']),6)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_schema_registry_register_contract_drift_and_refusals(self):
+  import json
+  server=make_server(self.w,'sr-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  auth={'Authorization':'Bearer sr-token'}
+  def call(method,path,body=None,headers=None,mime='application/json'):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+   h=dict(auth if headers is None else headers)
+   data=None if body is None else (body if isinstance(body,bytes) else json.dumps(body).encode())
+   if data is not None:
+    h.update({'Content-Type':mime,'Content-Length':str(len(data))})
+   c.request(method,path,body=data,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  base=[{'name':'order_id','type':'integer'},{'name':'order_total','type':'decimal'}]
+  try:
+   self.assertEqual(call('GET','/api/schemas',headers={})[0],403)
+   self.assertEqual(call('POST','/api/schemas/register',{'subject':'o','columns':base},headers={})[0],403)
+   self.assertEqual(call('POST','/api/schemas/register',b'{}',mime='text/plain')[0],403)
+   self.assertEqual(call('GET','/api/schemas')[1],{'subjects':[],'rejected_on_load':False})
+   status,first=call('POST','/api/schemas/register',{'subject':'orders','columns':base})
+   self.assertEqual((status,first['version'],first['created'],first['drift']['status']),(200,1,True,'NO_CONTRACT'))
+   self.assertEqual(call('POST','/api/schemas/contract',{'subject':'orders','version':1})[1],{'subject':'orders','contract':1})
+   widened=[{'name':'order_id','type':'text'},base[1]]
+   status,second=call('POST','/api/schemas/register',{'subject':'orders','columns':widened})
+   self.assertEqual((status,second['version'],second['drift']['status']),(200,2,'DRIFT_BREAKING'))
+   self.assertEqual(second['diff']['widened'][0]['name'],'order_id')
+   status,listing=call('GET','/api/schemas')
+   self.assertEqual([(x['subject'],x['versions'],x['contract']) for x in listing['subjects']],[('orders',2,1)])
+   self.assertEqual(call('POST','/api/schemas/register',{'subject':'bad name','columns':base})[0],422)
+   self.assertEqual(call('POST','/api/schemas/register',{'subject':'orders','columns':[]})[0],422)
+   self.assertEqual(call('POST','/api/schemas/contract',{'subject':'orders','version':9})[0],422)
+   self.assertEqual(call('POST','/api/schemas/contract',{'subject':'nope','version':1})[0],422)
+   self.assertEqual(call('POST','/api/schemas/register',[1])[0],400)
+   self.assertEqual(call('POST','/api/schemas/register',b'not json')[0],400)
+  finally:
+   server.shutdown();server.server_close();thread.join()
  def test_http_passage_report_is_authorized_and_synthetic(self):
   import json
   server=make_server(self.w,'psg-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
