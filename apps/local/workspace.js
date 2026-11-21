@@ -243,7 +243,8 @@ function discoveryPanel(){
   h('h3',{text:t('disc.columns')}),
   h('div',{class:'table-wrap'},h('table',{class:'data-table compact'},h('thead',{},h('tr',{},...['disc.col.name','disc.col.type','disc.col.filled','disc.col.empty','disc.col.distinct','disc.col.role'].map(k=>h('th',{scope:'col',text:t(k)})))),
    h('tbody',{},d.columns.map(col=>h('tr',{},h('th',{scope:'row',text:col.name}),h('td',{text:t('type.'+col.inferred_type)}),h('td',{text:N(col.non_empty)}),h('td',{text:N(col.empty)}),h('td',{text:N(col.distinct)}),
-    h('td',{},col.contract_role?chip(t('disc.role.contract'),'ok'):col.suggested_role?chip(t('disc.role.suggested',{target:col.suggested_role}),'warn'):chip(t('disc.role.extra'),'muted'))))))));
+    h('td',{},col.contract_role?chip(t('disc.role.contract'),'ok'):col.suggested_role?chip(t('disc.role.suggested',{target:col.suggested_role}),'warn'):chip(t('disc.role.extra'),'muted'))))))),
+  schemaRegistryPanel(d));
 }
 function renderSources(){
  const root=$('screen-sources'),chosen=Object.keys(mappingOn).length;

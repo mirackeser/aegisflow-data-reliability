@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from schema_store import SchemaStore
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
 from passage_eval import evaluate as evaluate_passages
@@ -47,6 +48,7 @@ class Workbench:
         self.lock = Lock()
         self.kb = KnowledgeBase(self.root, REFERENCE_DOCUMENTS)
         self.knowledge = self.kb.knowledge
+        self.schemas = SchemaStore(self.root)
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -255,7 +257,7 @@ def make_server(workbench, token, port=0, catalog=None):
             pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if self.path in assets:
                 name, mime = assets[self.path]
@@ -267,6 +269,8 @@ def make_server(workbench, token, port=0, catalog=None):
             elif self.path == '/api/knowledge' and self.authorized():
                 self.respond(200, json.dumps({'documents': workbench.kb.documents(), 'rejected_on_load': workbench.kb.rejected_on_load,
                                               'limits': {'documents': MAX_USER_DOCUMENTS, 'bytes': MAX_TEXT_BYTES}}).encode())
+            elif self.path == '/api/schemas' and self.authorized():
+                self.respond(200, json.dumps(workbench.schemas.overview()).encode())
             elif self.path == '/api/passages' and self.authorized():
                 self.respond(200, passage_report())
             elif self.path == '/api/retrieval' and self.authorized():
@@ -346,6 +350,24 @@ def make_server(workbench, token, port=0, catalog=None):
                         result = {'removed': request['source']}
                     else:
                         result = {'results': workbench.kb.search(request.get('query'), request.get('limit', 5))}
+                    self.respond(200, json.dumps(result).encode())
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path in ('/api/schemas/register', '/api/schemas/contract'):
+                body = self.read_body('application/json', 120000)
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/register'):
+                        result = workbench.schemas.register(request.get('subject'), request.get('columns'))
+                    else:
+                        result = workbench.schemas.set_contract(request.get('subject'), request.get('version'))
                     self.respond(200, json.dumps(result).encode())
                 except InputRejected as error:
                     self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())

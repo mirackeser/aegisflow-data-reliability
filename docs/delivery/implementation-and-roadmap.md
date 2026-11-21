@@ -156,7 +156,7 @@ Read-only synthetic/staging integration before enterprise data; supports E and F
 - **D01:** Select one realistic pipeline runtime and implement a reproducible local integration environment.
 - **D02:** Implement read-only database/file connector grants, bounded queries, pooling and backpressure.
 - **D03:** Ingest job/run metadata and redacted logs with validated source provenance.
-- **D04:** Retain schema versions and implement schema diff and contract registry.
+- **D04:** Retain schema versions and implement schema diff and contract registry. Delivered in increment 59 for CSV/file schemas observed by the local workbench: versioned snapshots, diff, pinned contract and drift check. Schemas of live databases and warehouses remain open until those connectors exist (D01–D02).
 - **D05:** Expand profiling, freshness/volume checks, type handling and declared lineage ingestion.
 - **D06:** Implement SQL AST diagnostics, join/cardinality and reconciliation tools with scoped evidence.
 - **D07:** Add incremental/watermark, CDC, distribution and cross-source adapters only for supported pilot cases.
