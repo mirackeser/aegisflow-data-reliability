@@ -243,3 +243,7 @@ The six built-in reference documents moved to `reference_documents.py`. `retriev
 ## Increment 57 — deterministic route clock in tests (flaky test fixed)
 
 A recovery test failed once on a slow CI runner. Cause: `execute_route` compares a real monotonic clock with a 1 s budget (deadline 2000 ms minus wall start 1000 ms), so a one-second stall mid-route stopped it after one event and broke the test's precondition. Reproduced by injecting a real 1.2 s delay into dispatch (failed before, passes after). `RoutingTests.setUp`, which the routing, recovery, integrity, authority, reconciliation and accounting tests share, now freezes the default clock; tests that exercise clocks still pass `clock=` explicitly. Test-only change: production behaviour is unchanged, 950 tests at 100% coverage.
+
+## Increment 58 — model decision recorded
+
+The operator decided the model stays a simulation for now, may connect real sensors later through an internship company, and approves a download only when at their own computer and stated at that time. The dossier records this; labelled real data is deferred until a real model or sensor data exists. Documentation only; nothing downloaded or run. Next: deterministic simulation-side work (D04 schema registry, F04 hypothesis contracts).
