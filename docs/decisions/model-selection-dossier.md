@@ -1,6 +1,6 @@
 # Model selection dossier (work package C04 preparation)
 
-Status: **proposal for operator decision. No model has been downloaded, installed or run.**
+Status: **operator decision recorded (2026-11-21): simulation-only for now. No model has been downloaded, installed or run.**
 Budget: USD 0. Nothing here authorises spending, a paid API, or a download.
 
 ## Why this decision is on the critical path
@@ -59,3 +59,10 @@ This ordering is a hypothesis to test, not a result.
 
 - InsiderLLM, "Best Local LLMs for Structured Output" — https://insiderllm.com/guides/structured-output-local-llms/
 - WZ-IT, "Open LLM licences for commercial use" — https://wz-it.com/en/knowledge/ki/open-llm-licenses-commercial-use/
+
+## Operator decision (2026-11-21)
+
+- **Model:** stays a simulation for now. No real model is integrated, so root-cause inference and model accuracy remain unclaimed and every result must be labelled simulated.
+- **Later:** the operator may connect real sensors through an internship company, case by case. That would need that company's data-handling permission and its own approval gate before any live connection.
+- **Download:** approval to download a model is given in principle, but only when the operator is at their own computer and says so at that time. Nothing is downloaded until then, and the model, size and place will be named in that message.
+- **Labelled data:** not needed while the system is simulated. It is needed only when a real model or real sensor data is measured (C01–C02, C05–C08).
