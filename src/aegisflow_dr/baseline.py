@@ -24,6 +24,7 @@ CHECKS = ("column_missing", "column_added", "role_change", "sampling_interval_ch
           "empty_rate_change", "distribution_shift")
 ROLES = ("numeric", "timestamp", "text", "empty")
 MAX_EDGES = 9
+MAX_MAGNITUDE = 10 ** 15
 _KEYS = {"format_version", "engine", "columns", "time_column", "references", "volume", "sampling", "freshness_sla_seconds",
          "empty_share", "numeric", "digest"}
 _HEX = frozenset("0123456789abcdef")
@@ -103,7 +104,8 @@ def build_baseline(payloads, *, freshness_sla_seconds=None):
 
 
 def _number(x):
-    return type(x) in (int, float) and math.isfinite(x)
+    """A finite int or float; ints beyond MAX_MAGNITUDE are rejected before any float conversion."""
+    return (type(x) is int and abs(x) <= MAX_MAGNITUDE) or (type(x) is float and math.isfinite(x))
 
 
 def _count(x, minimum=0):

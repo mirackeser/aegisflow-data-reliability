@@ -200,6 +200,20 @@ class LoadBaselineTests(unittest.TestCase):
             with self.assertRaises(InputRejected):
                 bl.load_baseline(bad)
 
+    def test_huge_integers_rejected_not_overflow(self):
+        r = record()
+        huge = 10 ** 400
+        edits = {
+            "median_records": lambda x: x["volume"].update(median_records=huge),
+            "edge": lambda x: x["numeric"]["v"]["edges"].__setitem__(0, huge),
+            "mean": lambda x: x["numeric"]["v"].update(mean=huge),
+            "empty_share": lambda x: x["empty_share"].update(tag=huge),
+            "negative": lambda x: x["numeric"]["v"].update(median=-huge),
+        }
+        for name, edit in edits.items():
+            with self.assertRaises(InputRejected, msg=name):
+                bl.load_baseline(forge(r, edit))
+
     def test_forged_structures_rejected(self):
         r = record()
         v = lambda x: x["numeric"]["v"]
@@ -265,7 +279,7 @@ class LoadBaselineTests(unittest.TestCase):
             "edges_bool": lambda x: v(x).update(edges=[True] + v(x)["edges"][1:]),
             "counts_not_list": lambda x: v(x).update(counts="x"),
             "counts_short": lambda x: v(x).update(counts=v(x)["counts"][:-1]),
-            "counts_negative": lambda x: v(x).update(counts=[-1, 1201 - 0] + v(x)["counts"][2:]),
+            "counts_negative": lambda x: v(x).update(counts=[-1] + v(x)["counts"][1:]),
             "counts_bool": lambda x: v(x).update(counts=[True] + v(x)["counts"][1:]),
             "counts_float": lambda x: v(x).update(counts=[float(c) for c in v(x)["counts"]]),
             "counts_sum": lambda x: v(x).update(counts=[c + 1 for c in v(x)["counts"]]),
