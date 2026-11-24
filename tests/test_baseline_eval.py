@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests of the synthetic baseline-comparison evaluation; they score development and validation only."""
 from datetime import datetime, timedelta
+from pathlib import Path
 import statistics
 import unittest
 from unittest import mock
@@ -310,6 +311,14 @@ class SensitivityAndReportTests(unittest.TestCase):
             render.assert_called_once_with("report", "sweep", "null")
             be.main([])
             evaluate.assert_called_with(splits=("development", "validation"))
+
+
+class CommittedReportTests(unittest.TestCase):
+    """The committed report was generated once, with held-out, after implementation and review were complete."""
+
+    def test_committed_report_matches_the_code(self):
+        committed = Path(__file__).resolve().parents[1] / "docs" / "evaluation" / "baseline.md"
+        self.assertEqual(committed.read_text("utf-8"), be.main(["--include-heldout"]) + "\n")
 
 
 if __name__ == "__main__":

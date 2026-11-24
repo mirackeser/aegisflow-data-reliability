@@ -37,3 +37,16 @@ It uses the same discipline as above (hash-assigned development, validation and 
 injector, Wilson intervals, `n/a` instead of 100% when nothing could be measured) and adds three things: a threshold sweep on
 the development split only, a measured false-alarm rate on clean series, and column-level scoring where the finding lists too
 few records to score by record. Scope: synthetic series only; nothing here is evidence about real sensors or a language model.
+
+## Baseline comparison evaluation (current file against a stored baseline)
+
+`python -m aegisflow_dr.baseline_eval [--include-heldout]` scores `baseline.compare` (sampling interval, volume, freshness,
+empty share and a population stability index per numeric column) on generated series: 60 groups, each with three reference
+batches and one current batch in 14 variants (four clean variants that must stay quiet, ten injected changes). `baseline.md`
+is the committed report and a test keeps it in sync. It was generated once with held-out, after implementation and an
+independent whole-branch review were complete; thresholds were fixed beforehand and not changed afterwards. The realized
+split is 37 / 14 / 9 groups, so held-out intervals are wide. Per-check intervals pool correlated keys from one group and
+are optimistic; case-level rates are the conservative reading. PSI is a descriptive index, not a significance test, and a
+seeded no-change table shows its noise at 150, 200 and 400 values. Scope: synthetic series only; nothing here is evidence
+about real sensors, other change kinds or any model.
+
