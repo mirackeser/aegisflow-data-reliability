@@ -18,6 +18,7 @@ function pfDetail(f){
  if(f.check==='type_mismatch')return t('pf.d.expected',{role:t('pf.role.'+d.expected)});
  if(f.check==='constant_column')return t('pf.d.value',{v:d.value});
  if(f.check==='outlier')return t('pf.d.method.'+d.method);
+ if(f.check==='level_shift')return t('pf.d.shift',{v:d.shifts.map(pfNum).join(', ')});
  if(f.check==='flatline')return d.runs.map(r=>t('pf.d.run',{a:r.first,b:r.last,v:pfNum(r.value)})).join('; ');
  if(f.check==='timestamp_gap')return t('pf.d.gap',{s:pfNum(d.typical_seconds),n:d.missing_intervals.join(', ')});
  return '';

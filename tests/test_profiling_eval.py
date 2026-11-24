@@ -80,6 +80,21 @@ class InjectionTruthTests(unittest.TestCase):
                     size = abs(float(faulty[record - 1][1]) - float(clean[record - 1][1])) / sd
                     self.assertTrue(low - 0.01 <= size <= high + 0.01, (kind, size))
 
+    def test_level_shift_offsets_every_record_from_the_truth_record_on(self):
+        for group in range(8):
+            sd = pe.base_series(group)[1]
+            clean = cells(pe.inject(group, "clean")[0])
+            for kind, low, high in (("level_shift_large", 10, 15), ("level_shift_small", 3, 5)):
+                payload, truth = pe.inject(group, kind)
+                (key, records), = truth.items()
+                record, = records
+                faulty = cells(payload)
+                self.assertEqual(key, ("level_shift", "temp_c"))
+                offsets = [round(float(f[1]) - float(c[1]), 3) for f, c in zip(faulty, clean)]
+                self.assertTrue(all(o == 0 for o in offsets[:record - 1]))
+                self.assertTrue(all(abs(o - offsets[record - 1]) <= 0.001 for o in offsets[record - 1:]))
+                self.assertTrue(low - 0.01 <= abs(offsets[record - 1]) / sd <= high + 0.01, (kind, offsets[record - 1] / sd))
+
     def test_flatline_run_is_constant_and_twelve_long(self):
         for group in range(8):
             (key, records), = pe.inject(group, "flatline")[1].items()
@@ -133,10 +148,11 @@ class MeasurementTests(unittest.TestCase):
     def test_pinned_heldout_figures(self):
         held = self.report["splits"]["heldout"]
         self.assertEqual(held["groups"], 17)
-        for kind in ("spike_large", "flatline", "gap", "duplicate_timestamp", "out_of_order", "type_corruption"):
+        for kind in ("spike_large", "level_shift_large", "flatline", "gap", "duplicate_timestamp", "out_of_order", "type_corruption"):
             row = held["kinds"][kind]
             self.assertEqual(row["found_records"], row["truth_records"], kind)
         self.assertEqual((held["kinds"]["spike_small"]["found_records"], held["kinds"]["spike_small"]["truth_records"]), (17, 51))
+        self.assertEqual((held["kinds"]["level_shift_small"]["found_records"], held["kinds"]["level_shift_small"]["truth_records"]), (1, 17))
         self.assertEqual(held["kinds"]["null_burst"]["detected_cases"], 17)
         self.assertEqual(held["clean_false_alarm_values"]["successes"], 1)
         self.assertEqual(self.report["clean_false_alarm_values"]["trials"], 54000)
@@ -159,7 +175,7 @@ class MutantTests(unittest.TestCase):
     """A deliberately broken detector must show up in the numbers."""
 
     def test_unbroken_detectors_find_everything_without_extras(self):
-        for kind in ("spike_large", "flatline", "gap"):
+        for kind in ("spike_large", "level_shift_large", "flatline", "gap"):
             self.assertGreater(development_counts(kind)[0], 0, kind)
         self.assertEqual(development_counts("clean"), (0, 0))
 
@@ -170,6 +186,19 @@ class MutantTests(unittest.TestCase):
     def test_oversensitive_outlier_check_is_exposed(self):
         with mock.patch.object(profiling, "OUTLIER_K", 1.5):
             self.assertGreater(development_counts("clean")[1], 100)
+
+    def test_missing_step_check_is_exposed(self):
+        with mock.patch.object(profiling, "_steps", lambda numbers: []):
+            self.assertEqual(development_counts("level_shift_large")[0], 0)
+
+    def test_step_check_without_the_spike_partner_rule_is_exposed(self):
+        with mock.patch.object(profiling, "STEP_PARTNER", 1e9):
+            found, extra = development_counts("spike_large")
+            self.assertGreater(extra, 20)
+
+    def test_without_the_step_exclusion_steps_are_misread_as_spikes(self):
+        with mock.patch.object(profiling, "_steps", lambda numbers: []):
+            self.assertGreater(development_counts("level_shift_large")[1], 10)
 
     def test_blind_flatline_check_is_exposed(self):
         with mock.patch.object(profiling, "FLAT_RUN", 10_000):
