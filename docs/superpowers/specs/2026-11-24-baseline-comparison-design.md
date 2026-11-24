@@ -51,9 +51,9 @@ with `profiling.read_table` (so the same 1 MB / 20,000-record / 40-column limits
 - `digest`: SHA-256 hex of the canonical JSON (`sort_keys=True, separators=(",", ":"), ensure_ascii=False`) of every
   other field.
 
-Privacy: the record holds column names, roles, counts, shares, means, standard deviations, medians and decile edges. It holds
-no record, identifier or text value. Decile edges are derived numeric values and reveal approximate ranges; this is stated in
-the UI note and the docs.
+Privacy: the record keeps column names, roles, counts, shares, means, standard deviations, medians and decile edges, not whole
+records or text values. Medians and decile edges are values from the data and reveal approximate ranges; they can equal
+individual values, and a numeric identifier column gets them too. This is stated in the UI note and the docs.
 
 `load_baseline(obj) -> dict` re-validates a stored record: exact key set, types, bounds (≤ 40 columns, ≤ 5 references, edges
 strictly increasing and length ≤ 9, counts length = edges + 1, non-negative integers summing to `count`) and recomputes the digest.

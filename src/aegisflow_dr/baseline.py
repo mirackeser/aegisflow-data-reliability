@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Digest-protected aggregate baseline built from 1 to 5 reference CSVs (work package D05c).
 
-The record holds column names, roles, counts, shares, means, standard deviations, medians and
-decile edges. It holds no record, identifier or text value; decile edges are derived numeric
-values and reveal approximate ranges. Thresholds are fixed rules of thumb written down before any measurement,
+The record keeps column names, roles, counts, shares, means, standard deviations, medians and
+decile edges, not whole records or text values. Medians and decile edges are values from the
+data and reveal approximate ranges; they can equal individual values, and a numeric identifier
+column gets them too. Thresholds are fixed rules of thumb written down before any measurement,
 not guarantees for any real sensor. Nothing here infers a root cause.
 """
 from bisect import bisect_right

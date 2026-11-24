@@ -33,4 +33,8 @@ for(const reason of ['no_baseline_interval','too_few_intervals','no_as_of','no_t
  assert.ok(STRINGS['bl.reason.'+reason],`baseline reason ${reason} is not explained`);
 for(const key of ['bl.state.ok','bl.state.changed','bl.state.skipped','bl.d.volume.drop','bl.d.volume.increase','bl.explain.column_missing','bl.explain.column_added','bl.status.DRIFT','bl.status.NO_DRIFT','bl.tile.sampling','bl.tile.volume','bl.tile.freshness','bl.tile.distribution'])
  assert.ok(STRINGS[key],`${key} is missing`);
+// The privacy note must not overclaim: medians and decile edges are values from the data.
+assert.ok(STRINGS['bl.note'][0].includes('medians and decile edges are values from the data and reveal approximate ranges'),'bl.note must say decile edges reveal approximate ranges');
+assert.ok(STRINGS['bl.note'][1].includes('yaklaşık aralıkları'),'bl.note (TR) must say decile edges reveal approximate ranges');
+assert.ok(!/never record values|hiçbir kayıt değerini/.test(STRINGS['bl.note'].join(' ')),'bl.note must not claim that no record value is kept');
 console.log(`${checked} UI strings verified: both languages present, placeholders consistent, no missing keys.`);
