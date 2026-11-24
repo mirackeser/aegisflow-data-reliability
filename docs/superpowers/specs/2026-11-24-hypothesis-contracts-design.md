@@ -144,5 +144,11 @@ needs a model and real labelled data.
 ## Honesty rules
 
 Simulated mechanisms only, written by the same authors as the catalog, so modelled-scenario success measures internal
-consistency, not real-world diagnosis. The two unmodelled scenarios exist to show misattribution. No root cause, no model, no
-live agent, no production connection.
+consistency, not real-world diagnosis. The two unmodelled scenarios exist to show misattribution for those two changes; they
+are not a misattribution rate for unmodelled changes in general. Wilson intervals cover variation between generated groups
+of fixed, large injections only (no magnitude sweep), and the sign-flip misattribution is structural (it follows from the
+probe rules), not a sampling estimate. Probes assume one mechanism acts on a column at a time: combined changes (for
+example an offset plus extra noise) can refute every candidate, the true ones included, and with several shifted columns
+the default budget of 6 can be spent before every column is probed (a unit change across six columns ends
+`none_supported`). The UI note, the "Refuted" legend and the evaluation report say so. No root cause, no model, no live
+agent, no production connection.

@@ -313,6 +313,19 @@ class MeasurementTests(unittest.TestCase):
                        "`stuck_sensor` co-supports `calibration_offset` on `temp_c` in some development and validation cases",
                        "the stuck run moves the mean", "stays inside the offset band"):
             self.assertIn(phrase, self.text)
+        # Generality of the numbers (final review I3, I5).
+        for phrase in ("misattribution for these two changes only",
+                       "it is not a misattribution rate for unmodelled changes in general",
+                       "Intervals cover variation between generated groups only",
+                       "Injection sizes are fixed and far from every threshold (no magnitude sweep)",
+                       "the sign-flip misattribution is structural: it follows from the probe rules and would hold for any "
+                       "group, so it is not a sampling estimate",
+                       "Probes assume one mechanism acts on a column at a time",
+                       "Combined changes (for example an offset plus extra noise) can refute every candidate",
+                       "the default budget of 6 can be spent before every column is probed",
+                       "None of this is measured here"):
+            self.assertIn(phrase, self.text)
+        self.assertNotIn("how often the loop supports a catalog mechanism for a change it does not model", self.text)
         self.assertIn("(development and validation; `--include-heldout` adds the held-out split)", self.text)
 
     def test_prose_claims_hold_on_the_scored_splits(self):

@@ -57,6 +57,11 @@ for(const [key,[en,tr]] of Object.entries(STRINGS)){
  assert.ok(!/\bcauses?\b|\bcaused\b|root.cause|confirm/i.test(en),`${key}: candidate explanations must not claim a cause or a confirmation`);
  assert.ok(!/\bneden|doğrulan|kesinleş|teyit/i.test(tr),`${key} (TR): candidate explanations must not claim a cause or a confirmation`);
 }
+// The single-mechanism assumption behind "Refuted" is disclosed in the note and in the legend (final review I3).
+assert.ok(STRINGS['hy.note'][0].includes('Probes assume one mechanism acts on a column at a time')&&STRINGS['hy.note'][0].includes('every candidate can be refuted, the true ones included'),'hy.note must disclose the one-mechanism assumption');
+assert.ok(STRINGS['hy.note'][1].includes('aynı anda tek bir mekanizmanın etkili olduğunu varsayar'),'hy.note (TR) must disclose the one-mechanism assumption');
+assert.ok(/Refuted: .*assuming one mechanism acts on the column at a time/.test(STRINGS['hy.hyp.legend'][0]),'hy.hyp.legend must qualify Refuted');
+assert.ok(/Çürütüldü: .*tek bir mekanizmanın etkili olduğu varsayımıyla/.test(STRINGS['hy.hyp.legend'][1]),'hy.hyp.legend (TR) must qualify Refuted');
 for(const role of ['A24','A25','A28'])assert.ok(/simulated mechanisms, deterministic probes with fixed thresholds, no model/.test(STRINGS['role.'+role+'.limit'][0]),`role.${role}.limit must state its limits`);
 assert.ok(/fixed catalog of candidate mechanisms exists \(F04\), but naming a root cause needs a model and real labelled data/.test(STRINGS['role.A23.limit'][0]),'role.A23.limit must keep root cause out of reach');
 console.log(`${checked} UI strings verified: both languages present, placeholders consistent, no missing keys.`);

@@ -737,3 +737,32 @@ class InvestigateTests(unittest.TestCase):
         share = next(p for p in record["probes"] if p["probe"] == "duplicate_share")["measured"]["share"]
         self.assertEqual(share, round(300 / 700, 6))
         hy.verify_investigation(record)
+
+
+class SingleMechanismLimitTests(unittest.TestCase):
+    """Known limits stated in the UI, the report and the design: probes assume one mechanism per column at a time."""
+
+    @staticmethod
+    def table(batch, columns, scale=1.0, shift=0.0, sd=1.0):
+        from random import Random
+        rng = Random("limit:%d:%d" % (batch, columns))
+        lines = ["ts," + ",".join("c%d" % c for c in range(columns))]
+        for j in range(400):
+            stamp = (START + timedelta(seconds=60 * (400 * batch + j))).isoformat()
+            lines.append(stamp + "," + ",".join("%.3f" % ((100 + 10 * c + rng.gauss(0, sd)) * scale + shift)
+                                                for c in range(columns)))
+        return ("\n".join(lines) + "\n").encode()
+
+    def test_offset_plus_noise_refutes_both_true_mechanisms(self):
+        base = bl.build_baseline([self.table(k, 1) for k in range(3)])
+        record = hy.investigate(base, self.table(3, 1, shift=1.5, sd=3.0))
+        result = statuses(record)
+        self.assertEqual((result[("calibration_offset", "c0")], result[("noise_increase", "c0")]), ("refuted", "refuted"))
+        self.assertEqual(record["verdict"], "none_supported")
+
+    def test_unit_change_across_six_columns_spends_the_default_budget(self):
+        base = bl.build_baseline([self.table(k, 6) for k in range(3)])
+        record = hy.investigate(base, self.table(3, 6, scale=10.0))
+        self.assertEqual(hy.MAX_PROBES_DEFAULT, 6)
+        self.assertEqual([p["probe"] for p in record["probes"]], ["spread_ratio"] * 6)
+        self.assertEqual((record["stop_reason"], record["verdict"]), ("probe_budget_exhausted", "none_supported"))

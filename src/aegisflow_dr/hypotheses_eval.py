@@ -270,7 +270,18 @@ def render_markdown(report):
             "scenarios measures internal consistency (the probes recognise the injections they were designed around), not "
             "real-world diagnosis; there are no real sensors and no labelled real incidents.",
             "- The two unmodelled scenarios (`unmodelled_sign_flip`, `unmodelled_amplitude`) are changes outside the catalog. "
-            "They measure misattribution: how often the loop supports a catalog mechanism for a change it does not model.",
+            "They measure misattribution for these two changes only: how often the loop supports a catalog mechanism for "
+            "these two hand-picked changes outside the catalog; it is not a misattribution rate for unmodelled changes in "
+            "general.",
+            "- Intervals cover variation between generated groups only. Injection sizes are fixed and far from every "
+            "threshold (no magnitude sweep), so near-ceiling rates show that the probes recognise these injections, not how "
+            "well they detect smaller or different ones; the sign-flip misattribution is structural: it follows from the "
+            "probe rules and would hold for any group, so it is not a sampling estimate.",
+            "- Probes assume one mechanism acts on a column at a time, and every case injects one mechanism into one "
+            "column. Combined changes (for example an offset plus extra noise) can refute every candidate, the true ones "
+            "included, and with several shifted columns the default budget of %d can be spent before every column is "
+            "probed (a unit change across six columns ends `none_supported`). None of this is measured here."
+            % hypotheses.MAX_PROBES_DEFAULT,
             "- `genuine_change` (a real change in the measured process) cannot be tested from these data: no probe supports or "
             "refutes it, so it stays open whenever it is generated, and these numbers say nothing about it.",
             "- \"Supported\" means consistent with fixed probes and inconsistent with none on these measurements. There is no "
