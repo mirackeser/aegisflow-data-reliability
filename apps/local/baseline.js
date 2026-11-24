@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Baseline comparison panel: save a stored summary of earlier CSV files and compare the selected file with it.
 // Every number shown comes from the compare result; PSI is a descriptive index, not a significance test, and no cause is inferred.
-let blList=null,blLoading=false,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blColumn=null;
+let blList=null,blLoading=false,blLoadFailed=false,blFiles=null,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blColumn=null;
 const BL_MAX_REFS=5,BL_MAX_BYTES=1000000,BL_THRESHOLD=0.25;
 const BL_TRANSLIT={'ı':'i','ß':'ss','ø':'o','đ':'d','ł':'l','æ':'ae','œ':'oe'};
 // Mirrors baseline_store.slug so an existing name can be confirmed before it is replaced.
@@ -24,12 +24,14 @@ function blPsi(v){return N(blRound(v,3));}
 function blShare(v){return P(v);}
 function blNum(v){return v===null||v===undefined?'—':N(blRound(v,3));}
 
+// A failed load is not retried from render(); only the Retry button or an explicit reload asks again.
 async function loadBaselines(force=false){
- if(blLoading||(!force&&blList)||!connected)return;
+ if(blLoading||(!force&&(blList||blLoadFailed))||!connected)return;
  blLoading=true;
- try{blList=await request('/api/baselines');}catch(error){setNotice(error.message,true);}
+ try{blList=await request('/api/baselines');blLoadFailed=false;}catch(error){blLoadFailed=true;setNotice(error.message,true);}
  blLoading=false;render();
 }
+function blFocus(id){document.getElementById(id)?.focus();}
 async function saveBaseline(){
  if(blBusy||!requireSession())return;
  const name=blName.trim(),key=name?blSlug(name):'';
@@ -38,7 +40,7 @@ async function saveBaseline(){
  else if(!blRefs.length||blRefs.length>BL_MAX_REFS)problem=t('bl.err.count',{max:BL_MAX_REFS});
  else if(blRefs.some(f=>f.size>BL_MAX_BYTES))problem=t('bl.err.filesize',{name:blRefs.find(f=>f.size>BL_MAX_BYTES).name});
  else if(blSla.trim()&&!/^[1-9]\d{0,8}$/.test(blSla.trim()))problem=t('bl.err.sla');
- if(problem){blSaveError=problem;render();return;}
+ if(problem){blSaveError=problem;render();blFocus(problem===t('bl.err.name')?'bl-name':problem===t('bl.err.sla')?'bl-sla':'bl-refs');return;}
  const exists=(blList?.baselines||[]).some(b=>b.name===key);
  if(exists&&!confirm(t('bl.confirm.replace',{name:key})))return;
  blBusy=true;blSaveError='';render();
@@ -47,11 +49,13 @@ async function saveBaseline(){
   const body={name,references,replace:exists};
   if(blSla.trim())body.freshness_sla_seconds=Number(blSla.trim());
   const saved=await request('/api/baselines/save','POST',JSON.stringify(body),JSON_HEADERS);
-  blChoice=saved.name;blRefs=[];blName='';
-  blList=await request('/api/baselines');
+  blChoice=saved.name;blRefs=[];blName='';if(blFiles)blFiles.value='';
+  if(blResult)blResult=null;
+  blList=await request('/api/baselines');blLoadFailed=false;
   setNotice(t('bl.saved',{name:saved.name}));
  }catch(error){blSaveError=error.message;}
  blBusy=false;render();
+ blFocus(blSaveError?'bl-name':'bl-saved-title');
 }
 async function compareBaseline(){
  if(blBusy||!selectedFile||!blChoice||!requireSession())return;
@@ -67,10 +71,11 @@ async function compareBaseline(){
   setNotice('');
  }catch(error){
   blResult=null;
-  if(error.status===404){blCompareError=t('bl.err.notfound');blList=null;}else blCompareError=error.message;
+  blCompareError=error.status===404?t('bl.err.notfound'):error.message;
  }
  blBusy=false;render();
- if(blResult)document.getElementById('bl-result')?.focus({preventScroll:false});
+ if(blResult)blFocus('bl-result');else blFocus('bl-choice');
+ if(!blResult&&blCompareError===t('bl.err.notfound'))loadBaselines(true);
 }
 async function removeBaseline(name){
  if(blBusy||!requireSession()||!confirm(t('bl.confirm.remove',{name})))return;
@@ -79,9 +84,12 @@ async function removeBaseline(name){
   await request('/api/baselines/remove','POST',JSON.stringify({name}),JSON_HEADERS);
   if(blChoice===name)blChoice='';
   if(blResult?.name===name)blResult=null;
-  blList=await request('/api/baselines');setNotice(t('bl.removed',{name}));
- }catch(error){setNotice(error.status===404?t('bl.err.notfound'):error.message,true);blList=null;}
- blBusy=false;render();
+  blList=await request('/api/baselines');blLoadFailed=false;setNotice(t('bl.removed',{name}));
+  blBusy=false;render();blFocus((blList.baselines||[]).length?'bl-saved-title':'bl-save-title');
+ }catch(error){
+  setNotice(error.status===404?t('bl.err.notfound'):error.message,true);
+  blBusy=false;render();blFocus('bl-save-title');loadBaselines(true);
+ }
 }
 
 // ---------- small building blocks ----------
@@ -135,11 +143,12 @@ function blPsiChart(r){
  if(!cols.length)return h('p',{class:'hint',text:t('bl.psi.none')});
  const changed=new Set(r.findings.filter(f=>f.check==='distribution_shift').map(f=>f.column));
  const max=Math.max(...cols.map(c=>psi[c])),domain=Math.max(0.5,max*1.05),at=v=>Math.min(100,v/domain*100)+'%';
- const chart=h('div',{class:'bl-psi',role:'img','aria-label':t('bl.psi.aria',{n:cols.length,k:changed.size,max:blPsi(max)})},
+ // The group carries the summary sentence; column names, values and states stay readable text, the bars are decoration.
+ const chart=h('div',{class:'bl-psi',role:'group','aria-label':t('bl.psi.aria',{n:cols.length,k:changed.size,max:blPsi(max)})},
   h('div',{class:'bl-psi-row bl-psi-axis','aria-hidden':'true'},h('span'),h('span',{class:'bl-psi-track bare'},blAt(h('span',{class:'bl-threshold-label',text:t('bl.psi.threshold',{v:N(BL_THRESHOLD)})}),'left',at(BL_THRESHOLD))),h('span')),
-  cols.map(c=>h('div',{class:'bl-psi-row'+(changed.has(c)?' changed':'')},h('span',{class:'bl-psi-name',text:c}),
-   h('span',{class:'bl-psi-track'},blAt(h('span',{class:'bl-psi-fill'}),'width',at(psi[c])),blAt(h('span',{class:'bl-threshold'}),'left',at(BL_THRESHOLD))),
-   h('span',{class:'bl-psi-value'},blPsi(psi[c]),changed.has(c)?h('span',{class:'bl-state changed'},blIcon('changed'),t('bl.state.changed')):null))));
+  h('ul',{class:'bl-psi-list'},cols.map(c=>h('li',{class:'bl-psi-row'+(changed.has(c)?' changed':'')},h('span',{class:'bl-psi-name',text:c}),
+   h('span',{class:'bl-psi-track','aria-hidden':'true'},blAt(h('span',{class:'bl-psi-fill'}),'width',at(psi[c])),blAt(h('span',{class:'bl-threshold'}),'left',at(BL_THRESHOLD))),
+   h('span',{class:'bl-psi-value'},h('span',{class:'sr-only',text:t('bl.col.psi')+' '}),blPsi(psi[c]),changed.has(c)?h('span',{class:'bl-state changed'},blIcon('changed'),t('bl.state.changed')):null)))));
  return h('div',{},chart,h('p',{class:'hint',text:t('bl.psi.legend',{v:N(BL_THRESHOLD)})}),
   blNumbers('bl.psi.title',['bl.col.column','bl.col.psi','bl.col.state'],cols.map(c=>[c,blPsi(psi[c]),t(changed.has(c)?'bl.state.changed':'bl.state.ok')])));
 }
@@ -151,7 +160,7 @@ function blBinLabel(edges,i){
 }
 // Paired bars per bin: baseline hatched with an outline, current solid; both named in the legend and the table.
 function blBinChart(column,bins){
- const n=bins.baseline.length,W=440,H=200,l=40,r=8,top=12,bottom=30,plotH=H-top-bottom,slot=(W-l-r)/n;
+ const wide=typeof matchMedia==='function'&&matchMedia('(min-width:700px)').matches,n=bins.baseline.length,W=wide?760:440,H=wide?230:200,l=40,r=8,top=12,bottom=30,plotH=H-top-bottom,slot=(W-l-r)/n;
  const peak=Math.max(0.1,...bins.baseline,...bins.current),max=Math.ceil(peak*10)/10;
  const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,class:'bl-bins-svg',role:'img','aria-label':t('bl.bins.aria',{column,n,psi:blPsi(bins.psi)})});
  svg.append(svgEl('defs',{},svgEl('pattern',{id:'bl-hatch',patternUnits:'userSpaceOnUse',width:5,height:5,patternTransform:'rotate(45)'},
@@ -221,10 +230,13 @@ function blSaveForm(){
  const names=blList?.baselines||[];
  const refsState=h('p',{class:'file-state',id:'bl-refs-state','aria-live':'polite',text:blRefs.length?t('bl.refs.chosen',{n:blRefs.length,names:blRefs.map(f=>f.name).join(', ')}):t('bl.refs.none')});
  const saveButton=h('button',{type:'submit',class:'secondary',disabled:blBusy||!blRefs.length},t(blBusy?'bl.busy':'bl.save'));
- const files=h('input',{id:'bl-refs',type:'file',multiple:true,accept:'.csv,text/csv','aria-describedby':'bl-refs-hint bl-refs-state'+(blSaveError?' bl-save-error':''),
-  onchange:e=>{blRefs=[...e.target.files];blSaveError='';refsState.textContent=blRefs.length?t('bl.refs.chosen',{n:blRefs.length,names:blRefs.map(f=>f.name).join(', ')}):t('bl.refs.none');saveButton.disabled=blBusy||!blRefs.length;}});
+ // The same input element is reused on every render, so the browser's file list and blRefs never disagree.
+ if(!blFiles)blFiles=h('input',{id:'bl-refs',type:'file',multiple:true,accept:'.csv,text/csv'});
+ const files=blFiles;
+ files.setAttribute('aria-describedby','bl-refs-hint bl-refs-state'+(blSaveError?' bl-save-error':''));
+ files.onchange=e=>{blRefs=[...e.target.files];blSaveError='';refsState.textContent=blRefs.length?t('bl.refs.chosen',{n:blRefs.length,names:blRefs.map(f=>f.name).join(', ')}):t('bl.refs.none');saveButton.disabled=blBusy||!blRefs.length;};
  return h('form',{class:'bl-form','aria-labelledby':'bl-save-title',novalidate:true,onsubmit:e=>{e.preventDefault();saveBaseline();}},
-  h('h4',{id:'bl-save-title',text:t('bl.save.title')}),
+  h('h4',{id:'bl-save-title',tabindex:'-1',text:t('bl.save.title')}),
   h('div',{class:'bl-field'},h('label',{for:'bl-name',text:t('bl.name')}),
    h('input',{id:'bl-name',type:'text',maxlength:'80',autocomplete:'off',value:blName,'aria-describedby':'bl-name-hint'+(blSaveError?' bl-save-error':''),oninput:e=>{blName=e.target.value;}}),
    h('small',{id:'bl-name-hint',text:t('bl.name.x')})),
@@ -234,8 +246,8 @@ function blSaveForm(){
    h('small',{id:'bl-sla-hint',text:t('bl.sla.x')})),
   blSaveError?h('p',{class:'hint bad',id:'bl-save-error',role:'alert',text:blSaveError}):null,
   h('div',{class:'button-row'},saveButton),
-  names.length?h('div',{},h('h4',{text:t('bl.saved.title')}),h('ul',{class:'bl-saved'},names.map(b=>h('li',{},
-   h('div',{},h('strong',{text:b.name}),h('small',{text:t('bl.saved.meta',{refs:N(b.references),n:N(b.records),clock:b.time_column||t('pf.noclock'),when:when(b.created)})}),h('code',{text:b.digest.slice(0,12)})),
+  names.length?h('div',{},h('h4',{id:'bl-saved-title',tabindex:'-1',text:t('bl.saved.title')}),h('ul',{class:'bl-saved'},names.map(b=>h('li',{},
+   h('div',{},h('strong',{text:b.name}),h('small',{text:t('bl.saved.meta',{refs:N(b.references),n:N(b.records),clock:b.time_column||t('pf.noclock'),when:when(b.created)})}),h('small',{},t('bl.digest')+' ',h('code',{text:b.digest.slice(0,12)}))),
    h('button',{type:'button',class:'secondary','aria-label':t('bl.remove.label',{name:b.name}),disabled:blBusy,onclick:()=>removeBaseline(b.name)},t('bl.remove'))))))
    :h('p',{class:'hint',text:t('bl.saved.none')}));
 }
@@ -248,7 +260,7 @@ function blCompareForm(){
  return h('form',{class:'bl-form','aria-labelledby':'bl-compare-title',novalidate:true,onsubmit:e=>{e.preventDefault();compareBaseline();}},
   h('h4',{id:'bl-compare-title',text:t('bl.compare.title')}),
   h('div',{class:'bl-field'},h('label',{for:'bl-choice',text:t('bl.choice')}),
-   h('select',{id:'bl-choice',disabled:!names.length,onchange:e=>{blChoice=e.target.value;compareButton.disabled=blBusy||!selectedFile||!blChoice||tooBig;}},
+   h('select',{id:'bl-choice',disabled:!names.length,onchange:e=>{blChoice=e.target.value;blCompareError='';if(blResult){blResult=null;render();blFocus('bl-choice');}else compareButton.disabled=blBusy||!selectedFile||!blChoice||tooBig;}},
     names.length?names.map(b=>h('option',{value:b.name,selected:b.name===blChoice,text:b.name})):h('option',{value:'',text:t('bl.saved.none')}))),
   h('div',{class:'bl-field'},h('span',{class:'bl-label',text:t('bl.current')}),
    h('p',{class:'file-state',text:selectedFile?selectedFile.name:t('bl.current.none')})),
@@ -261,13 +273,15 @@ function blCompareForm(){
   h('div',{class:'button-row'},compareButton));
 }
 function baselinePanel(){
- if(!connected)return null;
+ if(!connected){blList=null;blLoadFailed=false;return null;}
  loadBaselines();
  const showResult=blResult&&blResultFile===selectedFile;
  return h('section',{class:'panel bl-panel','aria-labelledby':'bl-title'},
   h('div',{class:'panel-heading'},h('h3',{id:'bl-title',text:t('bl.title')}),chip(t('bl.chip'),'info')),
   h('p',{class:'hint',text:t('bl.note')}),
   blList?.rejected_on_load?h('p',{class:'hint bad',text:t('bl.rejected')}):null,
+  blLoadFailed?h('div',{class:'bl-failed'},h('p',{class:'hint bad',role:'alert',text:t('bl.load.failed')}),
+   h('button',{type:'button',id:'bl-retry',class:'secondary',disabled:blLoading,onclick:async()=>{await loadBaselines(true);blFocus(blLoadFailed?'bl-retry':'bl-save-title');}},t('bl.load.retry'))):null,
   h('div',{class:'grid-2 bl-forms'},blSaveForm(),blCompareForm()),
   showResult?blResultView(blResult):null);
 }
