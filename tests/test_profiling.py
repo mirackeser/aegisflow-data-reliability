@@ -130,6 +130,38 @@ class ChecksTests(unittest.TestCase):
             self.assertEqual(flagged(2, delta), [3])
             self.assertEqual(flagged(97, delta), [98])
 
+    def shifted(self, first, delta, n=100):
+        rows = series(n)
+        for i in range(first, n):
+            rows[i][1] = "%.3f" % (float(rows[i][1]) + delta)
+        return checks(pr.profile_csv(csv(["ts", "v"], rows)))
+
+    def test_level_shift_is_a_step_not_a_spike(self):
+        for delta in (3, -3):
+            found = self.shifted(50, delta)
+            self.assertEqual(found[("level_shift", "v")]["records"], [51])
+            self.assertAlmostEqual(found[("level_shift", "v")]["detail"]["shifts"][0], delta, delta=0.6)
+            self.assertNotIn(("outlier", "v"), found)
+
+    def test_level_shift_at_the_ends(self):
+        self.assertEqual(self.shifted(1, 3)[("level_shift", "v")]["records"], [2])
+        self.assertEqual(self.shifted(99, 3)[("level_shift", "v")]["records"], [100])
+
+    def test_spike_is_not_a_level_shift(self):
+        rows = series(100)
+        rows[50][1] = "%.3f" % (float(rows[50][1]) + 3)
+        found = checks(pr.profile_csv(csv(["ts", "v"], rows)))
+        self.assertNotIn(("level_shift", "v"), found)
+        self.assertEqual(found[("outlier", "v")]["records"], [51])
+
+    def test_level_shift_needs_time_order_enough_values_and_a_scale(self):
+        values = [[10 + (i % 5) * 0.1 + (5 if i >= 20 else 0)] for i in range(40)]
+        self.assertNotIn("level_shift", {f["check"] for f in pr.profile_csv(csv(["v"], values))["findings"]})
+        short = [[r[0], 5 if i >= 10 else 1] for i, r in enumerate(series(19))]
+        self.assertNotIn("level_shift", {f["check"] for f in pr.profile_csv(csv(["ts", "v"], short))["findings"]})
+        flat = [[r[0], 5.5 if i < 30 else 9.5] for i, r in enumerate(series(60))]
+        self.assertNotIn("level_shift", {f["check"] for f in pr.profile_csv(csv(["ts", "v"], flat))["findings"]})
+
     def test_outlier_unordered_uses_the_median(self):
         values = [10 + (i % 5) * 0.1 for i in range(40)]
         values[7] = 99.0

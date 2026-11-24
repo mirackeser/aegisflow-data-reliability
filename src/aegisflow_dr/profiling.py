@@ -17,11 +17,11 @@ from .pipeline import InputRejected
 
 MAX_BYTES, MAX_ROWS, MAX_COLUMNS, MAX_RECORDS_LISTED = 1_000_000, 20_000, 40, 20
 EMPTY_RATE = 0.2
-OUTLIER_K, MIN_NUMERIC, EDGE_PARTNER = 4.5, 20, 0.4
+OUTLIER_K, MIN_NUMERIC, EDGE_PARTNER, STEP_PARTNER = 4.5, 20, 0.4, 0.5
 FLAT_RUN, FLAT_DISTINCT = 8, 0.3
 GAP_FACTOR, MIN_DELTAS = 3.0, 10
 ROLE_SHARE = 0.9
-CHECKS = ("empty_rate", "type_mismatch", "duplicate_rows", "constant_column", "outlier", "flatline",
+CHECKS = ("empty_rate", "type_mismatch", "duplicate_rows", "constant_column", "outlier", "level_shift", "flatline",
           "timestamp_duplicate", "timestamp_out_of_order", "timestamp_gap", "timestamp_mixed_timezone")
 
 _INTEGER = re.compile(r"[+-]?\d{1,15}")
@@ -133,6 +133,27 @@ def _outliers(numbers, ordered):
     return hits
 
 
+def _steps(numbers):
+    """Indices (into ``numbers``) of the first value after a persistent jump in level.
+
+    A one-off spike shows up in the first differences as a large step followed at once by an
+    opposite one; a level shift is a single large first difference with no such partner.
+    """
+    if len(numbers) < MIN_NUMERIC:
+        return []
+    diffs = [b - a for a, b in zip(numbers, numbers[1:])]
+    scale = 1.4826 * median(abs(d) for d in diffs)
+    if scale == 0:
+        return []
+    found = []
+    for j, d in enumerate(diffs):
+        if abs(d) > OUTLIER_K * scale:
+            partners = [diffs[k] for k in (j - 1, j + 1) if 0 <= k < len(diffs)]
+            if not any(p * d < 0 and abs(p) >= STEP_PARTNER * abs(d) for p in partners):
+                found.append(j + 1)
+    return found
+
+
 def _has_partner(score, i, other):
     return score[i] * score[other] < 0 and abs(score[other]) >= EDGE_PARTNER * abs(score[i])
 
@@ -200,7 +221,12 @@ def profile_csv(payload):
         if profile["role"] == "numeric":
             records = [n for n, k in enumerate(kind, 1) if k in ("integer", "decimal")]
             numbers = [float(values[n - 1]) for n in records]
-            hits = _outliers(numbers, clock is not None)
+            steps = _steps(numbers) if clock is not None else []
+            # A level shift leaves an equal and opposite pair in the second differences; it is not a spike.
+            hits = [i for i in _outliers(numbers, clock is not None) if not {i, i + 1} & set(steps)]
+            if steps:
+                findings.append(_finding("level_shift", name, [records[i] for i in steps], method="first_difference",
+                                         shifts=[round(numbers[i] - numbers[i - 1], 6) for i in steps][:MAX_RECORDS_LISTED]))
             if hits:
                 findings.append(_finding("outlier", name, [records[i] for i in hits], method="second_difference" if clock else "median",
                                          k=OUTLIER_K))

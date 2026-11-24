@@ -22,12 +22,14 @@ from .profiling import profile_csv
 VERSION = "1"
 SPLITS = ("development", "validation", "heldout")
 GROUPS, ROWS, STEP_SECONDS, NUMERIC_COLUMNS = 60, 300, 60, 3
-KINDS = ("spike_large", "spike_small", "flatline", "gap", "duplicate_timestamp", "out_of_order", "null_burst",
+KINDS = ("spike_large", "spike_small", "level_shift_large", "level_shift_small", "flatline", "gap", "duplicate_timestamp", "out_of_order", "null_burst",
          "type_corruption", "clean")
-TARGET = {"spike_large": "outlier", "spike_small": "outlier", "flatline": "flatline", "gap": "timestamp_gap",
+TARGET = {"spike_large": "outlier", "spike_small": "outlier", "level_shift_large": "level_shift",
+          "level_shift_small": "level_shift", "flatline": "flatline", "gap": "timestamp_gap",
           "duplicate_timestamp": "timestamp_duplicate", "out_of_order": "timestamp_out_of_order",
           "null_burst": "empty_rate", "type_corruption": "type_mismatch"}
-COLUMN = {"spike_large": "temp_c", "spike_small": "temp_c", "flatline": "pressure_kpa", "gap": "ts",
+COLUMN = {"spike_large": "temp_c", "spike_small": "temp_c", "level_shift_large": "temp_c", "level_shift_small": "temp_c",
+          "flatline": "pressure_kpa", "gap": "ts",
           "duplicate_timestamp": "ts", "out_of_order": "ts", "null_burst": "flow_lpm", "type_corruption": "pressure_kpa"}
 # Faults whose truth is "this column is affected", not a list of records; only detection is scored.
 COLUMN_LEVEL = frozenset({"null_burst"})
@@ -76,6 +78,12 @@ def inject(group, kind):
         for position in spots:
             rows[position][1] = "%.3f" % (float(rows[position][1]) + rng.choice((-1, 1)) * rng.uniform(low, high) * sd)
         truth[(TARGET[kind], "temp_c")] = {p + 1 for p in spots}
+    elif kind in ("level_shift_large", "level_shift_small"):
+        low, high = (10, 15) if kind == "level_shift_large" else (3, 5)
+        start, size = rng.randrange(30, ROWS - 30), rng.choice((-1, 1)) * rng.uniform(low, high) * sd
+        for position in range(start, ROWS):
+            rows[position][1] = "%.3f" % (float(rows[position][1]) + size)
+        truth[("level_shift", "temp_c")] = {start + 1}
     elif kind == "flatline":
         start = rng.randrange(20, ROWS - 40)
         for position in range(start, start + 12):
@@ -232,7 +240,8 @@ def render_markdown(report, sweep):
                 "", "| Check | Precision (record level) |", "|---|---|"]
         out += ["| %s | %s |" % (check, _show(bucket["checks"][check]["precision"])) for check in sorted(bucket["checks"])]
     out += ["", "## Reading these numbers", "",
-            "- Small spikes (4 to 6 noise units) are only partly found by design; the first and last value of a series are never flagged as outliers.",
+            "- Small spikes (4 to 6 noise units) and small level shifts (3 to 5 noise units) are only partly found by design; the first and last value of a series are never flagged as outliers.",
+            "- A level shift is a persistent step (for example a recalibrated or replaced sensor). Before the `level_shift` check existed, 43 of 60 series with a large step were misread as an isolated jump, often on the wrong record; that is why these kinds were added. Held-out had already been scored for the other kinds when they were added, so the level-shift rows are the first and only look at held-out for those two kinds, and no threshold was changed for them (the step check reuses K and a partner ratio fixed in advance).",
             "- `null_burst` is scored per column, not per record, because the finding lists at most %d records." % profiling.MAX_RECORDS_LISTED,
             "- Every fault was injected by the same authors who wrote the checks, into one family of generated series (trend, one seasonal wave, Gaussian noise). "
             "High scores here mean the checks do what they were written to do on that family. They are not evidence about real sensors, heavier-tailed noise, "
