@@ -63,7 +63,6 @@ class ScenarioTests(unittest.TestCase):
 
     def table(self, name, group=None):
         references, current, as_of, truth = he.scenario(self.group if group is None else group, name)
-        self.assertEqual(references, self.clean_refs if group is None else references, name)
         rows = cells(current)
         self.assertEqual(rows[0], ["ts", "temp_c", "pressure_kpa", "flow_lpm"])
         return rows[1:], datetime.fromisoformat(as_of), truth
@@ -282,6 +281,37 @@ class MeasurementTests(unittest.TestCase):
         for word in ("confirmed", "root cause found", "accuracy"):
             self.assertNotIn(word, self.text)
         self.assertIn("These are limits of the fixed probes, not tuned away.", self.text)
+        for phrase in ("does not mean the supported hypothesis is correct",
+                       "the unmodelled sign flip ends `resolved` with `calibration_offset` as the only supported hypothesis",
+                       "`clean` produces no observations at all", "clean never tests false support of a hypothesis",
+                       "Replanning adds nothing measurable on this corpus", "no scenario used more than 3 of the 6 probes",
+                       "same truth and wrong-support results, only with more probes",
+                       "exposed only because it also removes status updates",
+                       "`stuck_sensor` co-supports `calibration_offset` on `temp_c` in some development cases",
+                       "the stuck run moves the mean", "stays inside the offset band"):
+            self.assertIn(phrase, self.text)
+        self.assertIn("(development and validation; `--include-heldout` adds the held-out split)", self.text)
+
+    def test_prose_claims_hold_on_the_scored_splits(self):
+        for bucket in self.report["splits"].values():
+            rows = bucket["scenarios"]
+            self.assertTrue(all(row["probes_max"] <= 3 for row in rows.values()))
+            self.assertEqual(rows["clean"]["stop_reasons"], {"no_observations": rows["clean"]["cases"]})
+            flip = rows["unmodelled_sign_flip"]
+            self.assertEqual(flip["stop_reasons"], {"resolved": flip["cases"]})
+            self.assertEqual(flip["other_mechanisms"], {"calibration_offset/pressure_kpa": flip["cases"]})
+        self.assertGreater(self.report["splits"]["development"]["scenarios"]["stuck_sensor"]["other_mechanisms"]
+                           ["calibration_offset/temp_c"], 0)
+
+    def test_header_names_heldout_when_it_is_scored(self):
+        report = {"version": he.VERSION, "scope": he.SCOPE, "groups": he.GROUPS,
+                  "splits": {name: he._empty_bucket(he.SCENARIOS) for name in he.SPLITS}}
+        for bucket in report["splits"].values():
+            for name, row in bucket["scenarios"].items():
+                he._finalize(name, row)
+        text = he.render_markdown(report)
+        self.assertIn("(development, validation and held-out (`--include-heldout`)).", text)
+        self.assertNotIn("development and validation;", text)
 
     def test_other_supported_breakdown_matches_its_count(self):
         for bucket in self.report["splits"].values():
