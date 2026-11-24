@@ -50,3 +50,14 @@ are optimistic; case-level rates are the conservative reading. PSI is a descript
 seeded no-change table shows its noise at 150, 200 and 400 values. Scope: synthetic series only; nothing here is evidence
 about real sensors, other change kinds or any model.
 
+## Hypothesis loop evaluation (simulated mechanisms)
+
+`python -m aegisflow_dr.hypotheses_eval [--include-heldout]` runs `hypotheses.investigate` on 14 simulated scenarios per
+group: eleven mechanisms from the fixed catalog, a clean batch and two changes outside the catalog (a sign flip and a
+seasonal amplitude change). It uses 60 fresh groups (60 to 119), disjoint from the baseline-comparison corpus; an earlier
+draft reused those groups and was corrected before held-out was scored. The split is 30 / 18 / 12 groups. `hypotheses.md`
+was generated once with held-out after the whole-branch review, and a test keeps it in sync. The catalog and the injections
+were written by the same authors, so modelled-scenario success measures internal consistency, not diagnosis. The two
+unmodelled scenarios measure misattribution on two hand-picked changes only. A `resolved` stop does not mean correct, and
+no result here is a root cause.
+

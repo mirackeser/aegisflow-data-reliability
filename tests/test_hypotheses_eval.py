@@ -4,6 +4,7 @@ import contextlib
 from datetime import datetime, timedelta
 import itertools
 import math
+from pathlib import Path
 import statistics
 import unittest
 from unittest import mock
@@ -477,6 +478,14 @@ class MainTests(unittest.TestCase):
             he.main([])
             evaluate.assert_called_with(splits=("development", "validation"))
             self.assertEqual(he.main(), "text")
+
+
+class CommittedReportTests(unittest.TestCase):
+    """The committed report was generated once, with held-out, after implementation and the whole-branch review."""
+
+    def test_committed_report_matches_the_code(self):
+        committed = Path(__file__).resolve().parents[1] / "docs" / "evaluation" / "hypotheses.md"
+        self.assertEqual(committed.read_text("utf-8"), he.main(["--include-heldout"]) + "\n")
 
 
 if __name__ == "__main__":

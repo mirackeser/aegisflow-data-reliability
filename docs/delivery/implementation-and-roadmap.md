@@ -185,7 +185,7 @@ Depends on tested tools and advisory gates; roles activate only after individual
 - **F01:** Define executable per-role contracts, allowed tools, evidence policy, budgets and failure behavior for all 36 roles.
 - **F02:** Implement supervisor, investigation planner, capability router and dependency/parallelism planning.
 - **F03:** Add durable state/checkpoints and integrate recovery, cancellation and escalation across investigation tasks.
-- **F04:** Implement observation/hypothesis/counter-hypothesis/probe contracts and bounded replanning.
+- **F04:** Implement observation/hypothesis/counter-hypothesis/probe contracts and bounded replanning. Delivered in increment 63 as deterministic bookkeeping over a fixed catalog of 12 simulated mechanisms: versioned JSON-Schema contracts bound to their inputs by digest, eight probes with fixed thresholds, a budgeted replanning loop, a held-out measurement on simulated scenarios and a bilingual "Candidate explanations" view. Not yet: model-generated hypotheses, real labelled incidents, combined mechanisms.
 - **F05:** Extend A26/A27 beyond retained-read/scoped assessment to supported semantic claim/evidence verification.
 - **F06:** Add an advisory model Judge with independent labels and deterministic veto/abstention.
 - **F07:** Deliver every P0 specialist individually with its real tools and case-specific acceptance.
