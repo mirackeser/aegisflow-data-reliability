@@ -7,7 +7,6 @@ from unittest import mock
 from urllib.error import HTTPError, URLError
 
 from aegisflow_dr.advisory.context_cache import CacheIdentity, ContextCache
-from aegisflow_dr.advisory.contracts import AdvisoryError
 from aegisflow_dr.agents import llm
 from aegisflow_dr.agents.llm import LLMResult, LocalModel
 from aegisflow_dr.pipeline import InputRejected
@@ -81,16 +80,24 @@ class Complete(unittest.TestCase):
             "format": SCHEMA, "options": {"temperature": 0, "seed": 7, "num_predict": 128},
             "think": False, "stream": False})
 
-    def test_prompt_hash_is_stable_and_canonical(self):
-        expected = sha256(json.dumps({"schema": SCHEMA, "system": "s", "user": "u"}, sort_keys=True,
-                                     separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-        reordered = dict(reversed(list(SCHEMA.items())))
-        first, _ = model(envelope('{"mechanisms": []}'))
+    def test_prompt_hash_is_the_canonical_request_and_stable(self):
+        first, fake = model(envelope('{"mechanisms": []}'))
         second, _ = model(envelope("not json"))
-        self.assertEqual(first.complete("s", "u", SCHEMA).prompt_sha256, expected)
-        self.assertEqual(second.complete("s", "u", reordered).prompt_sha256, expected)
-        self.assertEqual(llm.prompt_sha256("s", "u", SCHEMA), expected)
-        self.assertNotEqual(llm.prompt_sha256("s", "u2", SCHEMA), expected)
+        digest = first.complete("s", "u", SCHEMA).prompt_sha256
+        sent = json.dumps(fake.calls[0][1], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        self.assertEqual(digest, sha256(sent).hexdigest())
+        reordered = dict(reversed(list(SCHEMA.items())))
+        self.assertEqual(second.complete("s", "u", reordered).prompt_sha256, digest)
+        self.assertEqual(llm.prompt_sha256("s", "u", SCHEMA, model="qwen3:4b", max_tokens=512), digest)
+        for changed in ({"model": "qwen3:8b", "max_tokens": 512}, {"model": "qwen3:4b", "max_tokens": 128}):
+            self.assertNotEqual(llm.prompt_sha256("s", "u", SCHEMA, **changed), digest)
+        self.assertNotEqual(llm.prompt_sha256("s", "u2", SCHEMA, model="qwen3:4b", max_tokens=512), digest)
+
+    def test_unencodable_reply_text_is_invalid_output(self):
+        local, _ = model(envelope('{"mechanisms": [], "note": "\\ud800"}'))
+        schema = {**SCHEMA, "properties": {**SCHEMA["properties"], "note": {"type": "string"}}}
+        result = local.complete("s", "u", schema)
+        self.assertEqual((result.ok, result.data, result.error_code), (False, None, "INVALID_OUTPUT"))
 
     def test_schema_invalid_or_malformed_output_is_invalid_output(self):
         cases = [
@@ -128,7 +135,7 @@ class Complete(unittest.TestCase):
     def test_transport_errors_are_model_unavailable(self):
         for error in (ConnectionRefusedError(61, "refused"), URLError(ConnectionRefusedError(61, "refused")),
                       HTTPError("http://127.0.0.1:11434/api/chat", 404, "not found", {}, None),
-                      IncompleteRead(b""), OSError("down")):
+                      IncompleteRead(b""), OSError("down"), ValueError("bad transport"), RuntimeError("bug")):
             local, _ = model(error)
             with self.subTest(error=type(error).__name__):
                 result = local.complete("s", "u", SCHEMA)
@@ -150,12 +157,23 @@ class Complete(unittest.TestCase):
             (("s", "u", {"const": float("nan")}), {}),
             (("s", "u", {"$ref": "https://example.invalid/schema"}), {}),
             (("s", "u", {"anyOf": [{"$dynamicRef": "urn:x"}]}), {}),
+            (("s", "u", {"properties": {"m": {"$ref": "#/nope"}}}), {}),
+            (("s", "u", {"$defs": {"a": {"$anchor": "a"}}, "properties": {"m": {"$ref": "#a"}}}), {}),
+            (("s", "u", {"$id": "urn:other", "properties": {"m": {"$ref": "#"}}}), {}),
+            (("s", "u", {"$ref": "#/$defs/m/x", "$defs": {"m": {}}}), {}),
+            (("s", "\ud800", SCHEMA), {}),
             (("s", "u", SCHEMA), {"max_tokens": 0}), (("s", "u", SCHEMA), {"max_tokens": 513}),
             (("s", "u", SCHEMA), {"max_tokens": True}),
-            (("s", "u", SCHEMA), {"cache": ContextCache()}),
-            (("s", "u", SCHEMA), {"identity": IDENTITY}),
-            (("s", "u", SCHEMA), {"cache": ContextCache(), "identity": ("local", "a23")}),
-            (("s", "u", SCHEMA), {"cache": {}, "identity": IDENTITY}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "agent_id": "A23"}),
+            (("s", "u", SCHEMA), {"identity": IDENTITY, "agent_id": "A23"}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "identity": IDENTITY}),
+            (("s", "u", SCHEMA), {"agent_id": "A23"}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "identity": ("local", "a23"), "agent_id": "A23"}),
+            (("s", "u", SCHEMA), {"cache": {}, "identity": IDENTITY, "agent_id": "A23"}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "identity": IDENTITY, "agent_id": "A29"}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "identity": IDENTITY, "agent_id": "A99"}),
+            (("s", "u", SCHEMA), {"cache": ContextCache(), "agent_id": "A10",
+                                  "identity": CacheIdentity("local", "a10", "p1", IDENTITY.evidence_sha256)}),
         ]
         for args, kwargs in bad:
             with self.subTest(args=str(args)[:40], kwargs=kwargs), self.assertRaises(InputRejected):
@@ -167,8 +185,8 @@ class Cache(unittest.TestCase):
     def test_miss_then_hit_without_a_second_call(self):
         cache = ContextCache()
         local, fake = model(envelope('{"mechanisms": ["duplicate_delivery"]}'))
-        first = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
-        second = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
+        first = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
+        second = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
         self.assertEqual(len(fake.calls), 1)
         self.assertEqual((first.ok, first.cache, first.tokens_in), (True, "miss", 31))
         self.assertEqual((second.ok, second.cache, second.data), (True, "hit", first.data))
@@ -180,41 +198,70 @@ class Cache(unittest.TestCase):
         cache = ContextCache()
         local, fake = model(envelope('{"mechanisms": ["x"]}'), ConnectionRefusedError(61, "refused"),
                             envelope('{"mechanisms": []}'))
-        self.assertEqual(local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY).error_code, "INVALID_OUTPUT")
-        self.assertEqual(local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY).error_code,
+        self.assertEqual(local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23").error_code, "INVALID_OUTPUT")
+        self.assertEqual(local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23").error_code,
                          "MODEL_UNAVAILABLE")
         self.assertEqual(cache.stats()["entries"], 0)
-        third = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
+        third = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
         self.assertEqual((third.ok, third.cache), (True, "miss"))
         self.assertEqual(len(fake.calls), 3)
 
     def test_failed_calls_report_miss(self):
         local, _ = model(TimeoutError("slow"))
-        result = local.complete("s", "u", SCHEMA, cache=ContextCache(), identity=IDENTITY)
+        result = local.complete("s", "u", SCHEMA, cache=ContextCache(), identity=IDENTITY, agent_id="A23")
         self.assertEqual((result.error_code, result.cache), ("TIMEOUT", "miss"))
 
-    def test_identity_reused_for_another_prompt_or_model_is_rejected(self):
+    def test_identity_reused_for_another_request_rebuilds(self):
         cache = ContextCache()
+        local, fake = model(envelope('{"mechanisms": []}'), envelope('{"mechanisms": ["partial_load"]}'),
+                            envelope('{"mechanisms": ["duplicate_delivery"]}'))
+        local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
+        changed = local.complete("s", "other", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
+        self.assertEqual((changed.cache, changed.data), ("miss", {"mechanisms": ["partial_load"]}))
+        budget = local.complete("s", "other", SCHEMA, max_tokens=64, cache=cache, identity=IDENTITY, agent_id="A23")
+        self.assertEqual((budget.cache, budget.data), ("miss", {"mechanisms": ["duplicate_delivery"]}))
+        again = local.complete("s", "other", SCHEMA, max_tokens=64, cache=cache, identity=IDENTITY, agent_id="A23")
+        self.assertEqual((again.cache, again.data, len(fake.calls)), ("hit", budget.data, 3))
+        other = LocalModel(model="qwen3:8b", transport=Fake(envelope('{"mechanisms": []}')))
+        self.assertEqual(other.complete("s", "other", SCHEMA, max_tokens=64, cache=cache, identity=IDENTITY,
+                                        agent_id="A23").cache, "miss")
+
+    def test_a_persistently_mismatched_entry_falls_back_to_an_unstored_call(self):
+        cache = ContextCache()
+        local, fake = model(envelope('{"mechanisms": []}'), envelope('{"mechanisms": ["partial_load"]}'))
+        local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
+        with mock.patch.object(ContextCache, "invalidate", return_value=0):
+            result = local.complete("s", "other", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
+        self.assertEqual((result.ok, result.cache, result.data), (True, "miss", {"mechanisms": ["partial_load"]}))
+        self.assertEqual(len(fake.calls), 2)
+
+    def test_unencodable_reply_is_not_cached(self):
+        cache = ContextCache()
+        schema = {**SCHEMA, "properties": {**SCHEMA["properties"], "note": {"type": "string"}}}
+        local, _ = model(envelope('{"mechanisms": [], "note": "\\ud800"}'))
+        result = local.complete("s", "u", schema, cache=cache, identity=IDENTITY, agent_id="A23")
+        self.assertEqual((result.error_code, result.cache), ("INVALID_OUTPUT", "miss"))
+        self.assertEqual(cache.stats()["entries"], 0)
+
+    def test_hybrid_roles_may_use_the_cache(self):
+        identity = CacheIdentity("local", "a22", "p1", IDENTITY.evidence_sha256)
         local, _ = model(envelope('{"mechanisms": []}'))
-        local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
-        with self.assertRaisesRegex(InputRejected, "^Cache identity does not match this prompt$"):
-            local.complete("s", "other", SCHEMA, cache=cache, identity=IDENTITY)
-        other = LocalModel(model="qwen3:8b", transport=Fake())
-        with self.assertRaisesRegex(InputRejected, "^Cache identity does not match this prompt$"):
-            other.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
+        self.assertEqual(local.complete("s", "u", SCHEMA, cache=ContextCache(), identity=identity,
+                                        agent_id="A22").cache, "miss")
 
     def test_oversized_valid_result_is_returned_but_not_stored(self):
         cache = ContextCache(max_entry_bytes=16, max_total_bytes=16)
         local, fake = model(envelope('{"mechanisms": []}'), envelope('{"mechanisms": []}'))
         for _ in range(2):
-            result = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY)
+            result = local.complete("s", "u", SCHEMA, cache=cache, identity=IDENTITY, agent_id="A23")
             self.assertEqual((result.ok, result.cache), (True, "miss"))
         self.assertEqual(len(fake.calls), 2)
 
-    def test_cache_errors_before_the_call_propagate(self):
+    def test_cache_errors_before_the_call_are_rejected(self):
         local, fake = model()
-        with self.assertRaises(AdvisoryError):
-            local.complete("s", "u", SCHEMA, cache=ContextCache(clock=lambda: -1), identity=IDENTITY)
+        with self.assertRaisesRegex(InputRejected, "^Model cache failed$"):
+            local.complete("s", "u", SCHEMA, cache=ContextCache(clock=lambda: -1), identity=IDENTITY,
+                           agent_id="A23")
         self.assertEqual(fake.calls, [])
 
 
@@ -227,6 +274,12 @@ class LocalReferences(unittest.TestCase):
         self.assertEqual(local.complete("s", "u", schema).error_code, "INVALID_OUTPUT")
         with self.assertRaises(NoSuchResource):
             llm._offline("https://example.invalid/schema")
+
+    def test_reference_errors_after_the_call_are_invalid_output(self):
+        local, fake = model(envelope('{"m": 1}'))
+        with mock.patch.object(llm, "_check_references", lambda schema: None):
+            result = local.complete("s", "u", {"properties": {"m": {"$ref": "#/nope"}}})
+        self.assertEqual((result.error_code, len(fake.calls)), ("INVALID_OUTPUT", 1))
 
 
 class DefaultTransport(unittest.TestCase):

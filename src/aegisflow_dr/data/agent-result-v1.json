@@ -5,9 +5,11 @@
   "description": "The outcome of one agent task. Claims are message keys with bounded parameters bound to evidence references; model text may appear only in advisory_text, which is never evidence. Proposed actions are never executed.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "claims", "evidence_refs", "uncertainty", "proposed_actions", "usage", "transport", "llm",
+  "required": ["task_id", "agent_id", "status", "claims", "evidence_refs", "uncertainty", "proposed_actions", "usage", "transport", "llm",
                "retrieval", "error_code", "advisory_text"],
   "properties": {
+    "task_id": {"$ref": "#/$defs/id"},
+    "agent_id": {"type": "string", "pattern": "^A(?:0[1-9]|[12][0-9]|3[0-6])(?![\\s\\S])", "maxLength": 3},
     "status": {"enum": ["COMPLETED", "NEEDS_EVIDENCE", "POLICY_DENIED", "SKIPPED", "FAILED"]},
     "claims": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/claim"}},
     "evidence_refs": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/evidence_ref"}},

@@ -27,6 +27,7 @@ def task(**changes):
 
 def result(**changes):
     value = {
+        "task_id": "task-1", "agent_id": "A10",
         "status": "COMPLETED",
         "claims": [{"text_key": "profile.check_count", "params": {"check": "duplicate_rows", "count": 3,
                                                                   "share": 0.25, "ids": ["obs-1", "obs-2"],
@@ -73,7 +74,8 @@ class Task(unittest.TestCase):
         value = task()
         self.assertIs(validate_task(value), value)
         validate_task(task(input_refs=[], allowed_tools=[], agent_id="A36"))
-        validate_task(task(agent_id="A01"))
+        validate_task(task(agent_id="A23", allowed_tools=["local_llm"]))
+        validate_task(task(agent_id="A17", allowed_tools=["baseline_compare"]))
 
     def test_rejects_invalid_tasks(self):
         bad = [
@@ -91,6 +93,8 @@ class Task(unittest.TestCase):
             task(budget={"max_tool_calls": True, "max_llm_calls": 0, "max_tokens": 0, "deadline_ms": 1}),
             task(budget={"max_tool_calls": 1, "max_llm_calls": 0, "max_tokens": 0}),
             task(policy_version=""),
+            task(agent_id="A01"), task(allowed_tools=["local_llm"]), task(agent_id="A12"),
+            task(allowed_tools=["profile_csv", "diagnose_csv"]),
             [], None, "task",
         ]
         missing = task()
@@ -152,9 +156,13 @@ class Result(unittest.TestCase):
                    proposed_actions=[{"text_key": "a", "params": {}, "executed": False}]),
             [], None,
         ]
-        missing = result()
-        del missing["advisory_text"]
-        bad.append(missing)
+        for field in ("advisory_text", "task_id", "agent_id"):
+            missing = result()
+            del missing[field]
+            bad.append(missing)
+        bad += [result(task_id=""), result(agent_id="A37"), result(agent_id="a10"),
+                with_claim(params={1: "x"}), with_claim(params={("tuple",): "x"}),
+                result(proposed_actions=[{"text_key": "a", "params": {2: 1}, "executed": False}])]
         for value in bad:
             with self.subTest(value=value), self.assertRaisesRegex(InputRejected, "^Agent result contract rejected$"):
                 validate_result(value)

@@ -4,13 +4,15 @@
 Each request asks for output in the caller's JSON Schema with temperature 0, a fixed seed and thinking off, and
 the reply is accepted only if it parses as strict JSON and validates against that schema. Failures are typed
 (MODEL_UNAVAILABLE, INVALID_OUTPUT, TIMEOUT) and never replaced with simulated output. Model output is advisory;
-callers pass it through the Judge. The optional context cache (CAG) stores only validated results, keyed by the
-caller's exact cache identity; a hit made no model call and reports zero tokens. The cache builder runs under the
-cache lock, so concurrent requests sharing one cache wait for an in-flight model call.
+callers pass it through the Judge. ``prompt_sha256`` is the SHA-256 of the exact canonical request (model, messages,
+schema, options), so it changes with the model and the output budget. Output schemas may use only local JSON-pointer
+references, which are resolved before any call. The optional context cache (CAG) stores only validated results under
+a cache identity whose kind is the calling agent (for example ``a23``); an entry made for a different request is
+invalidated and rebuilt, and a hit made no model call and reports zero tokens. The cache builder runs under the cache
+lock, so concurrent requests sharing one cache wait for an in-flight model call.
 """
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from http.client import HTTPException
 import json
 import re
 from time import perf_counter
@@ -19,11 +21,13 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 from referencing import Registry
-from referencing.exceptions import NoSuchResource
+from referencing.exceptions import NoSuchResource, Unresolvable
+from referencing.jsonschema import DRAFT202012
 
 from ..advisory.context_cache import CacheIdentity, ContextCache
 from ..advisory.contracts import AdvisoryError
 from ..pipeline import InputRejected
+from .registry import role
 
 PROVIDER, TEMPERATURE, SEED = "ollama", 0, 7
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -31,6 +35,7 @@ MAX_OUTPUT_TOKENS, MAX_TIMEOUT_S = 512, 30.0
 MAX_PROMPT_CHARS, MAX_RESPONSE_BYTES = 32_000, 1_000_000
 MODEL_UNAVAILABLE, INVALID_OUTPUT, TIMEOUT = "MODEL_UNAVAILABLE", "INVALID_OUTPUT", "TIMEOUT"
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+_IDENTIFYING = frozenset({"$id", "$anchor", "$dynamicAnchor", "$dynamicRef", "$recursiveAnchor", "$recursiveRef"})
 
 
 @dataclass(frozen=True)
@@ -64,9 +69,20 @@ def _canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
-def prompt_sha256(system, user, schema):
-    """SHA-256 of the canonical JSON of the system prompt, user prompt and output schema."""
-    return sha256(_canonical({"system": system, "user": user, "schema": schema})).hexdigest()
+def _request(model, system, user, schema, max_tokens):
+    return _canonical({
+        "model": model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "format": schema,
+        "options": {"temperature": TEMPERATURE, "seed": SEED, "num_predict": max_tokens},
+        "think": False,
+        "stream": False,
+    })
+
+
+def prompt_sha256(system, user, schema, *, model, max_tokens):
+    """SHA-256 of the canonical request body sent to the model (model, messages, schema and options)."""
+    return sha256(_request(model, system, user, schema, max_tokens)).hexdigest()
 
 
 def _unique(pairs):
@@ -90,15 +106,36 @@ def _offline(uri):
     raise NoSuchResource(ref=uri)
 
 
-def _local_refs_only(value):
+def _references(value, found):
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ("$ref", "$dynamicRef") and not (type(item) is str and item.startswith("#")):
-                raise ValueError("remote reference")
-            _local_refs_only(item)
+            if key in _IDENTIFYING:
+                raise ValueError("schema identifiers and dynamic references are not supported")
+            if key == "$ref":
+                if type(item) is not str or not (item == "#" or item.startswith("#/")):
+                    raise ValueError("only local JSON-pointer references are supported")
+                found.append(item)
+            _references(item, found)
     elif isinstance(value, list):
         for item in value:
-            _local_refs_only(item)
+            _references(item, found)
+
+
+def _check_references(schema):
+    """Resolve every reference before any call; raises ValueError or referencing's Unresolvable."""
+    found = []
+    _references(schema, found)
+    resolver = Registry(retrieve=_offline).resolver_with_root(DRAFT202012.create_resource(schema))
+    for reference in found:
+        resolver.lookup(reference)
+
+
+def _encodable(text):
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _count(value):
@@ -123,10 +160,16 @@ class LocalModel:
         self._url = "http://%s:%d/api/chat" % ("[::1]" if host == "::1" else host, port)
         self._transport = transport or _urllib_transport
 
-    def complete(self, system, user, schema, *, max_tokens=MAX_OUTPUT_TOKENS, cache=None, identity=None):
-        """Return an LLMResult for one schema-constrained chat request; never raises for model-side failures."""
+    def complete(self, system, user, schema, *, max_tokens=MAX_OUTPUT_TOKENS, cache=None, identity=None,
+                 agent_id=None):
+        """Return an LLMResult for one schema-constrained chat request.
+
+        Model-side failures are returned as typed results; invalid requests raise InputRejected before any call.
+        Caching needs all of ``cache``, ``identity`` and ``agent_id``; the identity's kind must be the agent id in
+        lower case and the agent must be a model-using role.
+        """
         for text in (system, user):
-            if type(text) is not str or not 1 <= len(text) <= MAX_PROMPT_CHARS:
+            if type(text) is not str or not 1 <= len(text) <= MAX_PROMPT_CHARS or not _encodable(text):
                 raise InputRejected("Invalid model prompt")
         if type(max_tokens) is not int or not 1 <= max_tokens <= MAX_OUTPUT_TOKENS:
             raise InputRejected("Invalid model output budget")
@@ -134,53 +177,49 @@ class LocalModel:
             if type(schema) is not dict:
                 raise TypeError("schema")
             Draft202012Validator.check_schema(schema)
-            _local_refs_only(schema)
-            digest = prompt_sha256(system, user, schema)
-        except (SchemaError, TypeError, ValueError, RecursionError):
+            _check_references(schema)
+            body = _request(self.model, system, user, schema, max_tokens)
+        except (SchemaError, TypeError, ValueError, RecursionError, Unresolvable):
             raise InputRejected("Invalid model output schema") from None
-        if (cache is None) != (identity is None):
-            raise InputRejected("Cache and cache identity go together")
-        if cache is None:
-            return self._call(system, user, schema, max_tokens, digest)
+        digest = sha256(body).hexdigest()
+        if cache is None and identity is None and agent_id is None:
+            return self._call(body, digest, schema)
         if type(cache) is not ContextCache or type(identity) is not CacheIdentity:
             raise InputRejected("Invalid model cache")
-        return self._cached(system, user, schema, max_tokens, digest, cache, identity)
+        if "local_llm" not in role(agent_id).allowed_tools or identity.kind != agent_id.lower():
+            raise InputRejected("Cache identity must bind a model-using agent")
+        return self._cached(body, digest, schema, cache, identity)
 
-    def _cached(self, system, user, schema, max_tokens, digest, cache, identity):
-        built = []
+    def _cached(self, body, digest, schema, cache, identity):
         started = perf_counter()
+        for _ in range(2):
+            built = []
 
-        def builder():
-            result = replace(self._call(system, user, schema, max_tokens, digest), cache="miss")
-            if not result.ok:
-                raise _Uncached(result)
-            built.append(result)
-            return _canonical({"model": self.model, "prompt_sha256": digest, "data": result.data})
+            def builder():
+                result = replace(self._call(body, digest, schema), cache="miss")
+                if not result.ok:
+                    raise _Uncached(result)
+                built.append(result)
+                return _canonical({"prompt_sha256": digest, "data": result.data})
 
-        try:
-            stored = json.loads(cache.get_or_build(identity, builder))
-        except _Uncached as uncached:
-            return uncached.result
-        except AdvisoryError:
+            try:
+                stored = json.loads(cache.get_or_build(identity, builder))
+            except _Uncached as uncached:
+                return uncached.result
+            except AdvisoryError:
+                if built:
+                    return built[0]  # valid, but too large to store
+                raise InputRejected("Model cache failed") from None
             if built:
-                return built[0]  # valid, but too large to store
-            raise
-        if built:
-            return built[0]
-        if stored["model"] != self.model or stored["prompt_sha256"] != digest:
-            raise InputRejected("Cache identity does not match this prompt")
-        return LLMResult(True, stored["data"], None, self.model, digest, 0, 0,
-                         round((perf_counter() - started) * 1000), "hit")
+                return built[0]
+            if stored["prompt_sha256"] == digest:  # the digest covers model, prompts, schema and options
+                return LLMResult(True, stored["data"], None, self.model, digest, 0, 0,
+                                 round((perf_counter() - started) * 1000), "hit")
+            cache.invalidate(tenant=identity.tenant, kind=identity.kind, version=identity.version,
+                             evidence_sha256=identity.evidence_sha256)
+        return replace(self._call(body, digest, schema), cache="miss")  # entry kept reappearing; do not store
 
-    def _call(self, system, user, schema, max_tokens, digest):
-        body = _canonical({
-            "model": self.model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "format": schema,
-            "options": {"temperature": TEMPERATURE, "seed": SEED, "num_predict": max_tokens},
-            "think": False,
-            "stream": False,
-        })
+    def _call(self, body, digest, schema):
         started = perf_counter()
 
         def result(ok, data, error, tokens_in=0, tokens_out=0):
@@ -189,7 +228,7 @@ class LocalModel:
 
         try:
             raw = self._transport(self._url, body, self._timeout)
-        except (OSError, HTTPException) as error:
+        except Exception as error:  # any transport failure, including injected transports, is a typed outcome
             timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
             return result(False, None, TIMEOUT if timed_out else MODEL_UNAVAILABLE)
         try:
@@ -205,6 +244,7 @@ class LocalModel:
         try:
             data = _strict_json(content)
             Draft202012Validator(schema, registry=Registry(retrieve=_offline)).validate(data)
-        except (ValueError, RecursionError, ValidationError):
+            _canonical(data)  # lone surrogates parse but cannot be encoded, stored or reported
+        except (ValueError, RecursionError, ValidationError, Unresolvable):
             return result(False, None, INVALID_OUTPUT, tokens_in, tokens_out)
         return result(True, data, None, tokens_in, tokens_out)
