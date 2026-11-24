@@ -13,6 +13,7 @@ from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from schema_store import SchemaStore
+from baseline_store import BaselineStore
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
 from passage_eval import evaluate as evaluate_passages
@@ -50,6 +51,7 @@ class Workbench:
         self.kb = KnowledgeBase(self.root, REFERENCE_DOCUMENTS)
         self.knowledge = self.kb.knowledge
         self.schemas = SchemaStore(self.root)
+        self.baselines = BaselineStore(self.root)
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -272,6 +274,8 @@ def make_server(workbench, token, port=0, catalog=None):
                                               'limits': {'documents': MAX_USER_DOCUMENTS, 'bytes': MAX_TEXT_BYTES}}).encode())
             elif self.path == '/api/schemas' and self.authorized():
                 self.respond(200, json.dumps(workbench.schemas.overview()).encode())
+            elif self.path == '/api/baselines' and self.authorized():
+                self.respond(200, json.dumps(workbench.baselines.overview()).encode())
             elif self.path == '/api/passages' and self.authorized():
                 self.respond(200, passage_report())
             elif self.path == '/api/retrieval' and self.authorized():
@@ -354,6 +358,29 @@ def make_server(workbench, token, port=0, catalog=None):
                     else:
                         result = {'results': workbench.kb.search(request.get('query'), request.get('limit', 5))}
                     self.respond(200, json.dumps(result).encode())
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path in ('/api/baselines/save', '/api/baselines/compare', '/api/baselines/remove'):
+                body = self.read_body('application/json', {'save': 5300000, 'compare': 1100000, 'remove': 2048}[self.path.rsplit('/', 1)[1]])
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/save'):
+                        result = workbench.baselines.save(request.get('name'), request.get('references'),
+                            request.get('freshness_sla_seconds'), request.get('replace', False))
+                    elif self.path.endswith('/compare'):
+                        result = workbench.baselines.compare(request.get('name'), request.get('csv'), request.get('as_of'))
+                    else:
+                        result = workbench.baselines.remove(request.get('name'))
+                    self.respond(200, json.dumps(result).encode())
+                except KeyError:
+                    self.respond(404, b'{"error": "NOT_FOUND"}')
                 except InputRejected as error:
                     self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
                 except (ValueError, TypeError):

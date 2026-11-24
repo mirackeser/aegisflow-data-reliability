@@ -348,6 +348,49 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(call(b'a\n1\n',length=1000001)[0],413)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_baselines_save_compare_remove_and_refusals(self):
+  import json
+  server=make_server(self.w,'bl-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  auth={'Authorization':'Bearer bl-token'}
+  def call(method,path,body=None,headers=None,mime='application/json'):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+   h=dict(auth if headers is None else headers)
+   data=None if body is None else (body if isinstance(body,bytes) else json.dumps(body).encode())
+   if data is not None:
+    h.update({'Content-Type':mime,'Content-Length':str(len(data))})
+   c.request(method,path,body=data,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  def oversize(path,length):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.putrequest('POST',path)
+   for k,v in {**auth,'Content-Type':'application/json','Content-Length':str(length)}.items():c.putheader(k,v)
+   c.endheaders();r=c.getresponse();r.read();c.close();return r.status
+  ref='ts,v\n2026-01-01T00:00:00,1\n2026-01-01T01:00:00,2\n2026-01-01T02:00:00,3\n'
+  try:
+   self.assertEqual(call('GET','/api/baselines',headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'a','references':[ref]},headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/save',b'{}',mime='text/plain')[0],403)
+   self.assertEqual(call('GET','/api/baselines')[1],{'baselines':[],'rejected_on_load':False})
+   status,saved=call('POST','/api/baselines/save',{'name':'Orders','references':[ref],'freshness_sla_seconds':7200})
+   self.assertEqual((status,saved['name'],saved['records']),(200,'orders',3))
+   self.assertEqual(call('GET','/api/baselines')[1]['baselines'],[saved])
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'orders','references':[ref]})[0],422)
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'orders','references':[ref],'replace':True})[0],200)
+   status,body=call('POST','/api/baselines/save',{'name':'bad name!','references':'x'})
+   self.assertEqual((status,body['error']),(422,'INPUT_REJECTED'));self.assertTrue(body['message'])
+   status,result=call('POST','/api/baselines/compare',{'name':'orders','csv':'ts,v\n2026-01-02T00:00:00,1\n','as_of':'2026-01-02T00:00:00'})
+   self.assertEqual((status,result['name']),(200,'orders'));self.assertIn('status',result)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv':'ts,v\n','as_of':'junk'})[0],422)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'nope','csv':ref}),(404,{'error':'NOT_FOUND'}))
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'nope'}),(404,{'error':'NOT_FOUND'}))
+   self.assertEqual(call('POST','/api/baselines/remove',[1])[0],400)
+   self.assertEqual(call('POST','/api/baselines/save',b'not json')[0],400)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv':ref,'as_of':5})[0],422)
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'orders'}),(200,{'removed':'orders'}))
+   self.assertEqual(call('GET','/api/baselines')[1]['baselines'],[])
+   self.assertEqual(oversize('/api/baselines/remove',2049),413)
+   self.assertEqual(oversize('/api/baselines/compare',1100001),413)
+   self.assertEqual(oversize('/api/baselines/save',5300001),413)
+  finally:server.shutdown();server.server_close();thread.join()
+
  def test_http_schema_registry_register_contract_drift_and_refusals(self):
   import json
   server=make_server(self.w,'sr-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
