@@ -93,8 +93,12 @@ Every probe result carries the round it ran in. The record is validated against 
 
 ## Evaluation (`hypotheses_eval`)
 
-- Reuses `baseline_eval`'s process (same generator code, new salt `aegisflow-hypotheses-eval-v1` for the split hash, 60
-  groups). Each scenario injects one **simulated mechanism** into the current batch with the baseline from the three
+- Uses `baseline_eval`'s process code (same generator, seeded by the group number) on 60 **fresh groups, numbers 60–119**,
+  with its own salt `aegisflow-hypotheses-eval-v1` for the split hash. The corpus is disjoint from the D05c evaluation
+  corpus (groups 0–59): no group, base series or payload is shared. Every investigation starts with `baseline.compare`,
+  whose checks were developed on groups 0–59, so reusing them would measure the observation layer on data it was
+  developed on. An earlier draft of this design reused groups 0–59; this was corrected before held-out was scored.
+  Each scenario injects one **simulated mechanism** into the current batch with the baseline from the three
   references:
 
 | scenario | simulated mechanism | injection |

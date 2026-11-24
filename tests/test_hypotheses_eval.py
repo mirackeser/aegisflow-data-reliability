@@ -19,7 +19,7 @@ def cells(payload):
 
 
 def development_groups():
-    return [g for g in range(he.GROUPS) if he.split_of(g) == "development"]
+    return [g for g in he.GROUPS if he.split_of(g) == "development"]
 
 
 def investigation(*supported_refuted_open):
@@ -30,17 +30,37 @@ def investigation(*supported_refuted_open):
 
 class SplitTests(unittest.TestCase):
     def test_split_assignment_is_stable_and_pinned(self):
-        names = [he.split_of(g) for g in range(he.GROUPS)]
-        self.assertEqual(names, [he.split_of(g) for g in range(he.GROUPS)])
-        self.assertEqual(he.GROUPS, 60)
+        names = [he.split_of(g) for g in he.GROUPS]
+        self.assertEqual(names, [he.split_of(g) for g in he.GROUPS])
+        self.assertEqual(he.GROUPS, range(60, 120))
         self.assertEqual(he.SPLITS, ("development", "validation", "heldout"))
         # Realized counts only; the held-out split is never scored here.
-        self.assertEqual({name: names.count(name) for name in he.SPLITS}, {"development": 38, "validation": 10, "heldout": 12})
-        self.assertEqual(names[:8], ["heldout", "development", "heldout", "development", "development", "validation",
-                                     "development", "development"])
+        self.assertEqual({name: names.count(name) for name in he.SPLITS}, {"development": 30, "validation": 18, "heldout": 12})
+        self.assertEqual(names[:8], ["development", "validation", "heldout", "validation", "validation", "heldout",
+                                     "validation", "development"])
+
+    def test_groups_are_disjoint_from_the_baseline_evaluation(self):
+        # The observation layer (baseline.compare) was developed on baseline_eval's groups 0-59, so none is reused here.
+        self.assertEqual(len(he.GROUPS), 60)
+        self.assertFalse(set(he.GROUPS) & set(range(be.GROUPS)))
+
+    def test_no_payload_is_shared_with_the_baseline_evaluation(self):
+        ours, theirs = set(), set()
+        for group in (he.GROUPS[0], he.GROUPS[1], he.GROUPS[-1]):
+            for name in he.SCENARIOS:
+                references, current, _, _ = he.scenario(group, name)
+                ours.update(references)
+                ours.add(current)
+        for group in (0, 1, be.GROUPS - 1):
+            for variant in be.VARIANTS:
+                references, current, _, _ = be.generate(group, variant)
+                theirs.update(references)
+                theirs.add(current)
+        self.assertGreater(len(ours), 3 * len(he.SCENARIOS))
+        self.assertFalse(ours & theirs)
 
     def test_split_salt_differs_from_the_baseline_evaluation(self):
-        self.assertNotEqual([he.split_of(g) for g in range(he.GROUPS)], [be.split_of(g) for g in range(be.GROUPS)])
+        self.assertNotEqual([he.split_of(g) for g in he.GROUPS], [be.split_of(g) for g in he.GROUPS])
 
     def test_scenarios_in_spec_order(self):
         self.assertEqual(he.SCENARIOS, MODELLED + ("clean", "unmodelled_sign_flip", "unmodelled_amplitude"))
@@ -160,7 +180,7 @@ class ScenarioTests(unittest.TestCase):
         self.assertIsNone(truth)
 
     def test_parameters_match_the_baseline_generator(self):
-        for group in (0, 1, 7, 59):
+        for group in (0, 1, 7, 59, 60, 119):
             record = be._process(group)
             amplitude, _, phase = he._parameters(group)
             noise = he._temp_noise(group)
@@ -239,7 +259,7 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(he._show(empty["rates"]["truth_supported"]), "n/a")
 
     def test_render_shows_n_a_for_empty_split(self):
-        report = {"version": he.VERSION, "scope": he.SCOPE, "groups": he.GROUPS,
+        report = {"version": he.VERSION, "scope": he.SCOPE, "groups": len(he.GROUPS),
                   "splits": {"development": he._empty_bucket(he.SCENARIOS)}}
         for name, row in report["splits"]["development"]["scenarios"].items():
             he._finalize(name, row)
@@ -259,7 +279,7 @@ class MeasurementTests(unittest.TestCase):
 
     def test_every_case_is_counted(self):
         for name, bucket in self.report["splits"].items():
-            groups = sum(he.split_of(g) == name for g in range(he.GROUPS))
+            groups = sum(he.split_of(g) == name for g in he.GROUPS)
             self.assertEqual(bucket["groups"], groups)
             for scenario, row in bucket["scenarios"].items():
                 self.assertEqual(row["cases"], groups, scenario)
@@ -268,14 +288,17 @@ class MeasurementTests(unittest.TestCase):
                 self.assertTrue(0 <= row["probes_max"] <= hypotheses.MAX_PROBES_DEFAULT)
 
     def test_report_text(self):
-        self.assertIn("## Split: development (38 groups)", self.text)
-        self.assertIn("## Split: validation (10 groups)", self.text)
+        self.assertIn("## Split: development (30 groups)", self.text)
+        self.assertIn("## Split: validation (18 groups)", self.text)
         self.assertNotIn("Split: heldout", self.text)
         for phrase in ("Simulated mechanisms only", "written by the same authors as the catalog", "internal consistency",
                        "misattribution", "`genuine_change`", "cannot be tested from these data", "no root cause", "no model",
                        "no live agent", "not changed after the held-out split is scored", "n/a",
                        "docs/superpowers/specs/2026-11-24-hypothesis-contracts-design.md",
-                       "development 38, validation 10 and held-out 12 groups",
+                       "development 30, validation 18 and held-out 12 groups",
+                       "groups 60-119", "disjoint from the baseline comparison evaluation (D05c, groups 0-59)",
+                       "An earlier draft of this evaluation reused groups 0-59",
+                       "corrected before the held-out split was scored",
                        "a perfect 12/12 has a Wilson 95% lower bound of 75.8%", "Not a root-cause determination"):
             self.assertIn(phrase, self.text)
         for word in ("confirmed", "root cause found", "accuracy"):
@@ -287,7 +310,7 @@ class MeasurementTests(unittest.TestCase):
                        "Replanning adds nothing measurable on this corpus", "no scenario used more than 3 of the 6 probes",
                        "same truth and wrong-support results, only with more probes",
                        "exposed only because it also removes status updates",
-                       "`stuck_sensor` co-supports `calibration_offset` on `temp_c` in some development cases",
+                       "`stuck_sensor` co-supports `calibration_offset` on `temp_c` in some development and validation cases",
                        "the stuck run moves the mean", "stays inside the offset band"):
             self.assertIn(phrase, self.text)
         self.assertIn("(development and validation; `--include-heldout` adds the held-out split)", self.text)
@@ -300,11 +323,11 @@ class MeasurementTests(unittest.TestCase):
             flip = rows["unmodelled_sign_flip"]
             self.assertEqual(flip["stop_reasons"], {"resolved": flip["cases"]})
             self.assertEqual(flip["other_mechanisms"], {"calibration_offset/pressure_kpa": flip["cases"]})
-        self.assertGreater(self.report["splits"]["development"]["scenarios"]["stuck_sensor"]["other_mechanisms"]
-                           ["calibration_offset/temp_c"], 0)
+        for bucket in self.report["splits"].values():
+            self.assertGreater(bucket["scenarios"]["stuck_sensor"]["other_mechanisms"]["calibration_offset/temp_c"], 0)
 
     def test_header_names_heldout_when_it_is_scored(self):
-        report = {"version": he.VERSION, "scope": he.SCOPE, "groups": he.GROUPS,
+        report = {"version": he.VERSION, "scope": he.SCOPE, "groups": len(he.GROUPS),
                   "splits": {name: he._empty_bucket(he.SCENARIOS) for name in he.SPLITS}}
         for bucket in report["splits"].values():
             for name, row in bucket["scenarios"].items():
