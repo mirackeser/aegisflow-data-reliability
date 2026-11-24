@@ -286,7 +286,7 @@ function renderSources(){
     typeof profileButton==='function'?profileButton():null,
     h('button',{type:'button',class:'primary',disabled:!selectedFile||selectedFile.size>1000000||state?.status==='RUNNING',onclick:startFile},chosen?t('file.inspect.mapped',{n:chosen}):t('file.inspect'))),
    selectedFile&&selectedFile.size>1000000?h('p',{class:'hint bad',text:t('err.size')}):null,
-   discoveryPanel(),typeof profilePanel==='function'?profilePanel():null,h('p',{class:'panel-note',text:t('file.privacy')}));
+   discoveryPanel(),typeof profilePanel==='function'?profilePanel():null,typeof baselinePanel==='function'?baselinePanel():null,h('p',{class:'panel-note',text:t('file.privacy')}));
  }
  const conn=[['conn.session',connected?'ok':'warn',connected?'conn.on':'conn.off','conn.session.x'],['src.csv','ok','state.ok','conn.csv.x'],['src.folder',folder?.configured?'ok':'muted',folder?.configured?'state.ok':'state.muted','conn.folder.x'],['src.pg','info','state.info','conn.pg.x'],['src.company','muted','state.muted','conn.company.x']];
  const side=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.connections')})),

@@ -348,6 +348,14 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(call(b'a\n1\n',length=1000001)[0],413)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_baseline_script_is_served_as_javascript(self):
+  server=make_server(self.w,'bl-static-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=3);c.request('GET','/baseline.js');r=c.getresponse();body=r.read();c.close()
+   self.assertEqual(r.status,200)
+   self.assertEqual(r.getheader('Content-Type'),'text/javascript')
+   self.assertIn(b'function baselinePanel',body)
+  finally:server.shutdown();server.server_close();thread.join()
  def test_http_baselines_save_compare_remove_and_refusals(self):
   import json
   server=make_server(self.w,'bl-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
