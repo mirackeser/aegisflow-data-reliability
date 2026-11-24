@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
 from check_postgres_local import qualify
 from dataclasses import asdict
 from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
+from aegisflow_dr.profiling import profile_csv
 from functools import lru_cache
 
 from aegisflow_dr.capability_map import capability_map
@@ -257,7 +258,7 @@ def make_server(workbench, token, port=0, catalog=None):
             pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if self.path in assets:
                 name, mime = assets[self.path]
@@ -312,13 +313,15 @@ def make_server(workbench, token, port=0, catalog=None):
             return cleaned.strip() or None
 
         def do_POST(self):
-            if self.path in ('/api/inspect', '/api/discover'):
+            if self.path in ('/api/inspect', '/api/discover', '/api/profile'):
                 payload = self.read_body('text/csv', 1000000)
                 if payload is None:
                     return
                 try:
                     if self.path == '/api/discover':
                         self.respond(200, json.dumps(discover_schema(payload)).encode()); return
+                    if self.path == '/api/profile':
+                        self.respond(200, json.dumps(profile_csv(payload)).encode()); return
                     meta = {'kind': 'file', 'name': self.source_name(), 'source_sha256': hashlib.sha256(payload).hexdigest(),
                             'mapping': None}
                     raw_mapping = self.headers.get('X-Column-Mapping')

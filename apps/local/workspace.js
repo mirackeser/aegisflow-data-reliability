@@ -273,7 +273,7 @@ function renderSources(){
   config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.example')}),chip(t('origin.example'),'info')),h('p',{text:t('example.intro')}),
    h('label',{for:'scenario',text:t('example.choose')}),select,h('p',{class:'hint',text:t('example.needs')}),h('button',{type:'button',class:'secondary',onclick:()=>startExample(select.value)},t('example.run')));
  }else{
-  const input=h('input',{id:'csv-file',type:'file',accept:'.csv,text/csv',onchange:e=>{selectedFile=e.target.files[0]||null;discovery=null;mappingOn={};render();}});
+  const input=h('input',{id:'csv-file',type:'file',accept:'.csv,text/csv',onchange:e=>{selectedFile=e.target.files[0]||null;discovery=null;mappingOn={};profileResult=null;render();}});
   config=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:'2 · '+t('src.step2.file')}),chip(t('origin.file'),'ok')),
    h('p',{text:t('file.intro')}),
    h('table',{class:'data-table compact contract-table'},h('caption',{class:'sr-only',text:t('disc.contract')}),h('thead',{},h('tr',{},h('th',{scope:'col',text:t('disc.col.name')}),h('th',{scope:'col',text:t('contract.rule')}))),
@@ -283,9 +283,10 @@ function renderSources(){
     h('button',{type:'button',class:'secondary',onclick:()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['order_id,customer_id,order_total\nORD-0001,CUS-001,125.50\nORD-0002,CUS-002,89.90\nORD-0003,CUS-001,240.00\n'],{type:'text/csv'}));a.download='aegisflow-order-template.csv';a.click();URL.revokeObjectURL(a.href);}},t('file.template'))),
    h('p',{class:'file-state',text:selectedFile?t('file.chosen',{name:selectedFile.name,kb:N(Math.max(1,Math.round(selectedFile.size/1024)))}):t('file.none')}),
    h('div',{class:'button-row'},h('button',{type:'button',class:'secondary',disabled:!selectedFile||selectedFile.size>1000000,onclick:discover},t('file.validate')),
+    typeof profileButton==='function'?profileButton():null,
     h('button',{type:'button',class:'primary',disabled:!selectedFile||selectedFile.size>1000000||state?.status==='RUNNING',onclick:startFile},chosen?t('file.inspect.mapped',{n:chosen}):t('file.inspect'))),
    selectedFile&&selectedFile.size>1000000?h('p',{class:'hint bad',text:t('err.size')}):null,
-   discoveryPanel(),h('p',{class:'panel-note',text:t('file.privacy')}));
+   discoveryPanel(),typeof profilePanel==='function'?profilePanel():null,h('p',{class:'panel-note',text:t('file.privacy')}));
  }
  const conn=[['conn.session',connected?'ok':'warn',connected?'conn.on':'conn.off','conn.session.x'],['src.csv','ok','state.ok','conn.csv.x'],['src.folder',folder?.configured?'ok':'muted',folder?.configured?'state.ok':'state.muted','conn.folder.x'],['src.pg','info','state.info','conn.pg.x'],['src.company','muted','state.muted','conn.company.x']];
  const side=h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.connections')})),
