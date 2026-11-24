@@ -15,7 +15,7 @@ class CapabilityMapTests(unittest.TestCase):
         ids = [r["agent_id"] for r in self.report["roles"]]
         self.assertEqual((len(ids), len(set(ids)), self.report["total"]), (36, 36, 36))
         self.assertEqual(sum(self.report["counts"].values()), 36)
-        self.assertEqual(self.report["counts"], {"implemented": 9, "partial": 7, "unavailable": 1, "disabled": 1, "planned": 18})
+        self.assertEqual(self.report["counts"], {"implemented": 9, "partial": 10, "unavailable": 1, "disabled": 1, "planned": 15})
 
     def test_only_catalog_roles_are_mapped_and_statuses_are_known(self):
         ids = {r["agent_id"] for r in self.report["roles"]}
@@ -46,6 +46,12 @@ class CapabilityMapTests(unittest.TestCase):
                 self.assertEqual(plan[role]["status"], status, role)
         for role in plan:
             self.assertIn(cm.COVERAGE[role][0], ("implemented", "unavailable", "disabled"), role)
+
+    def test_hypothesis_roles_are_partial_and_root_cause_stays_unavailable(self):
+        status = {r["agent_id"]: (r["status"], r["implemented_by"]) for r in self.report["roles"]}
+        for role in ("A24", "A25", "A28"):
+            self.assertEqual(status[role], ("partial", ["aegisflow_dr.hypotheses:investigate"]), role)
+        self.assertEqual(status["A23"], ("unavailable", []))
 
     def test_names_and_priorities_come_from_the_catalog(self):
         first = self.report["roles"][0]

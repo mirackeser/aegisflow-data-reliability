@@ -42,7 +42,7 @@ from aegisflow_dr.storage.runs import InvestigationRuns
 from aegisflow_dr.coordination.judge import review
 
 # JSON bodies carry base64 file bytes (4/3 of the 1 MB CSV limit each, plus the JSON around them).
-BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'remove': 2048}
+BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'investigate': 1400000, 'remove': 2048}
 
 
 class Workbench:
@@ -366,7 +366,7 @@ def make_server(workbench, token, port=0, catalog=None):
                 except (ValueError, TypeError):
                     self.respond(400, b'{}')
                 return
-            if self.path in ('/api/baselines/save', '/api/baselines/compare', '/api/baselines/remove'):
+            if self.path in ('/api/baselines/save', '/api/baselines/compare', '/api/baselines/investigate', '/api/baselines/remove'):
                 body = self.read_body('application/json', BASELINE_BODY_LIMITS[self.path.rsplit('/', 1)[1]])
                 if body is None:
                     return
@@ -383,6 +383,9 @@ def make_server(workbench, token, port=0, catalog=None):
                     elif self.path.endswith('/compare'):
                         result = workbench.baselines.compare(request.get('name'), from_base64(request.get('csv_b64')),
                                                              request.get('as_of'))
+                    elif self.path.endswith('/investigate'):
+                        result = workbench.baselines.investigate(request.get('name'), from_base64(request.get('csv_b64')),
+                                                                 request.get('as_of'))
                     else:
                         result = workbench.baselines.remove(request.get('name'))
                     self.respond(200, json.dumps(result).encode())

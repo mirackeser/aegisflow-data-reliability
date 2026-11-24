@@ -12,6 +12,7 @@ from pathlib import Path
 from threading import Lock
 
 from aegisflow_dr.baseline import build_baseline, compare as compare_baseline, load_baseline
+from aegisflow_dr.hypotheses import investigate as investigate_baseline
 from aegisflow_dr.pipeline import InputRejected
 
 FILE = "baselines.json"
@@ -141,6 +142,20 @@ class BaselineStore:
             key = self._find(name)
             record = self.items[key]["record"]
         return {**compare_baseline(record, payload, as_of=as_of), "name": key}
+
+    def investigate(self, name, payload, as_of=None):
+        """Candidate explanations for the comparison of ``payload`` with a saved baseline (same inputs as ``compare``).
+
+        Returns ``{"name": key, "investigation": record}``: the record is the unmodified contract document (it verifies
+        with ``hypotheses.verify_investigation``) and names the baseline digest, file hash and "as of" time it describes,
+        so a caller can tell when the baseline was replaced after its comparison.
+        """
+        if type(payload) is not bytes:
+            raise InputRejected("The CSV must be a file")
+        with self.lock:
+            key = self._find(name)
+            record = self.items[key]["record"]
+        return {"name": key, "investigation": investigate_baseline(record, payload, as_of=as_of)}
 
     def remove(self, name):
         with self.lock:

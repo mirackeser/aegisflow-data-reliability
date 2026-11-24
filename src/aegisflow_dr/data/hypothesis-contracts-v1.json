@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegisflow:hypotheses:contracts:1",
+  "title": "AegisFlow hypothesis contracts v1",
+  "description": "Observation, hypothesis, probe result and investigation records of the deterministic hypothesis loop (F04). Candidate mechanisms only; not a root-cause determination.",
+  "$ref": "#/$defs/investigation",
+  "$defs": {
+    "hex64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "column": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "minLength": 1}
+      ]
+    },
+    "observation_id": {"type": "string", "pattern": "^obs-[1-9][0-9]{0,3}(?![\\s\\S])", "maxLength": 8},
+    "hypothesis_id": {"type": "string", "pattern": "^hyp-[1-9][0-9]{0,3}(?![\\s\\S])", "maxLength": 8},
+    "probe_id": {"type": "string", "pattern": "^prb-[1-9][0-9]?(?![\\s\\S])", "maxLength": 6},
+    "mechanism": {
+      "enum": ["unit_change", "calibration_offset", "noise_increase", "stuck_sensor", "genuine_change",
+               "sampling_config_change", "partial_load", "duplicate_delivery", "delivery_delay", "source_outage",
+               "field_outage", "intermittent_loss"]
+    },
+    "probe": {
+      "enum": ["scale_ratio", "spread_ratio", "flat_share", "interval_regularity", "span_ratio", "freshness_lag",
+               "duplicate_share", "empty_runs"]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "check", "column", "direction", "evidence_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/observation_id"},
+        "source": {"enum": ["baseline", "profile"]},
+        "check": {
+          "enum": ["column_missing", "column_added", "role_change", "sampling_interval_change", "volume_change",
+                   "freshness", "empty_rate_change", "distribution_shift", "flatline", "duplicate_rows",
+                   "timestamp_duplicate"]
+        },
+        "column": {"$ref": "#/$defs/column"},
+        "direction": {"enum": ["drop", "increase", null]},
+        "evidence_sha256": {"$ref": "#/$defs/hex64"}
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mechanism", "column", "explains", "competitors", "status", "supporting", "refuting"],
+      "properties": {
+        "id": {"$ref": "#/$defs/hypothesis_id"},
+        "mechanism": {"$ref": "#/$defs/mechanism"},
+        "column": {"$ref": "#/$defs/column"},
+        "explains": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/observation_id"}},
+        "competitors": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/hypothesis_id"}},
+        "status": {"enum": ["open", "supported", "refuted"]},
+        "supporting": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/probe_id"}},
+        "refuting": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/probe_id"}}
+      }
+    },
+    "probe_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "probe", "column", "round", "measured", "outcomes"],
+      "properties": {
+        "id": {"$ref": "#/$defs/probe_id"},
+        "probe": {"$ref": "#/$defs/probe"},
+        "column": {"$ref": "#/$defs/column"},
+        "round": {"type": "integer", "minimum": 1, "maximum": 20},
+        "measured": {
+          "type": "object",
+          "maxProperties": 8,
+          "propertyNames": {"pattern": "^[a-z_]{1,32}(?![\\s\\S])"},
+          "additionalProperties": {"type": ["number", "null"]}
+        },
+        "outcomes": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/hypothesis_id"},
+          "additionalProperties": {"enum": ["supports", "refutes", "neutral"]}
+        }
+      }
+    },
+    "investigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format_version", "engine", "catalog_version", "baseline_digest", "source_sha256", "as_of",
+                   "observations", "hypotheses", "probes", "budget", "stop_reason", "ranking", "verdict", "statement",
+                   "trace_sha256"],
+      "properties": {
+        "format_version": {"const": "1"},
+        "engine": {"const": "deterministic-hypotheses-v1"},
+        "catalog_version": {"const": "1"},
+        "baseline_digest": {"$ref": "#/$defs/hex64"},
+        "source_sha256": {"$ref": "#/$defs/hex64"},
+        "as_of": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "minLength": 1}
+          ]
+        },
+        "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
+        "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}},
+        "probes": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/probe_result"}},
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_probes", "used"],
+          "properties": {
+            "max_probes": {"type": "integer", "minimum": 1, "maximum": 20},
+            "used": {"type": "integer", "minimum": 0, "maximum": 20}
+          }
+        },
+        "stop_reason": {"enum": ["no_observations", "no_informative_probe", "probe_budget_exhausted", "resolved"]},
+        "ranking": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/hypothesis_id"}},
+        "verdict": {"enum": ["no_observations", "none_supported", "single_supported", "multiple_supported"]},
+        "statement": {
+          "const": "Candidate mechanisms consistent with fixed probes on these measurements. Not a root-cause determination."
+        },
+        "trace_sha256": {"$ref": "#/$defs/hex64"}
+      }
+    }
+  }
+}

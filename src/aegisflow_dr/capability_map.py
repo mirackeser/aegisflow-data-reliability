@@ -28,8 +28,12 @@ COVERAGE: dict[str, tuple[str, tuple[str, ...]]] = {
     "A21": ("implemented", ("aegisflow_dr.consistency:compare",)),
     "A22": ("partial", ("aegisflow_dr.similar:similar_runs",)),
     "A23": ("unavailable", ()),
+    # A fixed catalog of simulated mechanisms with deterministic probes; no model, no root cause (F04).
+    "A24": ("partial", ("aegisflow_dr.hypotheses:investigate",)),
+    "A25": ("partial", ("aegisflow_dr.hypotheses:investigate",)),
     "A26": ("implemented", ("aegisflow_dr.storage.store:IncidentStore",)),
     "A27": ("implemented", ("aegisflow_dr.coordination.judge:review",)),
+    "A28": ("partial", ("aegisflow_dr.hypotheses:investigate",)),
     "A29": ("disabled", ()),
     "A33": ("implemented", ("apps/local/workbench.py:Workbench.review",)),
     "A36": ("partial", ("aegisflow_dr.check_evaluation:evaluate",)),

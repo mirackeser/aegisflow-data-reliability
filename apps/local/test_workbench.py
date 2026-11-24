@@ -291,7 +291,7 @@ class WorkflowTests(unittest.TestCase):
     c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/capabilities',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
    self.assertEqual(get({})[0],403)
    status,body=get({'Authorization':'Bearer cap-token'});report=json.loads(body)
-   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,18))
+   self.assertEqual((status,report['total'],report['counts']['planned']),(200,36,15))
    self.assertEqual({r['agent_id']:r['status'] for r in report['roles']}['A23'],'unavailable')
   finally:
    server.shutdown();server.server_close();thread.join()
@@ -418,10 +418,58 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(oversize('/api/baselines/compare',1400001),413)
    self.assertEqual(oversize('/api/baselines/save',7200001),413)
   finally:server.shutdown();server.server_close();thread.join()
+ def test_http_baselines_investigate_mirrors_compare(self):
+  import base64,json
+  from aegisflow_dr import hypotheses as hy,hypotheses_eval as he
+  server=make_server(self.w,'hy-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  auth={'Authorization':'Bearer hy-token'}
+  b64=lambda data:base64.b64encode(data).decode()
+  def call(path,body,headers=None,mime='application/json'):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=10)
+   h=dict(auth if headers is None else headers)
+   data=body if isinstance(body,bytes) else json.dumps(body).encode()
+   h.update({'Content-Type':mime,'Content-Length':str(len(data))})
+   c.request('POST',path,body=data,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  def oversize(length):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.putrequest('POST','/api/baselines/investigate')
+   for k,v in {**auth,'Content-Type':'application/json','Content-Length':str(length)}.items():c.putheader(k,v)
+   c.endheaders();r=c.getresponse();r.read();c.close();return r.status
+  references,current,as_of,_=he.scenario(0,'partial_load')
+  try:
+   self.assertEqual(call('/api/baselines/save',{'name':'Plant','references_b64':[b64(r) for r in references]})[0],200)
+   body={'name':'plant','csv_b64':b64(current),'as_of':as_of}
+   self.assertEqual(call('/api/baselines/investigate',body,headers={})[0],403)
+   self.assertEqual(call('/api/baselines/investigate',body,headers={'Authorization':'Bearer wrong'})[0],403)
+   self.assertEqual(call('/api/baselines/investigate',json.dumps(body).encode(),mime='text/plain')[0],403)
+   self.assertEqual(call('/api/baselines/investigate',{**body,'name':'nope'}),(404,{'error':'NOT_FOUND'}))
+   for bad in ('@@@',5,None):
+    status,result=call('/api/baselines/investigate',{**body,'csv_b64':bad})
+    self.assertEqual((status,result['error']),(422,'INPUT_REJECTED'),bad)
+   self.assertEqual(call('/api/baselines/investigate',{**body,'as_of':'junk'})[0],422)
+   self.assertEqual(call('/api/baselines/investigate',{**body,'as_of':5})[0],422)
+   self.assertEqual(call('/api/baselines/investigate',{'name':'plant','csv':current.decode()})[0],422)
+   self.assertEqual(call('/api/baselines/investigate',b'not json')[0],400)
+   self.assertEqual(call('/api/baselines/investigate',[1])[0],400)
+   self.assertEqual(oversize(1400001),413)
+   status,answer=call('/api/baselines/investigate',body)
+   self.assertEqual((status,set(answer),answer['name']),(200,{'name','investigation'},'plant'))
+   result=answer['investigation']
+   self.assertIs(hy.verify_investigation(result),result)
+   self.assertEqual(result,hy.investigate(self.w.baselines.get('plant'),current,as_of=as_of))
+   self.assertEqual(result['statement'],hy.STATEMENT)
+   compared=call('/api/baselines/compare',body)[1]
+   self.assertEqual({o['evidence_sha256'] for o in result['observations']},{compared['source_sha256']})
+   self.assertEqual((result['baseline_digest'],result['source_sha256'],result['as_of']),(compared['baseline_digest'],compared['source_sha256'],compared['as_of']))
+   # Baseline replaced between Compare and Explain: the digests differ, so the panel can refuse the stale answer.
+   self.assertEqual(call('/api/baselines/save',{'name':'Plant','references_b64':[b64(r) for r in he.scenario(he.GROUPS[1],'clean')[0]],'replace':True})[0],200)
+   stale=call('/api/baselines/investigate',body)[1]['investigation']
+   self.assertEqual(stale['source_sha256'],compared['source_sha256'])
+   self.assertNotEqual(stale['baseline_digest'],compared['baseline_digest'])
+  finally:server.shutdown();server.server_close();thread.join()
  def test_baseline_body_caps_fit_base64_files_at_the_csv_limit(self):
   import base64,json
   from workbench import BASELINE_BODY_LIMITS
-  self.assertEqual(BASELINE_BODY_LIMITS,{'save':7200000,'compare':1400000,'remove':2048})
+  self.assertEqual(BASELINE_BODY_LIMITS,{'save':7200000,'compare':1400000,'investigate':1400000,'remove':2048})
   csv=b'"' * 1000000
   compare=json.dumps({'name':'x'*80,'csv_b64':base64.b64encode(csv).decode(),'as_of':'2026-01-01T00:00:00.000+00:00'}).encode()
   self.assertLessEqual(len(compare),BASELINE_BODY_LIMITS['compare'])

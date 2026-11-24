@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import baseline_store as bs
-from aegisflow_dr import baseline as core
+from aegisflow_dr import baseline as core, hypotheses as hy, hypotheses_eval as he
 from aegisflow_dr.pipeline import InputRejected
 
 REF = b"ts,v\n2026-01-01T00:00:00,1\n2026-01-01T01:00:00,2\n2026-01-01T02:00:00,3\n"
@@ -130,6 +130,43 @@ class StoreTests(unittest.TestCase):
                 self.store.compare("a", bad)
         self.assertEqual(self.store.remove("a"), {"removed": "a"})
         self.assertEqual(bs.BaselineStore(self.dir).overview()["baselines"], [])
+
+    def test_investigate_mirrors_compare(self):
+        references, current, as_of, _ = he.scenario(0, "partial_load")
+        self.store.save("plant", references)
+        result = self.store.investigate("plant", current, as_of=as_of)
+        # An envelope, so the investigation record itself is the contract document and verifies as returned.
+        self.assertEqual(set(result), {"name", "investigation"})
+        self.assertEqual(result["name"], "plant")
+        record = result["investigation"]
+        self.assertIs(hy.verify_investigation(record), record)
+        self.assertEqual(record, hy.investigate(self.store.get("plant"), current, as_of=as_of))
+        self.assertEqual(record["observations"][0]["evidence_sha256"],
+                         self.store.compare("plant", current, as_of=as_of)["source_sha256"])
+        self.assertIn("partial_load", [h["mechanism"] for h in record["hypotheses"] if h["status"] == "supported"])
+        with self.assertRaises(KeyError):
+            self.store.investigate("zzz", current)
+        for bad in (5, current.decode(), None, bytearray(current)):
+            with self.assertRaises(InputRejected):
+                self.store.investigate("plant", bad)
+        with self.assertRaises(InputRejected):
+            self.store.investigate("plant", current, as_of="junk")
+        clean = self.store.investigate("plant", references[0])["investigation"]
+        self.assertEqual((clean["verdict"], clean["stop_reason"], clean["probes"]), ("no_observations", "no_observations", []))
+
+    def test_investigation_names_the_baseline_it_used_when_replaced_after_compare(self):
+        references, current, as_of, _ = he.scenario(he.GROUPS[0], "partial_load")
+        self.store.save("plant", references)
+        compared = self.store.compare("plant", current, as_of=as_of)
+        record = self.store.investigate("plant", current, as_of=as_of)["investigation"]
+        self.assertEqual((record["baseline_digest"], record["source_sha256"], record["as_of"]),
+                         (compared["baseline_digest"], compared["source_sha256"], compared["as_of"]))
+        # The baseline is replaced between Compare and Explain: the record shows it describes a different baseline.
+        self.store.save("plant", he.scenario(he.GROUPS[1], "clean")[0], replace=True)
+        stale = self.store.investigate("plant", current, as_of=as_of)["investigation"]
+        self.assertEqual(stale["source_sha256"], compared["source_sha256"])
+        self.assertNotEqual(stale["baseline_digest"], compared["baseline_digest"])
+        self.assertEqual(stale["baseline_digest"], self.store.get("plant")["digest"])
 
     def _rejected(self, content):
         (self.dir / "baselines.json").write_bytes(content)
