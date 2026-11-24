@@ -65,8 +65,8 @@ class Registry(unittest.TestCase):
         self.assertEqual(role("A13").allowed_tools, ("query_lineage",))
         self.assertEqual(role("A22").allowed_tools, ("knowledge_retrieve", "local_llm"))
 
-    def test_executor_refs_are_well_formed_and_not_resolved_yet(self):
-        # Executors land in the next batch; this checks only the "module:function" format and the layer module.
+    def test_executor_refs_are_well_formed_and_name_their_layer_module(self):
+        # Format and layer only; tests/test_agents_executors.py checks that every reference resolves.
         functions = set()
         for spec in ROLES:
             with self.subTest(spec.agent_id):
