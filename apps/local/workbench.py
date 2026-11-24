@@ -13,6 +13,7 @@ from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from schema_store import SchemaStore
+from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
 from passage_eval import evaluate as evaluate_passages
@@ -40,6 +41,9 @@ from aegisflow_dr.storage import IncidentStore, initialize
 from aegisflow_dr.storage.runs import InvestigationRuns
 from aegisflow_dr.coordination.judge import review
 
+# JSON bodies carry base64 file bytes (4/3 of the 1 MB CSV limit each, plus the JSON around them).
+BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'remove': 2048}
+
 
 class Workbench:
     def __init__(self, directory, bindir):
@@ -50,6 +54,7 @@ class Workbench:
         self.kb = KnowledgeBase(self.root, REFERENCE_DOCUMENTS)
         self.knowledge = self.kb.knowledge
         self.schemas = SchemaStore(self.root)
+        self.baselines = BaselineStore(self.root)
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -258,7 +263,7 @@ def make_server(workbench, token, port=0, catalog=None):
             pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if self.path in assets:
                 name, mime = assets[self.path]
@@ -272,6 +277,8 @@ def make_server(workbench, token, port=0, catalog=None):
                                               'limits': {'documents': MAX_USER_DOCUMENTS, 'bytes': MAX_TEXT_BYTES}}).encode())
             elif self.path == '/api/schemas' and self.authorized():
                 self.respond(200, json.dumps(workbench.schemas.overview()).encode())
+            elif self.path == '/api/baselines' and self.authorized():
+                self.respond(200, json.dumps(workbench.baselines.overview()).encode())
             elif self.path == '/api/passages' and self.authorized():
                 self.respond(200, passage_report())
             elif self.path == '/api/retrieval' and self.authorized():
@@ -354,6 +361,33 @@ def make_server(workbench, token, port=0, catalog=None):
                     else:
                         result = {'results': workbench.kb.search(request.get('query'), request.get('limit', 5))}
                     self.respond(200, json.dumps(result).encode())
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path in ('/api/baselines/save', '/api/baselines/compare', '/api/baselines/remove'):
+                body = self.read_body('application/json', BASELINE_BODY_LIMITS[self.path.rsplit('/', 1)[1]])
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/save'):
+                        encoded = request.get('references_b64')
+                        if type(encoded) is not list:
+                            raise InputRejected('references_b64 must be a list of base64 strings')
+                        result = workbench.baselines.save(request.get('name'), [from_base64(item) for item in encoded],
+                            request.get('freshness_sla_seconds'), request.get('replace', False))
+                    elif self.path.endswith('/compare'):
+                        result = workbench.baselines.compare(request.get('name'), from_base64(request.get('csv_b64')),
+                                                             request.get('as_of'))
+                    else:
+                        result = workbench.baselines.remove(request.get('name'))
+                    self.respond(200, json.dumps(result).encode())
+                except KeyError:
+                    self.respond(404, b'{"error": "NOT_FOUND"}')
                 except InputRejected as error:
                     self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
                 except (ValueError, TypeError):

@@ -348,6 +348,86 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(call(b'a\n1\n',length=1000001)[0],413)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_baseline_script_is_served_as_javascript(self):
+  server=make_server(self.w,'bl-static-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=3);c.request('GET','/baseline.js');r=c.getresponse();body=r.read();c.close()
+   self.assertEqual(r.status,200)
+   self.assertEqual(r.getheader('Content-Type'),'text/javascript')
+   self.assertIn(b'function baselinePanel',body)
+  finally:server.shutdown();server.server_close();thread.join()
+ def test_http_baselines_save_compare_remove_and_refusals(self):
+  import base64,hashlib,json
+  server=make_server(self.w,'bl-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  auth={'Authorization':'Bearer bl-token'}
+  b64=lambda data:base64.b64encode(data).decode()
+  def call(method,path,body=None,headers=None,mime='application/json'):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+   h=dict(auth if headers is None else headers)
+   data=None if body is None else (body if isinstance(body,bytes) else json.dumps(body).encode())
+   if data is not None:
+    h.update({'Content-Type':mime,'Content-Length':str(len(data))})
+   c.request(method,path,body=data,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  def oversize(path,length):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.putrequest('POST',path)
+   for k,v in {**auth,'Content-Type':'application/json','Content-Length':str(length)}.items():c.putheader(k,v)
+   c.endheaders();r=c.getresponse();r.read();c.close();return r.status
+  ref=b'ts,v\n2026-01-01T00:00:00,1\n2026-01-01T01:00:00,2\n2026-01-01T02:00:00,3\n'
+  bom=b'\xef\xbb\xbf'+'ts,v,ad\r\n2026-01-01T00:00:00,1,ş\r\n2026-01-01T01:00:00,2,ı\r\n'.encode()
+  try:
+   self.assertEqual(call('GET','/api/baselines',headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'a','references_b64':[b64(ref)]},headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'a','csv_b64':b64(ref)},headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'a'},headers={})[0],403)
+   self.assertEqual(call('POST','/api/baselines/save',b'{}',mime='text/plain')[0],403)
+   self.assertEqual(call('GET','/api/baselines')[1],{'baselines':[],'rejected_on_load':False})
+   status,saved=call('POST','/api/baselines/save',{'name':'Orders','references_b64':[b64(ref)],'freshness_sla_seconds':7200})
+   self.assertEqual((status,saved['name'],saved['records'],saved['time_aware']),(200,'orders',3,False))
+   self.assertEqual(call('GET','/api/baselines')[1]['baselines'],[saved])
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'orders','references_b64':[b64(ref)]})[0],422)
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'orders','references_b64':[b64(ref)],'replace':True})[0],200)
+   status,body=call('POST','/api/baselines/save',{'name':'bad name!','references_b64':'x'})
+   self.assertEqual((status,body['error']),(422,'INPUT_REJECTED'));self.assertTrue(body['message'])
+   # The old text fields are gone; malformed base64 and non-strings are input errors, not server errors.
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'t','references':[ref.decode()]})[0],422)
+   for bad in (['@@@'],['YQ'],[5],[None],'x',None):
+    status,body=call('POST','/api/baselines/save',{'name':'t','references_b64':bad})
+    self.assertEqual((status,body['error']),(422,'INPUT_REJECTED'),bad)
+   for bad in ('@@@',5,None):
+    self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv_b64':bad})[0],422,bad)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv':ref.decode()})[0],422)
+   # The bytes arrive unchanged, so the stored hashes equal the file's own SHA-256, BOM included.
+   self.assertEqual(call('POST','/api/baselines/save',{'name':'bom','references_b64':[b64(bom)]})[0],200)
+   self.assertEqual(self.w.baselines.get('bom')['references'][0]['sha256'],hashlib.sha256(bom).hexdigest())
+   status,result=call('POST','/api/baselines/compare',{'name':'bom','csv_b64':b64(bom)})
+   self.assertEqual((status,result['source_sha256']),(200,hashlib.sha256(bom).hexdigest()))
+   status,body=call('POST','/api/baselines/save',{'name':'cp','references_b64':[b64('ts,ad\n2026-01-01T00:00:00,ş\n'.encode('cp1254'))]})
+   self.assertEqual((status,body['message']),(422,'CSV must be UTF-8'))
+   status,result=call('POST','/api/baselines/compare',{'name':'orders','csv_b64':b64(b'ts,v\n2026-01-02T00:00:00,1\n'),'as_of':'2026-01-02T00:00:00'})
+   self.assertEqual((status,result['name']),(200,'orders'));self.assertIn('status',result)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv_b64':b64(b'ts,v\n'),'as_of':'junk'})[0],422)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'nope','csv_b64':b64(ref)}),(404,{'error':'NOT_FOUND'}))
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'nope'}),(404,{'error':'NOT_FOUND'}))
+   self.assertEqual(call('POST','/api/baselines/remove',[1])[0],400)
+   self.assertEqual(call('POST','/api/baselines/save',b'not json')[0],400)
+   self.assertEqual(call('POST','/api/baselines/compare',{'name':'orders','csv_b64':b64(ref),'as_of':5})[0],422)
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'orders'}),(200,{'removed':'orders'}))
+   self.assertEqual(call('POST','/api/baselines/remove',{'name':'bom'}),(200,{'removed':'bom'}))
+   self.assertEqual(call('GET','/api/baselines')[1]['baselines'],[])
+   self.assertEqual(oversize('/api/baselines/remove',2049),413)
+   self.assertEqual(oversize('/api/baselines/compare',1400001),413)
+   self.assertEqual(oversize('/api/baselines/save',7200001),413)
+  finally:server.shutdown();server.server_close();thread.join()
+ def test_baseline_body_caps_fit_base64_files_at_the_csv_limit(self):
+  import base64,json
+  from workbench import BASELINE_BODY_LIMITS
+  self.assertEqual(BASELINE_BODY_LIMITS,{'save':7200000,'compare':1400000,'remove':2048})
+  csv=b'"' * 1000000
+  compare=json.dumps({'name':'x'*80,'csv_b64':base64.b64encode(csv).decode(),'as_of':'2026-01-01T00:00:00.000+00:00'}).encode()
+  self.assertLessEqual(len(compare),BASELINE_BODY_LIMITS['compare'])
+  save=json.dumps({'name':'x'*80,'references_b64':[base64.b64encode(csv).decode()]*5,'freshness_sla_seconds':999999999,'replace':True}).encode()
+  self.assertLessEqual(len(save),BASELINE_BODY_LIMITS['save'])
+
  def test_http_schema_registry_register_contract_drift_and_refusals(self):
   import json
   server=make_server(self.w,'sr-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
