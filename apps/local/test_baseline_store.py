@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,8 +13,8 @@ import baseline_store as bs
 from aegisflow_dr import baseline as core
 from aegisflow_dr.pipeline import InputRejected
 
-REF = "ts,v\n2026-01-01T00:00:00,1\n2026-01-01T01:00:00,2\n2026-01-01T02:00:00,3\n"
-CUR = "ts,v\n2026-01-02T00:00:00,1\n2026-01-02T01:00:00,2\n"
+REF = b"ts,v\n2026-01-01T00:00:00,1\n2026-01-01T01:00:00,2\n2026-01-01T02:00:00,3\n"
+CUR = b"ts,v\n2026-01-02T00:00:00,1\n2026-01-02T01:00:00,2\n"
 
 
 class StoreTests(unittest.TestCase):
@@ -26,7 +28,7 @@ class StoreTests(unittest.TestCase):
         entry = self.store.save("Orders Daily", [REF])
         self.assertEqual(entry["name"], "orders-daily")
         self.assertEqual(entry["created"], "2023-11-14T22:13:20+00:00")
-        self.assertEqual((entry["references"], entry["records"], entry["time_column"]), (1, 3, "ts"))
+        self.assertEqual((entry["references"], entry["records"], entry["time_column"], entry["time_aware"]), (1, 3, "ts", False))
         self.assertEqual(len(entry["digest"]), 64)
         path = self.dir / "baselines.json"
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
@@ -37,10 +39,48 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(again.overview(), {"baselines": [entry], "rejected_on_load": False})
         self.assertEqual(again.get("orders-daily")["digest"], entry["digest"])
 
-    def test_csv_text_is_encoded_utf8(self):
+    def test_file_bytes_are_kept_and_hashed_as_sent(self):
+        bom = b"\xef\xbb\xbf" + "ts,v,ad\r\n2026-01-01T00:00:00,1,ş\r\n2026-01-01T01:00:00,2,ı\r\n".encode("utf-8")
         with patch("baseline_store.build_baseline", wraps=core.build_baseline) as spy:
-            self.store.save("t", ["ts,v\n2026-01-01T00:00:00,ş\n"])
-        self.assertEqual(spy.call_args[0][0], ["ts,v\n2026-01-01T00:00:00,ş\n".encode("utf-8")])
+            self.store.save("t", [bom])
+        self.assertEqual(spy.call_args[0][0], [bom])
+        self.assertEqual(self.store.get("t")["references"][0]["sha256"], hashlib.sha256(bom).hexdigest())
+        self.assertEqual(self.store.compare("t", bom)["source_sha256"], hashlib.sha256(bom).hexdigest())
+        with self.assertRaisesRegex(InputRejected, "UTF-8"):
+            self.store.save("cp1254", ["ts,ad\n2026-01-01T00:00:00,ş\n".encode("cp1254")])
+
+    def test_from_base64(self):
+        self.assertEqual(bs.from_base64(base64.b64encode(REF).decode()), REF)
+        for bad in ("@@@@", "abc", "YQ==\n", None, 5, b"YQ==", ["YQ=="]):
+            with self.assertRaises(InputRejected, msg=repr(bad)):
+                bs.from_base64(bad)
+
+    def test_overview_says_whether_time_is_aware(self):
+        aware = b"ts,v\n" + b"".join(b"2026-01-01T0%d:00:00Z,%d\n" % (i, i) for i in range(3))
+        plain = b"a,b\n1,2\n3,4\n"
+        self.assertIs(self.store.save("aware", [aware])["time_aware"], True)
+        self.assertIs(self.store.save("naive", [REF])["time_aware"], False)
+        self.assertIsNone(self.store.save("plain", [plain])["time_aware"])
+        self.assertEqual({b["name"]: b["time_aware"] for b in self.store.overview()["baselines"]},
+                         {"aware": True, "naive": False, "plain": None})
+        blank = b"ts,v\n" + b"2026-01-01T00:00:00,1\n" + b",2\n" * 3
+        self.store.save("blank", [blank, b"ts,v\n,1\n,2\n"])
+        self.assertIs({b["name"]: b for b in self.store.overview()["baselines"]}["blank"]["time_aware"], False)
+
+    def test_failed_write_leaves_memory_and_disk_unchanged(self):
+        self.store.save("a", [REF])
+        before, on_disk = self.store.overview(), (self.dir / "baselines.json").read_bytes()
+        with patch.object(bs.os, "replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self.store.save("b", [REF])
+            with self.assertRaises(OSError):
+                self.store.save("a", [REF, REF], replace=True)
+            with self.assertRaises(OSError):
+                self.store.remove("a")
+        self.assertEqual(self.store.overview(), before)
+        self.assertEqual((self.dir / "baselines.json").read_bytes(), on_disk)
+        self.assertEqual(self.store.get("a")["references"][0]["records"], 3)
+        self.assertEqual(len(self.store.get("a")["references"]), 1)
 
     def test_slug_rules(self):
         self.assertEqual(bs.slug("ışık"), "isik")
@@ -57,7 +97,7 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(InputRejected):
             self.store.save("a", [REF], replace=1)
         later = bs.BaselineStore(self.dir, clock=lambda: 1_700_000_100)
-        second = later.save("a", [REF, CUR.replace("2026-01-02", "2026-01-03")], replace=True)
+        second = later.save("a", [REF, CUR.replace(b"2026-01-02", b"2026-01-03")], replace=True)
         self.assertNotEqual(first["digest"], second["digest"])
         self.assertEqual(len(later.overview()["baselines"]), 1)
 
@@ -67,7 +107,7 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(InputRejected):
             self.store.save("extra", [REF])
         self.store.save("n0", [REF], replace=True)
-        for bad in ("x", [], [REF] * 6, [1], [REF, None], [REF.encode()]):
+        for bad in ("x", [], [REF] * 6, [1], [REF, None], [REF.decode()], [bytearray(REF)]):
             with self.assertRaises(InputRejected):
                 self.store.save("fresh", bad)
         self.store.remove("n1")
@@ -78,15 +118,16 @@ class StoreTests(unittest.TestCase):
         self.store.save("a", [REF])
         result = self.store.compare("a", CUR, as_of="2026-01-02T02:00:00")
         self.assertEqual(result["name"], "a")
-        self.assertEqual(result["status"], core.compare(self.store.get("a"), CUR.encode(), as_of="2026-01-02T02:00:00")["status"])
+        self.assertEqual(result["status"], core.compare(self.store.get("a"), CUR, as_of="2026-01-02T02:00:00")["status"])
         with self.assertRaises(KeyError):
             self.store.compare("zzz", CUR)
         with self.assertRaises(KeyError):
             self.store.get("zzz")
         with self.assertRaises(KeyError):
             self.store.remove("zzz")
-        with self.assertRaises(InputRejected):
-            self.store.compare("a", 5)
+        for bad in (5, CUR.decode(), None):
+            with self.assertRaises(InputRejected):
+                self.store.compare("a", bad)
         self.assertEqual(self.store.remove("a"), {"removed": "a"})
         self.assertEqual(bs.BaselineStore(self.dir).overview()["baselines"], [])
 

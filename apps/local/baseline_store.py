@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local persistence for saved profile baselines: atomic 0600 writes and a refusal to trust edited files."""
+import base64
+import binascii
 import json
 import os
 import re
@@ -32,15 +34,32 @@ def slug(name) -> str:
     return value
 
 
+def from_base64(value) -> bytes:
+    """Decode a strict base64 string into the exact file bytes the browser read."""
+    if type(value) is not str:
+        raise InputRejected("File content must be a base64 string")
+    try:
+        return base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise InputRejected("File content is not valid base64") from error
+
+
 def _stamp(clock) -> str:
     return datetime.fromtimestamp(clock(), timezone.utc).isoformat(timespec="seconds")
+
+
+def _time_aware(record):
+    """True or False for a baseline with a time column (as ``compare`` decides it), None without one."""
+    if record["time_column"] is None:
+        return None
+    return any(r["first"] is not None and datetime.fromisoformat(r["first"]).tzinfo is not None for r in record["references"])
 
 
 def _entry(name, item):
     record = item["record"]
     return {"name": name, "created": item["created"], "references": len(record["references"]),
             "records": sum(r["records"] for r in record["references"]), "time_column": record["time_column"],
-            "digest": record["digest"]}
+            "time_aware": _time_aware(record), "digest": record["digest"]}
 
 
 class BaselineStore:
@@ -74,11 +93,12 @@ class BaselineStore:
             items[name] = {"created": item["created"], "record": load_baseline(item["record"])}
         return items
 
-    def _save(self):
+    def _save(self, items):
+        """Write ``items`` atomically; the caller swaps its in-memory state only after this returns."""
         temporary = self.path.with_suffix(".next")
         descriptor = os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump({"format_version": FORMAT, "baselines": self.items}, stream, sort_keys=True)
+            json.dump({"format_version": FORMAT, "baselines": items}, stream, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, self.path)
@@ -99,30 +119,33 @@ class BaselineStore:
             return self.items[self._find(name)]["record"]
 
     def save(self, name, references, freshness_sla_seconds=None, replace=False):
+        """Build and store a baseline from the reference files' bytes (hashed exactly as given)."""
         key = slug(name)
-        if type(references) is not list or any(type(r) is not str for r in references):
-            raise InputRejected("references must be a list of CSV texts")
+        if type(references) is not list or any(type(r) is not bytes for r in references):
+            raise InputRejected("references must be a list of CSV files")
         with self.lock:
             if key in self.items and replace is not True:
                 raise InputRejected("A baseline with this name exists")
             if key not in self.items and len(self.items) >= MAX_BASELINES:
                 raise InputRejected(f"At most {MAX_BASELINES} baselines can be saved")
-            record = build_baseline([r.encode("utf-8") for r in references], freshness_sla_seconds=freshness_sla_seconds)
-            self.items[key] = {"created": _stamp(self.clock), "record": record}
-            self._save()
-            return _entry(key, self.items[key])
+            record = build_baseline(references, freshness_sla_seconds=freshness_sla_seconds)
+            items = {**self.items, key: {"created": _stamp(self.clock), "record": record}}
+            self._save(items)
+            self.items = items
+            return _entry(key, items[key])
 
-    def compare(self, name, csv_text, as_of=None):
-        if type(csv_text) is not str:
-            raise InputRejected("The CSV must be text")
+    def compare(self, name, payload, as_of=None):
+        if type(payload) is not bytes:
+            raise InputRejected("The CSV must be a file")
         with self.lock:
             key = self._find(name)
             record = self.items[key]["record"]
-        return {**compare_baseline(record, csv_text.encode("utf-8"), as_of=as_of), "name": key}
+        return {**compare_baseline(record, payload, as_of=as_of), "name": key}
 
     def remove(self, name):
         with self.lock:
             key = self._find(name)
-            del self.items[key]
-            self._save()
+            items = {k: v for k, v in self.items.items() if k != key}
+            self._save(items)
+            self.items = items
             return {"removed": key}

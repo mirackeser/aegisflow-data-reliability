@@ -13,7 +13,7 @@ from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from schema_store import SchemaStore
-from baseline_store import BaselineStore
+from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
 from reference_documents import REFERENCE_DOCUMENTS
 from passage_eval import evaluate as evaluate_passages
@@ -40,6 +40,9 @@ from aegisflow_dr.investigation import default_policy
 from aegisflow_dr.storage import IncidentStore, initialize
 from aegisflow_dr.storage.runs import InvestigationRuns
 from aegisflow_dr.coordination.judge import review
+
+# JSON bodies carry base64 file bytes (4/3 of the 1 MB CSV limit each, plus the JSON around them).
+BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'remove': 2048}
 
 
 class Workbench:
@@ -364,7 +367,7 @@ def make_server(workbench, token, port=0, catalog=None):
                     self.respond(400, b'{}')
                 return
             if self.path in ('/api/baselines/save', '/api/baselines/compare', '/api/baselines/remove'):
-                body = self.read_body('application/json', {'save': 5300000, 'compare': 1100000, 'remove': 2048}[self.path.rsplit('/', 1)[1]])
+                body = self.read_body('application/json', BASELINE_BODY_LIMITS[self.path.rsplit('/', 1)[1]])
                 if body is None:
                     return
                 try:
@@ -372,10 +375,14 @@ def make_server(workbench, token, port=0, catalog=None):
                     if type(request) is not dict:
                         raise ValueError('Object required')
                     if self.path.endswith('/save'):
-                        result = workbench.baselines.save(request.get('name'), request.get('references'),
+                        encoded = request.get('references_b64')
+                        if type(encoded) is not list:
+                            raise InputRejected('references_b64 must be a list of base64 strings')
+                        result = workbench.baselines.save(request.get('name'), [from_base64(item) for item in encoded],
                             request.get('freshness_sla_seconds'), request.get('replace', False))
                     elif self.path.endswith('/compare'):
-                        result = workbench.baselines.compare(request.get('name'), request.get('csv'), request.get('as_of'))
+                        result = workbench.baselines.compare(request.get('name'), from_base64(request.get('csv_b64')),
+                                                             request.get('as_of'))
                     else:
                         result = workbench.baselines.remove(request.get('name'))
                     self.respond(200, json.dumps(result).encode())
