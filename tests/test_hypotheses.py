@@ -10,7 +10,7 @@ import unittest
 from jsonschema import Draft202012Validator
 from referencing.exceptions import Unresolvable
 
-from aegisflow_dr import baseline as bl, baseline_eval as be, hypotheses as hy
+from aegisflow_dr import baseline as bl, baseline_eval as be, hypotheses as hy, profiling
 from aegisflow_dr.pipeline import InputRejected
 
 SHA = "a" * 64
@@ -345,8 +345,7 @@ def numeric_base(median=1.0, mean=1.0, sd=1.0, column="v"):
 
 
 def view(base, header, rows, measurements=None, stamps=None):
-    return hy._Current(base, measurements or {}, header, rows, stamps if stamps is not None else [None] * len(rows),
-                       stamps is not None)
+    return hy._Current(base, measurements or {}, header, rows, stamps if stamps is not None else [None] * len(rows))
 
 
 class ProbeMeasurementTests(unittest.TestCase):
@@ -487,6 +486,16 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(stop, "no_informative_probe")
         self.assertEqual([h["status"] for h in hyps], ["open", "refuted", "refuted"])
         self.assertEqual(probes[0]["outcomes"], {"hyp-1": NEUTRAL, "hyp-2": "refutes", "hyp-3": "refutes"})
+
+    def test_order_changes_after_a_status_update(self):
+        # Initial counts: span 3; spread(a), interval, freshness 2; scale(a), flat(a) 1. Once span refutes partial_load
+        # and source_outage, interval concerns 1 and freshness 0, so interval must yield to scale and flat by probe order.
+        obs, hyps = observed(finding("volume_change", None, direction="drop"), finding("distribution_shift", "a"))
+        (probes, stop), calls = self.loop(obs, hyps, {("span_ratio", None): {"partial_load": "refutes",
+                                                                             "source_outage": "refutes"}}, max_probes=20)
+        self.assertEqual(calls, [("span_ratio", None), ("spread_ratio", "a"), ("scale_ratio", "a"), ("flat_share", "a"),
+                                 ("interval_regularity", None)])
+        self.assertEqual(stop, "no_informative_probe")
 
     def test_status_rules(self):
         obs, hyps = observed(finding("volume_change", None, direction="drop"))
@@ -678,6 +687,32 @@ class InvestigateTests(unittest.TestCase):
                          ([], "no_informative_probe", "none_supported"))
         record = hy.investigate(base, extra, as_of=as_of)
         self.assertEqual((record["stop_reason"], record["verdict"]), ("resolved", "single_supported"))
+
+    def test_mismatched_awareness_gives_null_duplicate_share(self):
+        def rows(start, n, suffix):
+            return ["%s%s,%d" % ((START + timedelta(seconds=60 * i)).isoformat(), suffix, i % 13)
+                    for i in range(start, start + n)]
+        base = bl.build_baseline([("ts,v\n" + "\n".join(rows(400 * k, 400, "")) + "\n").encode() for k in range(3)])
+        current = rows(1200, 400, "Z")
+        record = hy.investigate(base, ("ts,v\n" + "\n".join(current + current[:300]) + "\n").encode())
+        self.assertEqual([o["check"] for o in record["observations"]],
+                         ["volume_change", "duplicate_rows", "timestamp_duplicate"])
+        probe = next(p for p in record["probes"] if p["probe"] == "duplicate_share")
+        self.assertEqual(probe["measured"], {"share": None})
+        self.assertEqual(set(probe["outcomes"].values()), {NEUTRAL})
+        self.assertEqual(statuses(record)[("duplicate_delivery", None)], "open")
+        hy.verify_investigation(record)
+
+    def test_stamp_filter_matches_the_comparison(self):
+        for variant in ("clean", "sampling_slow", "clean_jitter", "duplicate"):
+            base, current, as_of = generated_case("clean" if variant == "duplicate" else variant)
+            if variant == "duplicate":
+                lines = current.decode().strip().split("\n")
+                current = ("\n".join(lines + lines[1:200]) + "\n").encode()
+            comparison = bl.compare(base, current, as_of=as_of)
+            view_ = hy._current_view(base, comparison, profiling.profile_csv(current), *profiling.read_table(current))
+            self.assertEqual(bl.interval_median([ts for ts in view_.stamps if ts is not None]),
+                             comparison["measurements"]["sampling_interval"]["current_seconds"], variant)
 
     def test_untimed_baseline_gives_null_time_measurements(self):
         def table(n, scale=1):

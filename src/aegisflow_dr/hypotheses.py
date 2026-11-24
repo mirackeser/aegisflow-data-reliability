@@ -19,9 +19,9 @@ from jsonschema.exceptions import ValidationError
 from referencing import Registry
 from referencing.exceptions import NoSuchResource
 
-from .baseline import compare
+from .baseline import MIN_DELTAS, compare
 from .pipeline import InputRejected
-from .profiling import kind_of, parse_timestamp, profile_csv, read_table
+from .profiling import _runs, kind_of, parse_timestamp, profile_csv, read_table
 
 FORMAT, ENGINE, CATALOG_VERSION = "1", "deterministic-hypotheses-v1", "1"
 MAX_PROBES_DEFAULT, MAX_PROBES_LIMIT = 6, 20
@@ -140,7 +140,6 @@ PROBE_MECHANISMS = {
     "empty_runs": ("field_outage", "intermittent_loss"),
 }
 COLUMN_PROBES = frozenset({"scale_ratio", "spread_ratio", "flat_share", "empty_runs"})
-FLAT_RUN, MIN_GAPS = 8, 10
 SUPPORTS, REFUTES, NEUTRAL = "supports", "refutes", "neutral"
 
 
@@ -148,12 +147,12 @@ class _Current:
     """What the probes read: the stored baseline record, the comparison measurements and the current table.
 
     ``stamps`` holds, per record, the parsed timestamp of the baseline's time column when its timezone awareness matches
-    the baseline, else None; ``timed`` says whether that column is usable at all.
+    the baseline, else None (all None when the time column is missing or not timestamp-like).
     """
 
-    def __init__(self, base, measurements, header, rows, stamps, timed):
+    def __init__(self, base, measurements, header, rows, stamps):
         self.base, self.measurements, self.header, self.rows = base, measurements, header, rows
-        self.stamps, self.timed = stamps, timed
+        self.stamps = stamps
 
     def cells(self, column):
         if column not in self.header:
@@ -176,6 +175,8 @@ def _rounded(measured):
 
 
 def _scale_ratio_rules(m):
+    # The support bounds 0.05 and 0.1 are inclusive, as in the design. A value that is mathematically on a bound (for
+    # example r = 10 ** 0.95) can land on either side through float representation; thresholds are not adjusted for that.
     r, sd_ratio = m["r"], m["sd_ratio"]
     if r is None:
         return {"unit_change": NEUTRAL}
@@ -228,14 +229,9 @@ def _flat_share_rules(m):
 
 
 def _flat_share(current, column):
-    """Share of numeric values in runs of >= FLAT_RUN equal values on consecutive records (a gap breaks a run)."""
+    """Share of numeric values in runs of >= profiling.FLAT_RUN (8) equal values on consecutive records, as profiling counts them."""
     pairs = current.numbers(column)
-    flat, start = 0, 0
-    for i in range(1, len(pairs) + 1):
-        if i == len(pairs) or pairs[i][1] != pairs[start][1] or pairs[i][0] != pairs[i - 1][0] + 1:
-            if i - start >= FLAT_RUN:
-                flat += i - start
-            start = i
+    flat = sum(last - first + 1 for first, last in _runs([v for _, v in pairs], [i for i, _ in pairs]))
     measured = {"share": _ratio(flat, len(pairs))}
     return _rounded(measured), _flat_share_rules(measured)
 
@@ -257,7 +253,8 @@ def _interval_regularity(current, column):
     sampling = current.measurements.get("sampling_interval", {})
     ordered = sorted(set(_stamps(current)))
     gaps = [(b - a).total_seconds() for a, b in zip(ordered, ordered[1:])]
-    cv = _ratio(pstdev(gaps), fmean(gaps)) if len(gaps) >= MIN_GAPS else None
+    # Same minimum gap count as baseline.interval_median (not a probe threshold): below it the ratio is null as well.
+    cv = _ratio(pstdev(gaps), fmean(gaps)) if len(gaps) >= MIN_DELTAS else None
     measured = {"ratio": _ratio(sampling.get("current_seconds"), sampling.get("baseline_seconds")), "cv": cv}
     return _rounded(measured), _interval_regularity_rules(measured)
 
@@ -298,9 +295,9 @@ def _duplicate_share_rules(m):
 
 
 def _duplicate_share(current, column):
-    """Share of current records whose timestamp equals an earlier record's."""
+    """Share of current records whose timestamp equals an earlier record's; null without a usable timestamp."""
     share = None
-    if current.timed:
+    if any(ts is not None for ts in current.stamps):
         seen, repeats = set(), 0
         for ts in current.stamps:
             repeats += ts is not None and ts in seen
@@ -416,8 +413,9 @@ def _verdict(observations, hypotheses):
     return "none_supported" if supported == 0 else "single_supported" if supported == 1 else "multiple_supported"
 
 
-def _current_view(base, comparison, profile, payload):
-    header, rows = read_table(payload)
+def _current_view(base, comparison, profile, header, rows):
+    """Probe inputs from the parsed table; the stamp filter repeats the one ``baseline.compare`` applies (same clock,
+    timestamp role, matching timezone awareness), and a test keeps the two in step."""
     clock = base["time_column"]
     timed = any(c["name"] == clock and c["role"] == "timestamp" for c in profile["columns"])
     aware = any(r["first"] is not None and datetime.fromisoformat(r["first"]).tzinfo is not None for r in base["references"])
@@ -426,7 +424,7 @@ def _current_view(base, comparison, profile, payload):
         index = header.index(clock)
         parsed = (parse_timestamp(row[index].strip()) for row in rows)
         stamps = [ts if ts is not None and (ts.tzinfo is not None) == aware else None for ts in parsed]
-    return _Current(base, comparison["measurements"], header, rows, stamps, timed)
+    return _Current(base, comparison["measurements"], header, rows, stamps)
 
 
 def investigate(baseline, payload, *, as_of=None, max_probes=MAX_PROBES_DEFAULT):
@@ -438,7 +436,7 @@ def investigate(baseline, payload, *, as_of=None, max_probes=MAX_PROBES_DEFAULT)
         raise InputRejected("max_probes must be an integer from 1 to %d" % MAX_PROBES_LIMIT)
     comparison = compare(baseline, payload, as_of=as_of)
     profile = profile_csv(payload)
-    current = _current_view(baseline, comparison, profile, payload)
+    current = _current_view(baseline, comparison, profile, *read_table(payload))
     observations = observations_from(comparison, profile)
     hypotheses = generate(observations)
     probes, stop = _loop(observations, hypotheses,
