@@ -17,7 +17,8 @@ One schema file with `$defs` for `observation`, `hypothesis`, `probe_result` and
 `jsonschema` dependency, offline (no remote `$ref`), `additionalProperties: false` everywhere.
 
 - **observation**: `{"id": "obs-N", "source": "baseline" | "profile", "check": str, "column": str | null,
-  "evidence_sha256": hex64}` where `evidence_sha256` is the `source_sha256` of the inspected file.
+  "direction": "drop" | "increase" | null, "evidence_sha256": hex64}` where `evidence_sha256` is the `source_sha256` of the
+  inspected file and `direction` is the volume finding's direction (null for every other check).
 - **hypothesis**: `{"id": "hyp-N", "mechanism": one of MECHANISMS, "column": str | null, "explains": [obs ids, ≥1],
   "competitors": [hyp ids], "status": "open" | "supported" | "refuted", "supporting": [probe ids], "refuting": [probe ids]}`.
   `competitors` lists the other hypotheses that explain at least one of the same observations (the counter-hypotheses).
@@ -83,7 +84,7 @@ concerns; hypotheses it does not concern get no entry.
    run. Run it, record outcomes, update statuses
    (refuted if any probe refutes; supported if ≥ 1 supports and none refutes; else open). This is the replanning step: the
    next choice is made on the updated statuses.
-4. Stop with `resolved` when every observation is explained by exactly one supported hypothesis and all its competitors are
+4. Stop with `resolved` when every observation that has at least one candidate hypothesis is explained by exactly one supported hypothesis (observations no mechanism explains, such as `column_added`, are listed but do not block it) and all its competitors are
    refuted or are `genuine_change`; `no_informative_probe` when no remaining pair concerns an unrefuted hypothesis;
    `probe_budget_exhausted` when `max_probes` (1–20, default 6) have run; `no_observations` when there was nothing to explain.
 5. Ranking: supported (more supporting probes first), then open, then refuted; ties by catalog order then column.
