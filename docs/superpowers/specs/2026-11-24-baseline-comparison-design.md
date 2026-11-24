@@ -61,8 +61,15 @@ Any deviation raises `InputRejected`. `compare` always calls it first.
 
 ```
 {"format_version": "1", "engine": "deterministic-baseline-v1", "baseline_digest", "source_sha256", "records",
- "as_of", "findings": [...], "not_evaluated": [...], "status": "DRIFT" | "NO_DRIFT"}
+ "as_of", "measurements": {...}, "findings": [...], "not_evaluated": [...], "status": "DRIFT" | "NO_DRIFT"}
 ```
+
+Amendment (2026-11-24, raised by the interface task): `measurements` carries the measured values whether or not a rule
+fired, so a reader can see "baseline → current" for passing checks too: `sampling_interval` `{"baseline_seconds",
+"current_seconds"}`, `volume` `{"baseline_min", "baseline_max", "current"}`, `freshness` `{"sla_seconds", "latest",
+"lag_seconds"}` (`lag_seconds` is `None` when freshness was not evaluated), `psi` `{column: value}` and `bin_shares`
+`{column: {"psi", "edges", "baseline", "current"}}` for every numeric column whose distribution was compared. The
+distribution decision uses the unrounded PSI; reported values are rounded to 6 places. No decision rule changed.
 
 Each finding is `{"check", "column", "detail"}`; each `not_evaluated` entry is `{"check", "column", "reason"}`. Findings are
 sorted by `CHECKS` order then column name (`None` first). Checks, in order:

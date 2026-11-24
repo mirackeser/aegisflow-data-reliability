@@ -185,15 +185,19 @@ def load_baseline(obj):
 def psi(baseline_counts, current_counts):
     """Population stability index of two bin-count lists, each share smoothed with ``PSI_SMOOTH`` per bin.
 
-    A descriptive index, not a significance test.
+    A descriptive index, not a significance test. Rounded to 6 places for reporting.
     """
+    return round(_psi_raw(baseline_counts, current_counts), 6)
+
+
+def _psi_raw(baseline_counts, current_counts):
     bins = len(baseline_counts)
     b_total, c_total = sum(baseline_counts) + PSI_SMOOTH * bins, sum(current_counts) + PSI_SMOOTH * bins
     total = 0.0
     for b_count, c_count in zip(baseline_counts, current_counts):
         b, c = (b_count + PSI_SMOOTH) / b_total, (c_count + PSI_SMOOTH) / c_total
         total += (c - b) * math.log(c / b)
-    return round(total, 6)
+    return total
 
 
 def _sort_key(item):
@@ -201,38 +205,43 @@ def _sort_key(item):
     return CHECKS.index(item["check"]), column is not None, column or ""
 
 
-def _sampling(base, stamps, usable):
-    if base["sampling"]["median_interval_seconds"] is None:
+def _sampling(base, stamps, usable, measured):
+    reference = base["sampling"]["median_interval_seconds"]
+    current = interval_median(stamps) if usable else None
+    measured["sampling_interval"] = {"baseline_seconds": reference, "current_seconds": current}
+    if reference is None:
         return None, "no_baseline_interval"
     if not usable:
         return None, "no_time_column"
-    current = interval_median(stamps)
     if current is None:
         return None, "too_few_intervals"
-    reference = base["sampling"]["median_interval_seconds"]
     ratio = current / reference
     if ratio > SAMPLING_RATIO or ratio < 1 / SAMPLING_RATIO:
         return {"baseline_seconds": reference, "current_seconds": current, "ratio": round(ratio, 4)}, None
     return None, None
 
 
-def _freshness(base, stamps, usable, aware, as_of_time):
-    if as_of_time is None:
-        return None, "no_as_of"
-    if not usable:
-        return None, "no_time_column"
+def _freshness(base, stamps, usable, aware, as_of_time, measured):
     sla = base["freshness_sla_seconds"]
-    if sla is None:
-        return None, "no_sla"
-    if not stamps or (as_of_time.tzinfo is not None) != aware:
-        return None, "timezone_mismatch"
-    latest = max(stamps)
-    lag = (as_of_time - latest).total_seconds()
-    if lag < 0:
-        return None, "as_of_before_latest_record"
-    if lag > sla:
+    latest = max(stamps) if stamps else None
+    lag, reason = None, None
+    if as_of_time is None:
+        reason = "no_as_of"
+    elif not usable:
+        reason = "no_time_column"
+    elif sla is None:
+        reason = "no_sla"
+    elif latest is None or (as_of_time.tzinfo is not None) != aware:
+        reason = "timezone_mismatch"
+    else:
+        lag = (as_of_time - latest).total_seconds()
+        if lag < 0:
+            reason = "as_of_before_latest_record"
+    measured["freshness"] = {"sla_seconds": sla, "latest": latest.isoformat() if latest else None,
+                             "lag_seconds": lag if reason is None else None}
+    if reason is None and lag > sla:
         return {"lag_seconds": lag, "sla_seconds": sla, "latest": latest.isoformat()}, None
-    return None, None
+    return None, reason
 
 
 def _shares(counts):
@@ -241,20 +250,26 @@ def _shares(counts):
 
 
 def _distribution(entry, values):
+    """Return (detail or None, not-evaluated reason or None, measured PSI and bin shares or None).
+
+    The decision uses the unrounded index, so a value just above the threshold is never rounded down to it.
+    """
     if entry["edges"] is None:
-        return None, "too_few_values_in_baseline"
+        return None, "too_few_values_in_baseline", None
     if not entry["edges"]:
-        return None, "constant_in_baseline"
+        return None, "constant_in_baseline", None
     if len(values) < MIN_VALUES:
-        return None, "too_few_values"
+        return None, "too_few_values", None
     counts = bin_counts(entry["edges"], values)
-    score = psi(entry["counts"], counts)
-    if score <= PSI_SHIFT:
-        return None, None
-    return {"psi": score, "threshold": PSI_SHIFT, "baseline_mean": entry["mean"], "current_mean": round(fmean(values), 6),
+    raw = _psi_raw(entry["counts"], counts)
+    shares = {"psi": round(raw, 6), "edges": list(entry["edges"]), "baseline": _shares(entry["counts"]),
+              "current": _shares(counts)}
+    if raw <= PSI_SHIFT:
+        return None, None, shares
+    return {"psi": shares["psi"], "threshold": PSI_SHIFT, "baseline_mean": entry["mean"], "current_mean": round(fmean(values), 6),
             "baseline_sd": entry["sd"], "current_sd": round(pstdev(values), 6),
-            "baseline_proportions": _shares(entry["counts"]), "current_proportions": _shares(counts),
-            "edges": list(entry["edges"])}, None
+            "baseline_proportions": shares["baseline"], "current_proportions": shares["current"],
+            "edges": shares["edges"]}, None, shares
 
 
 def compare(baseline, payload, *, as_of=None):
@@ -270,6 +285,7 @@ def compare(baseline, payload, *, as_of=None):
     profiles = {name: _column(name, [row[i] for row in rows]) for i, name in enumerate(header)}
     base_roles = {c["name"]: c["role"] for c in base["columns"]}
     findings, skipped = [], []
+    measured = {"psi": {}, "bin_shares": {}}
 
     def found(check, column, **detail):
         findings.append({"check": check, "column": column, "detail": detail})
@@ -299,13 +315,14 @@ def compare(baseline, payload, *, as_of=None):
         index = header.index(clock)
         parsed = (parse_timestamp(row[index].strip()) for row in rows)
         stamps = [ts for ts in parsed if ts is not None and (ts.tzinfo is not None) == aware]
-    detail, reason = _sampling(base, stamps, usable)
+    detail, reason = _sampling(base, stamps, usable, measured)
     if detail:
         found("sampling_interval_change", clock, **detail)
     if reason:
         not_evaluated("sampling_interval_change", clock, reason)
 
     volume = base["volume"]
+    measured["volume"] = {"baseline_min": volume["min_records"], "baseline_max": volume["max_records"], "current": records}
     if records < volume["min_records"] / VOLUME_RATIO:
         found("volume_change", None, baseline_min=volume["min_records"], baseline_max=volume["max_records"], current=records,
               direction="drop")
@@ -313,7 +330,7 @@ def compare(baseline, payload, *, as_of=None):
         found("volume_change", None, baseline_min=volume["min_records"], baseline_max=volume["max_records"], current=records,
               direction="increase")
 
-    detail, reason = _freshness(base, stamps, usable, aware, as_of_time)
+    detail, reason = _freshness(base, stamps, usable, aware, as_of_time, measured)
     if detail:
         found("freshness", clock, **detail)
     if reason:
@@ -326,7 +343,10 @@ def compare(baseline, payload, *, as_of=None):
             found("empty_rate_change", name, baseline=round(base["empty_share"][name], 4), current=round(current_share, 4))
         if profile["role"] == "numeric" and base_roles[name] == "numeric":
             values = [float(row[header.index(name)]) for row, kind in zip(rows, kinds) if kind in ("integer", "decimal")]
-            detail, reason = _distribution(base["numeric"][name], values)
+            detail, reason, shares = _distribution(base["numeric"][name], values)
+            if shares is not None:
+                measured["psi"][name] = shares["psi"]
+                measured["bin_shares"][name] = shares
             if detail:
                 found("distribution_shift", name, **detail)
             if reason:
@@ -336,4 +356,4 @@ def compare(baseline, payload, *, as_of=None):
     skipped.sort(key=_sort_key)
     return {"format_version": FORMAT, "engine": ENGINE, "baseline_digest": base["digest"],
             "source_sha256": hashlib.sha256(payload).hexdigest(), "records": records, "as_of": as_of,
-            "findings": findings, "not_evaluated": skipped, "status": "DRIFT" if findings else "NO_DRIFT"}
+            "measurements": measured, "findings": findings, "not_evaluated": skipped, "status": "DRIFT" if findings else "NO_DRIFT"}

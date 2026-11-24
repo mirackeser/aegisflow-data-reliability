@@ -226,8 +226,8 @@ class MutantTests(unittest.TestCase):
     def test_freshness_ignoring_as_of_is_exposed(self):
         original = baseline._freshness
 
-        def ignores_as_of(base, stamps, usable, aware, as_of_time):
-            return original(base, stamps, usable, aware, max(stamps))
+        def ignores_as_of(base, stamps, usable, aware, as_of_time, measured):
+            return original(base, stamps, usable, aware, max(stamps), measured)
 
         variants = self.broken(baseline, "_freshness", ignores_as_of)
         self.assertEqual(variants["stale"]["detected_cases"], 0)

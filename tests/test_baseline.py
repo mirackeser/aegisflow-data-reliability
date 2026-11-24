@@ -5,6 +5,7 @@ import json
 import math
 import random
 import unittest
+from unittest import mock
 
 from aegisflow_dr import baseline as bl
 from aegisflow_dr.pipeline import InputRejected
@@ -296,10 +297,6 @@ class LoadBaselineTests(unittest.TestCase):
         self.assertEqual(bl.load_baseline(forge(constant, lambda x: None)), forge(constant, lambda x: None))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def series(n=400, offset=0, step=60, shift=0.0, seed=1, columns=("v", "w", "tag"), blank_tag=0, ts=None):
     """ts, then seeded Gaussian ``v`` and ``w``, then text ``tag``; ``blank_tag`` empties that many tag cells."""
     rng = random.Random(seed)
@@ -341,7 +338,32 @@ class CompareTests(unittest.TestCase):
         for entry in r["numeric"].values():
             self.assertEqual(bl.psi(entry["counts"], entry["counts"]), 0.0)
         self.assertEqual(set(out), {"format_version", "engine", "baseline_digest", "source_sha256", "records", "as_of",
-                                    "findings", "not_evaluated", "status"})
+                                    "measurements", "findings", "not_evaluated", "status"})
+        m = out["measurements"]
+        self.assertEqual(m["psi"], {"v": 0.0, "w": 0.0})
+        self.assertEqual(m["sampling_interval"], {"baseline_seconds": 60, "current_seconds": 60})
+        self.assertEqual(m["volume"], {"baseline_min": 400, "baseline_max": 400, "current": 400})
+        self.assertEqual(m["freshness"]["lag_seconds"], 60)
+        self.assertEqual(m["freshness"]["sla_seconds"], 180)
+        self.assertEqual(m["bin_shares"]["v"]["baseline"], m["bin_shares"]["v"]["current"])
+
+    def test_psi_listed_for_quiet_and_shifted_columns(self):
+        out = bl.compare(base_record(), series(offset=1200, seed=99, shift=15.0))
+        psi = out["measurements"]["psi"]
+        self.assertEqual(set(psi), {"v", "w"})
+        self.assertLessEqual(psi["w"], 0.25)
+        self.assertEqual(psi["v"], out["findings"][0]["detail"]["psi"])
+        self.assertEqual(out["measurements"]["freshness"], {"sla_seconds": 180, "latest": out["measurements"]["freshness"]["latest"],
+                                                            "lag_seconds": None})
+
+    def test_threshold_decided_on_unrounded_psi(self):
+        r, data = base_record(), series(offset=1200, seed=99)
+        with mock.patch.object(bl, "_psi_raw", return_value=0.2500001):
+            out = bl.compare(r, data)
+        self.assertEqual([k for k in keys(out) if k[0] == "distribution_shift"], [("distribution_shift", "v"), ("distribution_shift", "w")])
+        self.assertEqual(out["findings"][0]["detail"]["psi"], 0.25)
+        with mock.patch.object(bl, "_psi_raw", return_value=0.25):
+            self.assertEqual(bl.compare(r, data)["findings"], [])
 
     def test_psi_hand_computed(self):
         b, c = [50.5 / 101, 50.5 / 101], [90.5 / 101, 10.5 / 101]
@@ -498,3 +520,7 @@ class CompareTests(unittest.TestCase):
             bl.compare(r, "text, not bytes")
         with self.assertRaises(InputRejected):
             bl.compare("nonsense", series())
+
+
+if __name__ == "__main__":
+    unittest.main()
