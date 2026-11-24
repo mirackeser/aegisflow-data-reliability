@@ -37,4 +37,26 @@ for(const key of ['bl.asof.x.aware','bl.asof.x.local','bl.asof.x.utc','bl.asof.x
 assert.ok(STRINGS['bl.note'][0].includes('medians and decile edges are values from the data and reveal approximate ranges'),'bl.note must say decile edges reveal approximate ranges');
 assert.ok(STRINGS['bl.note'][1].includes('yaklaşık aralıkları'),'bl.note (TR) must say decile edges reveal approximate ranges');
 assert.ok(!/never record values|hiçbir kayıt değerini/.test(STRINGS['bl.note'].join(' ')),'bl.note must not claim that no record value is kept');
+// Candidate explanations: every mechanism, probe, status, outcome, verdict and stop reason of the engine is translated,
+// the fixed statement is the engine's text verbatim, and no candidate-explanation string claims a cause or a confirmation.
+const engine=fs.readFileSync(__dirname+'/../../src/aegisflow_dr/hypotheses.py','utf8');
+const tuple=name=>[...engine.match(new RegExp('^'+name+' = \\(([^)]*)\\)','m'))[1].matchAll(/"(\w+)"/g)].map(m=>m[1]);
+const mechanisms=tuple('MECHANISMS'),probes=tuple('PROBES');
+assert.equal(mechanisms.length,12,'mechanism catalog not found');assert.equal(probes.length,8,'probe list not found');
+for(const m of mechanisms)assert.ok(STRINGS['hy.mech.'+m]&&STRINGS['hy.mech.'+m+'.x'],`mechanism ${m} has no name or explanation`);
+for(const p of probes)assert.ok(STRINGS['hy.probe.'+p],`probe ${p} has no name`);
+for(const m of ['r','sd_ratio','mean_shift_sd','share','ratio','cv','lag_ratio','longest_run_share'])assert.ok(STRINGS['hy.m.'+m],`measured value ${m} has no label`);
+for(const key of ['status.supported','status.open','status.refuted','outcome.supports','outcome.refutes','outcome.neutral','ev.supports','ev.refutes','ev.neutral',
+ 'verdict.no_observations','verdict.none_supported','verdict.single_supported','verdict.multiple_supported',
+ 'stop.no_observations','stop.no_informative_probe','stop.probe_budget_exhausted','stop.resolved',
+ 'check.flatline','check.duplicate_rows','check.timestamp_duplicate','dir.drop','dir.increase','source.baseline','source.profile'])
+ assert.ok(STRINGS['hy.'+key],`hy.${key} is missing`);
+assert.equal(STRINGS['hy.statement'][0],engine.match(/^STATEMENT = "([^"]+)"/m)[1],'hy.statement must be the engine statement verbatim');
+for(const [key,[en,tr]] of Object.entries(STRINGS)){
+ if(!key.startsWith('hy.')||key==='hy.statement')continue;
+ assert.ok(!/\bcauses?\b|\bcaused\b|root.cause|confirm/i.test(en),`${key}: candidate explanations must not claim a cause or a confirmation`);
+ assert.ok(!/\bneden|doğrulan|kesinleş|teyit/i.test(tr),`${key} (TR): candidate explanations must not claim a cause or a confirmation`);
+}
+for(const role of ['A24','A25','A28'])assert.ok(/simulated mechanisms, deterministic probes with fixed thresholds, no model/.test(STRINGS['role.'+role+'.limit'][0]),`role.${role}.limit must state its limits`);
+assert.ok(/fixed catalog of candidate mechanisms exists \(F04\), but naming a root cause needs a model and real labelled data/.test(STRINGS['role.A23.limit'][0]),'role.A23.limit must keep root cause out of reach');
 console.log(`${checked} UI strings verified: both languages present, placeholders consistent, no missing keys.`);

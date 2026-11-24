@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Baseline comparison panel: save a stored summary of earlier CSV files and compare the selected file with it.
 // Every number shown comes from the compare result; PSI is a descriptive index, not a significance test, and no cause is inferred.
-let blList=null,blLoading=false,blLoadFailed=false,blFiles=null,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blColumn=null,blClock='local';
+let blList=null,blLoading=false,blLoadFailed=false,blFiles=null,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blResultRequest=null,blColumn=null,blClock='local',blHy=null;
 const BL_MAX_REFS=5,BL_MAX_BYTES=1000000,BL_THRESHOLD=0.25;
 const BL_TRANSLIT={'ı':'i','ß':'ss','ø':'o','đ':'d','ł':'l','æ':'ae','œ':'oe'};
 // Mirrors baseline_store.slug so an existing name can be confirmed before it is replaced.
@@ -83,17 +83,33 @@ async function compareBaseline(){
  try{
   const body={name:blChoice,csv_b64:await blBase64(file)};
   if(blAsOf)body.as_of=blAsOfForRequest(blEntry(blChoice));
-  blResult=await request('/api/baselines/compare','POST',JSON.stringify(body),JSON_HEADERS);blResultFile=file;
+  blHy=null;
+  blResult=await request('/api/baselines/compare','POST',JSON.stringify(body),JSON_HEADERS);blResultFile=file;blResultRequest=body;
   const changed=blResult.findings.find(f=>f.check==='distribution_shift');
   blColumn=changed?changed.column:Object.keys(blResult.measurements.psi)[0]||null;
   setNotice('');
  }catch(error){
-  blResult=null;
+  blResult=null;blResultRequest=null;
   blCompareError=error.status===404?t('bl.err.notfound'):error.message;
  }
  blBusy=false;render();
  if(blResult)blFocus('bl-result');else blFocus('bl-choice');
  if(!blResult&&blCompareError===t('bl.err.notfound'))loadBaselines(true);
+}
+// Candidate explanations for the shown comparison: the identical request body goes to the investigate endpoint.
+// The answer belongs to that comparison object; a newer comparison (or none) discards it.
+async function explainBaseline(){
+ if(blBusy||!blResult||!blResultRequest||!requireSession())return;
+ const forResult=blResult,body=blResultRequest;
+ blBusy=true;blHy={result:forResult,record:null,error:''};render();
+ let record=null,error='';
+ try{record=await request('/api/baselines/investigate','POST',JSON.stringify(body),JSON_HEADERS);}
+ catch(failure){error=failure.status===404?t('bl.err.notfound'):failure.message;}
+ blBusy=false;
+ if(blResult!==forResult){blHy=null;setNotice(t('hy.err.changed'));render();return;}
+ blHy={result:forResult,record,error};render();
+ blFocus(record?'hy-title':'hy-explain');
+ if(error===t('bl.err.notfound'))loadBaselines(true);
 }
 async function removeBaseline(name){
  if(blBusy||!requireSession()||!confirm(t('bl.confirm.remove',{name})))return;
@@ -240,7 +256,85 @@ function blResultView(r){
     h('select',{id:'bl-column',onchange:e=>{blColumn=e.target.value;render();document.getElementById('bl-column')?.focus();}},cols.map(c=>h('option',{value:c,selected:c===column,text:c})))),
    blBinChart(column,r.measurements.bin_shares[column])):null,
   h('div',{class:'grid-2 bl-lists'},h('div',{},h('h4',{text:t('bl.findings.title')}),blFindingList(r)),
-   h('div',{},h('h4',{text:t('bl.skipped.title')}),blSkippedList(r))));
+   h('div',{},h('h4',{text:t('bl.skipped.title')}),blSkippedList(r))),
+  hySection(r));
+}
+
+// ---------- candidate explanations ----------
+// Status is always text plus a shape: check (supported), dashed circle (open), cross (refuted).
+function hyIcon(status){
+ const svg=svgEl('svg',{viewBox:'0 0 16 16',class:'bl-icon','aria-hidden':'true',focusable:'false'});
+ if(status==='supported')svg.append(svgEl('circle',{cx:8,cy:8,r:6.5}),svgEl('path',{d:'M5 8.2 7.1 10.3 11 6'}));
+ else if(status==='refuted')svg.append(svgEl('circle',{cx:8,cy:8,r:6.5}),svgEl('path',{d:'M5.7 5.7 10.3 10.3M10.3 5.7 5.7 10.3'}));
+ else svg.append(svgEl('circle',{cx:8,cy:8,r:6.5,'stroke-dasharray':'2.4 2'}),svgEl('path',{d:'M5 8h6'}));
+ return svg;
+}
+const HY_OUTCOME_STATUS={supports:'supported',refutes:'refuted',neutral:'open'};
+function hyStatus(status){return h('span',{class:'hy-status '+status},hyIcon(status),t('hy.status.'+status));}
+function hyName(hp){return t('hy.mech.'+hp.mechanism)+(hp.column?' · '+hp.column:'');}
+function hyProbeName(p){return t('hy.probe.'+p.probe)+(p.column?' · '+p.column:'');}
+function hyCheck(o){return o.source==='baseline'?t('bl.check.'+o.check):t('hy.check.'+o.check);}
+function hyValues(measured){
+ const keys=Object.keys(measured||{});
+ if(!keys.length)return t('hy.m.none');
+ return keys.map(k=>`${tt('hy.m.'+k,k)} ${measured[k]===null?t('hy.m.undefined'):blNum(measured[k])}`).join(', ');
+}
+function hyObservations(rec){
+ const explained=new Set(rec.hypotheses.flatMap(hp=>hp.explains));
+ return h('ul',{class:'hy-obs-list'},rec.observations.map(o=>h('li',{class:'hy-obs'+(explained.has(o.id)?'':' none')},
+  h('code',{text:o.id}),h('strong',{text:hyCheck(o)}),o.column?h('code',{text:o.column}):null,
+  o.direction?h('span',{text:t('hy.dir.'+o.direction)}):null,h('small',{text:t('hy.source.'+o.source)}),
+  explained.has(o.id)?null:h('small',{text:t('hy.obs.unexplained')}))));
+}
+function hyCard(hp,rec,byId,obsById){
+ const evidence=rec.probes.filter(p=>hp.id in p.outcomes);
+ const untestable=hp.mechanism==='genuine_change';
+ return h('li',{class:'hy-card '+hp.status},
+  h('div',{class:'hy-card-head'},h('h5',{},t('hy.mech.'+hp.mechanism),hp.column?h('code',{text:hp.column}):null),hyStatus(hp.status)),
+  h('p',{class:'hint',text:t('hy.mech.'+hp.mechanism+'.x')}),
+  h('p',{class:'hy-meta',text:t('hy.explains',{list:hp.explains.map(id=>`${id} ${hyCheck(obsById[id])}`).join(', ')})}),
+  h('p',{class:'hy-meta',text:hp.competitors.length?t('hy.competitors',{list:hp.competitors.map(id=>hyName(byId[id])).join(', ')}):t('hy.competitors.none')}),
+  evidence.length?h('ul',{class:'hy-evidence'},evidence.map(p=>{const outcome=p.outcomes[hp.id];
+   return h('li',{class:HY_OUTCOME_STATUS[outcome]},hyIcon(HY_OUTCOME_STATUS[outcome]),h('span',{text:t('hy.ev.'+outcome,{probe:hyProbeName(p),values:hyValues(p.measured)})}));}))
+   :h('p',{class:'hint',text:t(untestable?'hy.ev.untestable':'hy.ev.none')}));
+}
+function hyTimeline(rec,byId){
+ const rounds=[...new Set(rec.probes.map(p=>p.round))];
+ return h('div',{},
+  rec.probes.length?h('ol',{class:'hy-timeline'},rounds.map(n=>h('li',{},h('strong',{class:'hy-round',text:t('hy.round',{n:N(n)})}),
+   rec.probes.filter(p=>p.round===n).map(p=>h('div',{class:'hy-probe'},
+    h('p',{},h('strong',{text:t('hy.probe.'+p.probe)}),p.column?h('code',{text:p.column}):null,h('span',{class:'hy-values',text:hyValues(p.measured)})),
+    h('ul',{class:'hy-outcomes'},Object.entries(p.outcomes).map(([id,outcome])=>h('li',{class:HY_OUTCOME_STATUS[outcome]},hyIcon(HY_OUTCOME_STATUS[outcome]),
+     h('span',{text:`${hyName(byId[id])}: ${t('hy.outcome.'+outcome)}`})))))))))
+   :h('p',{class:'hint',text:t('hy.probes.none')}),
+  h('p',{class:'hy-meta',text:t('hy.budget',{used:N(rec.budget.used),max:N(rec.budget.max_probes)})}),
+  h('p',{class:'hy-meta',text:t('hy.stop.'+rec.stop_reason)}));
+}
+function hyView(rec){
+ const byId=Object.fromEntries(rec.hypotheses.map(hp=>[hp.id,hp])),obsById=Object.fromEntries(rec.observations.map(o=>[o.id,o]));
+ const ranked=rec.ranking.map(id=>byId[id]);
+ const genuineOpen=rec.hypotheses.some(hp=>hp.mechanism==='genuine_change'&&hp.status==='open');
+ // The fixed statement is shown verbatim; a statement the UI does not know is shown as sent, untranslated.
+ const statement=rec.statement===STRINGS['hy.statement'][0]?t('hy.statement'):rec.statement;
+ return h('div',{class:'hy-body'},
+  h('div',{class:'hy-verdict'},h('span',{class:'chip info',text:t('hy.verdict.'+rec.verdict)}),h('p',{class:'hy-statement',text:statement})),
+  h('p',{class:'hint',text:t('hy.note')}),
+  genuineOpen?h('p',{class:'hy-genuine'},hyIcon('open'),h('span',{text:t('hy.genuine')})):null,
+  h('h5',{text:t('hy.obs.title')}),hyObservations(rec),
+  ranked.length?h('div',{},h('h5',{text:t('hy.hyp.title')}),h('p',{class:'hint',text:t('hy.hyp.legend')}),
+   h('ol',{class:'hy-cards'},ranked.map(hp=>hyCard(hp,rec,byId,obsById)))):null,
+  h('h5',{text:t('hy.probes.title')}),hyTimeline(rec,byId),
+  h('p',{class:'hy-meta'},t('hy.trace')+' ',h('code',{text:rec.trace_sha256.slice(0,12)})));
+}
+function hySection(r){
+ if(!r.findings.length)return null;
+ const hy=blHy&&blHy.result===r?blHy:null,pending=!!hy&&!hy.record&&!hy.error;
+ return h('section',{class:'hy','aria-labelledby':'hy-title','aria-busy':pending?'true':null},
+  h('h4',{id:'hy-title',tabindex:'-1',text:t('hy.title')}),
+  hy?.record?null:h('p',{class:'hint',id:'hy-explain-x',text:t('hy.explain.x')}),
+  hy?.record?null:h('div',{class:'button-row'},h('button',{type:'button',id:'hy-explain',class:'secondary','aria-describedby':'hy-explain-x',disabled:blBusy,onclick:explainBaseline},t(pending?'bl.busy':'hy.explain'))),
+  hy?.error?h('p',{class:'hint bad',role:'alert',text:hy.error}):null,
+  hy?.record?hyView(hy.record):null);
 }
 
 // ---------- forms ----------
