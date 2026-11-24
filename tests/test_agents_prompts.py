@@ -17,13 +17,13 @@ CELLS = frozenset({"ORD-00001", "CUS-007", "12.50", "x"})
 class Vocabulary(unittest.TestCase):
     def test_case_vocabulary_reads_header_and_stripped_cells_and_skips_unreadable_payloads(self):
         header, cells = case_vocabulary(b"a,b\n 1 ,x\n,y\n", None, b"\xff", b"c\n2\n")
-        self.assertEqual(header, {"a", "b", "c"})
+        self.assertEqual(header, {"a", "b", "c", "order_id", "customer_id", "order_total"})
         self.assertEqual(cells, {"1", "x", "y", "2"})
 
     def test_vocabulary_has_checks_mechanisms_and_no_free_text(self):
         self.assertTrue(set(MECHANISMS) <= VOCABULARY)
         self.assertTrue({"duplicate_rows", "volume_change", "not_null", "flatline"} <= VOCABULARY)
-        self.assertEqual(PROMPT_VERSION, "1")
+        self.assertEqual(PROMPT_VERSION, "2")
         self.assertEqual(set(TEMPLATES), {"a02", "a22", "a23", "a29", "a30"})
         self.assertEqual(FREE_TEXT_KEYS, {"passage", "kb_source", "option_title", "option_rollback"})
 
@@ -60,9 +60,37 @@ class SafeContext(unittest.TestCase):
         self.bad({"passage": "Order ORD-00001 was late."})
         self.bad({"kb_source": "x"})
         self.bad({"passage": "a" * 401})
-        self.ok({"passage": "A short x note about tax."})  # cells shorter than MIN_LEAK_CHARS may occur inside text
+        self.bad({"passage": "A short x note about tax."})  # a short non-numeric cell matches as a whole token
+        self.ok({"passage": "A short note about tax."})
         self.assertTrue(free_text_ok("fine", frozenset()))
         self.assertFalse(free_text_ok(" CUS-007 ", CELLS))
+
+    def test_free_text_check_normalises_case_and_unicode_and_catches_short_cells(self):
+        cells = frozenset({"M\u00fcller", "abc", "Q", "7"})
+        self.assertFalse(free_text_ok("Customer M\u00dcLLER", cells))
+        self.assertFalse(free_text_ok("Customer Mu\u0308ller", cells))
+        self.assertFalse(free_text_ok("Customer \uff2d\u00fcller", cells))
+        self.assertFalse(free_text_ok("seen ABC twice", cells))
+        self.assertFalse(free_text_ok("grade q here", cells))
+        self.assertTrue(free_text_ok("Quality of 7 records", cells))  # short cells match whole tokens; numbers < 3 chars skip
+        self.assertTrue(free_text_ok("Quality matters", frozenset({"Q"})))
+        self.assertFalse(free_text_ok(" 7 ", cells))
+
+    def test_allowed_names_stay_allowed_as_names_even_when_they_are_cells(self):
+        names = frozenset({"order_total"})
+        self.assertIs(safe_context(ctx := {"column": "order_total"}, header=names, cells=frozenset({"order_total"})), ctx)
+        self.assertTrue(free_text_ok("Check order_total first", frozenset({"order_total"}), names))
+        self.assertFalse(free_text_ok("Check order_total first", frozenset({"order_total"})))
+
+    def test_case_vocabulary_adds_baseline_and_contract_names(self):
+        from agents_support import BASELINE
+        names, _ = case_vocabulary(b"x\n1\n", baseline=BASELINE)
+        self.assertTrue({"x", "order_id", "customer_id", "order_total"} <= names)
+        names, _ = case_vocabulary(b"x\n1\n", baseline={"columns": "junk"})
+        self.assertEqual(names, {"x", "order_id", "customer_id", "order_total"})
+
+    def test_signal_ids_are_run_ids(self):
+        self.ok({"refs": ["sig-1", "obs-2"]})
 
     def test_size_limit(self):
         self.bad({"counts": list(range(5000))})
@@ -81,8 +109,8 @@ class SafeContext(unittest.TestCase):
 class Schemas(unittest.TestCase):
     def test_output_schemas_are_valid_and_restrict_ids(self):
         cases = [
-            (prompts.planner_schema(["g1"]), {"questions": [{"goal": "g1", "question": "q"}]},
-             {"questions": [{"goal": "g2", "question": "q"}]}),
+            (prompts.planner_schema(["g1"], ["sig-1"]), {"questions": [{"goal": "g1", "refs": ["sig-1"], "question": "q"}]},
+             {"questions": [{"goal": "g1", "refs": ["sig-2"], "question": "q"}]}),
             (prompts.relevance_schema(["c1"]), {"relevance": [{"citation": "c1", "sentence": "s"}]},
              {"relevance": [{"citation": "c1", "sentence": "s", "extra": 1}]}),
             (prompts.hypothesis_schema(["obs-1"]), {"candidates": [{"mechanism": "partial_load", "explains": ["obs-1"]}]},

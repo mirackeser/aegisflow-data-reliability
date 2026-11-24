@@ -104,9 +104,10 @@ class Run:
 
     # -- the local model ------------------------------------------------------------------------------------------
     def vocabulary(self):
-        """(column names, distinct cell values) of the case, for the A34 context rule."""
+        """(allowed column names, distinct cell values) of the case, for the A34 context rule."""
         ctx = self.ctx
-        return ctx.remember("vocabulary", lambda: case_vocabulary(ctx.payload, ctx.second_payload))
+        return ctx.remember("vocabulary", lambda: case_vocabulary(ctx.payload, ctx.second_payload,
+                                                                  baseline=ctx.baseline))
 
     def ask(self, name, context, schema, **evidence):
         """One schema-constrained model call through the A34 guard; return (data, llm_suggestion reference).

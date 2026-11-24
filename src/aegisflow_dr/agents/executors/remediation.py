@@ -10,22 +10,23 @@ from ...profiling import profile_csv
 from ...pipeline import diagnose_csv
 from ..prompts import VOCABULARY, patch_schema, remediation_schema
 from ._base import MAX_LIST, NeedsEvidence, executor
-from .orchestration import triage
+from .orchestration import SPECIALISTS, triage
 
 FINDING_PARAMS = ("check", "column", "count", "status", "direction", "findings", "records", "changed", "stale",
                   "shifted", "passed", "mechanism", "verdict")
-CONTROL_ROLES = frozenset({"A01", "A02", "A03", "A04", "A05", "A06", "A26", "A27"})
+# Only the specialists' measurements are remediation findings; control, reasoning, policy and governance claims
+# (for example A34's review) are not.
 
 
 def accepted_findings(run):
-    """(judge reference, findings): Judge-accepted claims of non-control roles, reduced to whitelisted parameters
+    """(judge reference, findings): Judge-accepted claims of specialists (A07-A22), reduced to whitelisted parameters
     whose text values are known names or column names (the A34 rule)."""
     ref, verdict = run.prior_evidence("A27", "judge_verdict")
     header = run.vocabulary()[0]
     findings = []
     for item in (verdict or {"verdicts": []})["verdicts"]:
         result = run.prior(item["agent"])
-        if (item["verdict"] != "accepted" or item["agent"] in CONTROL_ROLES or len(findings) == MAX_LIST
+        if (item["verdict"] != "accepted" or item["agent"] not in SPECIALISTS or len(findings) == MAX_LIST
                 or result is None or not 0 <= item["claim"] < len(result["claims"])):
             continue
         claim = result["claims"][item["claim"]]

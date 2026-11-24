@@ -329,11 +329,11 @@ def incident_similarity_knowledge(run):
     run.uncertainty = ("medium", "retrieval_lexical")
     if not passages or "local_llm" not in ctx.allowed_tools:
         return
-    _, cells = run.vocabulary()
+    names, cells = run.vocabulary()
     offered = []
     for number, passage in enumerate(passages, 1):
         text, source = passage["passage"][:MAX_PASSAGE], passage["source"]
-        if free_text_ok(text, cells) and free_text_ok(source, cells):
+        if free_text_ok(text, cells, names) and free_text_ok(source, cells, names):
             offered.append({"id": "c%d" % number, "kb_source": source, "passage": text})
     if not offered:
         return

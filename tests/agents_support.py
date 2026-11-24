@@ -67,7 +67,8 @@ def _answer(schema):
     items = next(iter(schema["properties"].values()))
     name = next(iter(schema["properties"]))
     if name == "questions":
-        return {"questions": [{"goal": g, "question": "Which records fail %s?" % g}
+        refs = items["items"]["properties"]["refs"]["items"]["enum"][:1]
+        return {"questions": [{"goal": g, "refs": refs, "question": "Which records fail %s?" % g}
                               for g in items["items"]["properties"]["goal"]["enum"]]}
     if name == "relevance":
         return {"relevance": [{"citation": c, "sentence": "Covers the same check."}

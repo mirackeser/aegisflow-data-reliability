@@ -174,11 +174,11 @@ class Triage(unittest.TestCase):
                          (80, True, True, True, False, True, False))
         self.assertEqual([o["id"] for o in t["observations"]], ["obs-1"])
         self.assertEqual(t["observations"][0]["check"], "volume_change")
-        self.assertIn({"check": "volume_change", "column": None}, t["signals"])
+        self.assertEqual(t["signals"], [{"id": "sig-1", "check": "volume_change", "column": None}])
         self.assertNotIn("ORD-00001", json.dumps(t))
         drifted = triage(context(DRIFTED, second_payload=ORDERS))
         self.assertTrue(drifted["order_extract"] and drifted["second_order_extract"])
-        self.assertIn({"check": "missing_column", "column": "order_total"}, drifted["signals"])
+        self.assertIn(("missing_column", "order_total"), [(s["check"], s["column"]) for s in drifted["signals"]])
         generic = triage(context(TIMED))
         self.assertEqual((generic["order_extract"], generic["time_column"], generic["observations"]), (False, "ts", []))
 
@@ -383,6 +383,100 @@ class Governance(unittest.TestCase):
         params = judged["claims"][0]["params"]
         self.assertEqual((params["judge_accepted"], params["judge_rejected"]), (len(ctx.prior["A10"]["claims"]), 0))
         self.assertEqual(len(judged["claims"][0]["evidence_refs"]), 2)
+
+
+PASSAGE = {"source": "kb", "revision": "1", "citation": "kb#1", "passage": "Renamed amount columns break readers."}
+ALL_AGENTS = ["A34", "A01", "A02", "A03", "A04", "A05", "A10", "A07", "A08", "A09", "A11", "A12", "A13", "A14", "A15",
+              "A16", "A17", "A18", "A19", "A20", "A21", "A22", "A24", "A25", "A23", "A26", "A27", "A28", "A29", "A30",
+              "A31", "A32", "A33", "A35", "A36", "A06", "A34"]
+
+
+class Drift(unittest.TestCase):
+    """A renamed contract column (the flagship schema-drift case) is a column name, never a raw value."""
+
+    def test_drifted_case_without_baseline_or_model(self):
+        ctx = context(DRIFTED)
+        planned = run("A02", ctx)
+        self.assertEqual((planned["status"], planned["llm"]), ("COMPLETED", None))
+        self.assertIn("missing_column", planned["claims"][0]["params"]["checks"])
+        self.assertEqual(run("A34", ctx)["status"], "COMPLETED")
+
+    def test_drifted_case_with_baseline_and_model(self):
+        local, transport = model()
+        ctx = context(DRIFTED, baseline=BASELINE, model=local, retriever=lambda q, n: [PASSAGE])
+        for agent in ("A02", "A22", "A23", "A34"):
+            ctx.prior[agent] = run(agent, ctx)
+            self.assertNotEqual(ctx.prior[agent]["status"], "POLICY_DENIED", agent)
+        self.assertEqual(ctx.prior["A02"]["status"], "COMPLETED")
+        self.assertEqual([c["text_key"] for c in ctx.prior["A02"]["claims"]], ["a02.plan", "a02.worded"])
+        self.assertEqual(ctx.prior["A23"]["status"], "COMPLETED")
+        self.assertEqual(ctx.prior["A34"]["status"], "COMPLETED")
+        self.assertIn("order_total", "".join(transport.prompts()))
+
+    def test_no_policy_denial_across_fixtures_with_and_without_model(self):
+        fixtures = {"orders": {"payload": ORDERS}, "duplicates": {"payload": DUPLICATES},
+                    "drifted": {"payload": DRIFTED}, "drifted_baseline": {"payload": DRIFTED, "baseline": BASELINE},
+                    "volume": {"payload": BIG_ORDERS, "baseline": BASELINE},
+                    "second": {"payload": DUPLICATES, "second_payload": DRIFTED},
+                    "timed": {"payload": TIMED}, "history": {"payload": DUPLICATES, "history": [{"status": "FAILED"}]}}
+        for name, inputs in fixtures.items():
+            for with_model in (False, True):
+                local = model()[0] if with_model else None
+                ctx = context(**inputs, model=local, retriever=lambda q, n: [PASSAGE])
+                for agent in ALL_AGENTS:
+                    ctx.prior[agent] = run(agent, ctx)
+                with self.subTest(fixture=name, model=with_model):
+                    denied = [a for a, r in ctx.prior.items() if r["status"] == "POLICY_DENIED"]
+                    self.assertEqual(denied, [])
+                    self.assertEqual(ctx.prior["A02"]["status"], "COMPLETED")
+
+    def test_genuinely_unsafe_inputs_are_still_denied(self):
+        local, _ = model()
+        ctx = context(DRIFTED, baseline=BASELINE, model=local)
+        ctx.evidence.put("llm_context", {"context": {"column": "ORD-00001"}})
+        self.assertEqual(run("A34", ctx)["error_code"], "RAW_VALUE_IN_CONTEXT")
+
+
+class PlannerMapping(unittest.TestCase):
+    def test_every_goal_references_existing_signal_or_observation_ids(self):
+        ctx = context(BIG_ORDERS, baseline=BASELINE)
+        t = triage(ctx)
+        self.assertTrue(all(s["id"].startswith("sig-") for s in t["signals"]))
+        known = {s["id"] for s in t["signals"]} | {o["id"] for o in t["observations"]}
+        planned = run("A02", ctx)
+        plan = ctx.evidence.get(planned["claims"][0]["evidence_refs"][0])
+        self.assertTrue(plan["goals"])
+        for goal in plan["goals"]:
+            self.assertTrue(goal["refs"])
+            self.assertTrue(set(goal["refs"]) <= known)
+        volume = next(g for g in plan["goals"] if g["check"] == "volume_change")
+        self.assertIn("obs-1", volume["refs"])
+
+    def test_the_wording_schema_restricts_ids(self):
+        local, transport = model()
+        run("A02", context(BIG_ORDERS, baseline=BASELINE, model=local))
+        item = transport.calls[0]["format"]["properties"]["questions"]["items"]["properties"]
+        self.assertIn("obs-1", item["refs"]["items"]["enum"])
+        self.assertTrue(all(i.startswith(("sig-", "obs-")) for i in item["refs"]["items"]["enum"]))
+
+    def test_wording_with_an_unknown_id_is_rejected_and_the_rule_plan_kept(self):
+        loose = {"type": "object", "required": ["questions"], "properties": {"questions": {"type": "array"}}}
+        for question in ({"goal": "g1", "refs": ["sig-99"], "question": "q"},
+                         {"goal": "g9", "refs": ["sig-1"], "question": "q"},
+                         {"goal": "g1", "refs": [], "question": "q"}):
+            local, _ = model({"questions": [question]})
+            with mock.patch.object(orchestration, "planner_schema", lambda *a: loose):
+                result = run("A02", context(DUPLICATES, model=local))
+            with self.subTest(question=question):
+                self.assertEqual((result["status"], result["llm"], result["usage"]["llm_calls"]),
+                                 ("COMPLETED", None, 1))
+                self.assertEqual([c["text_key"] for c in result["claims"]], ["a02.plan"])
+                self.assertEqual(result["uncertainty"]["reason"], "rule_plan_only")
+
+    def test_an_unmapped_rule_goal_fails_instead_of_completing(self):
+        with mock.patch.object(orchestration, "_goal_refs", lambda signal, observations: ["sig-404"]):
+            result = run("A02", context(DUPLICATES))
+        self.assertEqual((result["status"], result["error_code"]), ("FAILED", "INPUT_REJECTED"))
 
 
 class Contract(unittest.TestCase):

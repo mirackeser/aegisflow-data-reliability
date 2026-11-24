@@ -15,7 +15,7 @@ from ..contracts import validate_result
 from ..prompts import hypothesis_schema
 from ..registry import ROLES
 from ._base import MAX_LIST, NeedsEvidence, bounded, executor
-from .orchestration import triage
+from .orchestration import triage, unmapped
 
 _HEX = re.compile(r"[0-9a-f]{64}")
 _AGENT_IDS = frozenset(spec.agent_id for spec in ROLES)
@@ -114,13 +114,20 @@ def _explains(mechanism, observation):
                for check, direction in CATALOG[mechanism][1])
 
 
-def _suggestion_problem(evidence, refs, claim, observations):
+def _suggestion_problem(evidence, refs, claim, observations, signals):
     by_id = {o["id"]: o for o in observations}
     explains = claim["params"].get("explains", [])
     if type(explains) is not list or any(item not in by_id for item in explains):
         return "unknown_observation"
+    known = set(by_id) | {s["id"] for s in signals}
     for ref in refs:
         suggestion = evidence.get(ref) if evidence.kind(ref) == "llm_suggestion" else {}
+        if suggestion.get("agent") == "A02":
+            goals = suggestion.get("goals")
+            goal_ids = [g.get("id") for g in goals if type(g) is dict] if type(goals) is list else []
+            if (len(goal_ids) != len(goals or []) or unmapped(goals, goal_ids, known)
+                    or unmapped(suggestion["data"]["questions"], goal_ids, known)):
+                return "goal_not_mapped"
         if suggestion.get("agent") != "A23":
             continue
         for candidate in suggestion["data"]["candidates"]:
@@ -129,7 +136,7 @@ def _suggestion_problem(evidence, refs, claim, observations):
     return None
 
 
-def _check_claim(claim, own, evidence, observations):
+def _check_claim(claim, own, evidence, observations, signals):
     refs = claim["evidence_refs"]
     if any(ref not in own for ref in refs):
         return "rejected", "ref_not_in_result"
@@ -137,7 +144,7 @@ def _check_claim(claim, own, evidence, observations):
         return "rejected", "evidence_missing_or_altered"
     if all(evidence.kind(ref) != "llm_suggestion" for ref in refs):
         return "accepted", "evidence_verified"
-    problem = _suggestion_problem(evidence, refs, claim, observations)
+    problem = _suggestion_problem(evidence, refs, claim, observations, signals)
     return ("rejected", problem) if problem else ("advisory", "model_suggestion")
 
 
@@ -149,10 +156,11 @@ def _known_citations(evidence, refs):
     return known
 
 
-def judge(results, evidence, observations):
+def judge(results, evidence, observations, signals=()):
     """Per-claim verdicts for every completed result: accepted (evidence resolves and matches its digest), advisory
-    (it rests on a model suggestion whose observation ids exist and whose mechanisms explain them per the catalog)
-    or rejected. Every retrieval citation must appear in that result's own retrieval evidence."""
+    (it rests on a model suggestion whose observation ids exist, whose A23 mechanisms explain them per the catalog and
+    whose A02 goals and questions each rest on known signal/observation ids) or rejected. Every retrieval citation
+    must appear in that result's own retrieval evidence."""
     verdicts = []
     for agent, result in sorted(results.items()):
         if type(result) is not dict or result.get("status") != "COMPLETED":
@@ -167,7 +175,7 @@ def judge(results, evidence, observations):
             continue
         own = result["evidence_refs"]
         for index, claim in enumerate(result["claims"]):
-            verdict, reason = _check_claim(claim, own, evidence, observations)
+            verdict, reason = _check_claim(claim, own, evidence, observations, signals)
             verdicts.append({"agent": agent, "claim": index, "text_key": claim["text_key"], "verdict": verdict,
                              "reason": reason})
         known = _known_citations(evidence, [ref for ref in own if evidence.has(ref)])
@@ -179,7 +187,8 @@ def judge(results, evidence, observations):
 
 @executor("A27")
 def evidence_verification(run):
-    verdicts = judge(run.ctx.prior, run.ctx.evidence, triage(run.ctx)["observations"])
+    t = triage(run.ctx)
+    verdicts = judge(run.ctx.prior, run.ctx.evidence, t["observations"], t["signals"])
     ref = run.put("judge_verdict", {"verdicts": verdicts})
     counts = {name: sum(v["verdict"] == name for v in verdicts) for name in ("accepted", "advisory", "rejected")}
     rejected = sorted({v["agent"] for v in verdicts if v["verdict"] == "rejected"})

@@ -60,7 +60,8 @@ def _intake(ctx):
         "time_column": profile["time_column"], "order_extract": order, "baseline": comparison is not None,
         "second_payload": ctx.second_payload is not None, "second_order_extract": second_order,
         "retriever": ctx.retriever is not None, "history": bool(ctx.history),
-        "signals": [{"check": check, "column": column} for check, column in signals],
+        "signals": [{"id": "sig-%d" % number, "check": check, "column": column}
+                    for number, (check, column) in enumerate(signals, 1)],
         "observations": [{key: o[key] for key in ("id", "source", "check", "column", "direction")} for o in observations],
         "type_mismatch": any(f["check"] == "type_mismatch" for f in profile["findings"]),
         "role_change": any(f["check"] == "role_change" for f in (comparison or {"findings": []})["findings"]),
@@ -173,22 +174,45 @@ def global_supervisor(run):
     run.claim("a01.run_status", {"agents": len(statuses), **counts, "final": final}, ref)
 
 
+def _goal_refs(signal, observations):
+    """The signal's id plus every observation of the same check and column."""
+    return [signal["id"]] + [o["id"] for o in observations
+                             if o["check"] == signal["check"] and o["column"] == signal["column"]]
+
+
+def known_ids(t):
+    """Every signal and observation id of the case intake."""
+    return {s["id"] for s in t["signals"]} | {o["id"] for o in t["observations"]}
+
+
+def unmapped(items, goal_ids, known):
+    """True when any goal or worded question lacks a known goal id or rests on no, or an unknown, signal/observation."""
+    return any(item.get("goal", item.get("id")) not in goal_ids or type(item.get("refs")) is not list
+               or not item["refs"] or not set(item["refs"]) <= known for item in items)
+
+
 @executor("A02")
 def investigation_planner(run):
     t = triage(run.ctx)
-    goals = [{"id": "g%d" % n, "check": s["check"], "column": s["column"]}
+    known = known_ids(t)
+    goals = [{"id": "g%d" % n, "check": s["check"], "column": s["column"], "refs": _goal_refs(s, t["observations"])}
              for n, s in enumerate(t["signals"][:MAX_LIST], 1)]
+    goal_ids = [g["id"] for g in goals]
+    if unmapped(goals, goal_ids, known):  # the role table: every goal maps to the intake's evidence
+        raise InputRejected("Plan goal does not map to a signal or observation")
     ref = run.put("investigation_plan", {"goals": goals, "observations": [o["id"] for o in t["observations"]]})
     run.claim("a02.plan", {"goals": len(goals), "checks": bounded(sorted({g["check"] for g in goals}))}, ref)
     if not goals or "local_llm" not in run.ctx.allowed_tools:
         return
     try:
-        data, suggestion = run.ask("a02", {"goals": goals}, planner_schema([g["id"] for g in goals]),
-                                   goals=[g["id"] for g in goals])
+        data, suggestion = run.ask("a02", {"goals": goals}, planner_schema(goal_ids, sorted(known)), goals=goals)
+        if unmapped(data["questions"], goal_ids, known):
+            raise ModelFailure("UNMAPPED_GOAL")
     except ModelFailure:
         # Per the role table the fallback is the rule plan with llm null; the attempted call stays in usage and its
-        # context stays in the evidence store, so budgets and the A34 review still see it.
-        run.llm = run.retrieval = None
+        # context stays in the evidence store, so budgets and the A34 review still see it. Rejected wording is
+        # never cited by a claim.
+        run.llm = run.retrieval = run.advisory = None
         run.uncertainty = ("medium", "rule_plan_only")
         return
     questions = data["questions"]

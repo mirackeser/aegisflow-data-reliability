@@ -42,7 +42,7 @@ class Hypotheses(unittest.TestCase):
         suggestion = result["claims"][0]["evidence_refs"][0]
         self.assertEqual(ctx.evidence.kind(suggestion), "llm_suggestion")
         stored = ctx.evidence.get(suggestion)
-        self.assertEqual((stored["agent"], stored["observations"], stored["prompt_version"]), ("A23", ["obs-1"], "1"))
+        self.assertEqual((stored["agent"], stored["observations"], stored["prompt_version"]), ("A23", ["obs-1"], "2"))
         self.assertEqual(result["llm"], {"provider": "ollama", "model": "qwen3:4b",
                                          "prompt_sha256": stored["prompt_sha256"], "temperature": 0, "seed": 7})
         self.assertEqual((result["usage"]["tokens_in"], result["usage"]["tokens_out"]), (40, 12))
@@ -174,6 +174,31 @@ class Judge(unittest.TestCase):
         self.assertEqual([v["reason"] for v in judge({"A23": not_list}, ctx.evidence, observations)],
                          ["unknown_observation"])
 
+    def test_a02_wording_is_advisory_only_when_every_goal_maps(self):
+        local, _ = model()
+        ctx = observed(model=local)
+        chain(ctx, ["A02"])
+        signals = [{"id": "sig-1", "check": "volume_change", "column": None}]
+        observations = [{"id": "obs-1", "source": "baseline", "check": "volume_change", "column": None,
+                         "direction": "increase"}]
+        self.assertEqual([v["verdict"] for v in judge({"A02": ctx.prior["A02"]}, ctx.evidence, observations,
+                                                      signals)], ["accepted", "advisory"])
+        self.assertEqual(params(run("A27", ctx), "a27.verdict")[0]["advisory"], 1)
+        good = ctx.evidence.get(ctx.prior["A02"]["claims"][1]["evidence_refs"][0])
+        question = good["data"]["questions"][0]
+        broken = [dict(good, goals=[dict(good["goals"][0], refs=["sig-9"])]),
+                  dict(good, goals="junk"), dict(good, goals=["junk"]),
+                  dict(good, data={"questions": [dict(question, refs=["obs-7"])]}),
+                  dict(good, data={"questions": [dict(question, goal="g8")]})]
+        for suggestion in broken:
+            forged = copy.deepcopy(ctx.prior["A02"])
+            ref = ctx.evidence.put("llm_suggestion", suggestion)
+            forged["claims"][1]["evidence_refs"] = [ref]
+            forged["evidence_refs"].append(ref)
+            with self.subTest(suggestion=suggestion["goals"]):
+                self.assertEqual([v["reason"] for v in judge({"A02": forged}, ctx.evidence, observations, signals)],
+                                 ["evidence_verified", "goal_not_mapped"])
+
     def test_every_citation_must_be_in_the_results_own_retrieval_evidence(self):
         passage = {"source": "kb", "revision": "1", "citation": "kb#1", "passage": "About duplicates."}
         ctx = context(retriever=lambda q, n: [passage])
@@ -214,18 +239,28 @@ class Remediation(unittest.TestCase):
                                                                   "addresses": ["f1", "f2"]}}])
         context_sent = transport.prompts()[-1]
         self.assertNotIn("A03", context_sent)
+        self.assertNotIn("A24", context_sent)
         self.assertNotIn("transform_sha256", context_sent)
         findings = ctx.evidence.get(result["claims"][0]["evidence_refs"][0])["findings"]
         self.assertEqual(findings[0]["agent"], "A10")
-        self.assertTrue(all(f["agent"] not in ("A03", "A27") for f in findings))
+        self.assertTrue(all("A07" <= f["agent"] <= "A22" for f in findings))
+
+    def test_a29_never_receives_policy_or_governance_claims(self):
+        ctx, transport = self.accepted_case()
+        chain(ctx, ["A34", "A35", "A27", "A29"])
+        findings = ctx.evidence.get(ctx.prior["A29"]["claims"][0]["evidence_refs"][0])["findings"]
+        self.assertTrue(findings)
+        self.assertTrue(all("A07" <= f["agent"] <= "A22" for f in findings))
+        self.assertNotIn("a34.reviewed", transport.prompts()[-1])
 
     def test_a29_skips_verdicts_whose_result_is_gone(self):
         ctx, _ = self.accepted_case()
-        del ctx.prior["A10"]
-        ctx.prior["A11"] = completed("A11")
+        ctx.prior["A10"] = completed("A10")  # its accepted claim indexes are now out of range
         result = run("A29", ctx)
         findings = ctx.evidence.get(result["claims"][0]["evidence_refs"][0])["findings"]
-        self.assertEqual({f["agent"] for f in findings}, {"A24"})
+        self.assertEqual({f["agent"] for f in findings}, {"A11"})
+        del ctx.prior["A11"]
+        self.assertEqual(run("A29", ctx)["error_code"], "NO_ACCEPTED_FINDINGS")
 
     def test_a30_and_validators(self):
         ctx, _ = self.accepted_case()
@@ -293,6 +328,12 @@ class NoRawValues(unittest.TestCase):
                 self.assertTrue(transport.calls)
                 self.assertNotIn(marker, "".join(transport.prompts()))
                 self.assertEqual(ctx.prior["A34"]["status"], "COMPLETED")
+        drifted = order_payload(Random(5), "ZQXDRIFTMARK").replace(b"order_total", b"total_amount", 1)
+        local, transport = model()
+        ctx = context(drifted, baseline=BASELINE, model=local, retriever=lambda q, n: [])
+        chain(ctx, MODEL_CHAIN)
+        self.assertNotIn("ZQXDRIFTMARK", "".join(transport.prompts()))
+        self.assertNotIn("POLICY_DENIED", [r["status"] for r in ctx.prior.values()])
         timed = timed_csv(marker="ZQXTIMEDMARK")
         local, transport = model()
         chain(context(timed, baseline=build_baseline([TIMED]), model=local), MODEL_CHAIN)
