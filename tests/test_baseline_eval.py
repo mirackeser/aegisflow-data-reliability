@@ -25,6 +25,8 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(names, [be.split_of(g) for g in range(be.GROUPS)])
         self.assertTrue(set(names) <= set(be.SPLITS))
         self.assertTrue(all(names.count(name) for name in be.SPLITS))
+        self.assertEqual({name: names.count(name) for name in be.SPLITS}, {"development": 37, "validation": 14, "heldout": 9})
+        self.assertEqual([be.split_of(g) for g in (0, 1, 6, 7)], ["validation", "development", "validation", "heldout"])
         self.assertEqual(be.GROUPS, 60)
         self.assertEqual(be.VERSION, "1")
         self.assertEqual(be.SHIFTS, (0.25, 0.5, 0.75, 1.0, 1.5))
@@ -257,7 +259,10 @@ class SensitivityAndReportTests(unittest.TestCase):
 
     def test_report_states_its_limits(self):
         for phrase in ("Synthetic generated series only", "no real sensors", "not a significance test", "no p-value",
-                       "no root cause", "chosen by the authors of the checks", "not fitted", "n/a", "PSI_SHIFT = 0.25"):
+                       "no root cause", "chosen by the authors of the checks", "not fitted", "n/a", "PSI_SHIFT = 0.25",
+                       "only partly detected by design", "development sensitivity table", "less than whole seasonal cycles",
+                       "Partial cycles can raise PSI", "`clean_partial_cycle` (350 records, 3.5 cycles)",
+                       "`volume_drop` (160 records, 1.6 cycles)"):
             self.assertIn(phrase, self.text)
 
     def test_include_heldout_flag_requests_the_heldout_split(self):

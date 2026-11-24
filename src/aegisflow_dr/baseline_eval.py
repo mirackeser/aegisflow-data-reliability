@@ -141,6 +141,7 @@ def score_case(bucket, variant, truth, result):
     found = {(f["check"], f["column"]) for f in result["findings"]}
     row = bucket["variants"][variant]
     row["cases"] += 1
+    # An empty truth is trivially "detected" here; such variants report case_detection None (n/a), so it never shows.
     row["detected_cases"] += truth <= found
     row["cases_with_unexpected"] += bool(found - truth)
     for key in found | truth:
@@ -200,7 +201,7 @@ def sensitivity():
         for group in range(GROUPS):
             if split_of(group) != "development":
                 continue
-            references, current, as_of = _generate(group, "mean_shift", d)
+            references, current, as_of = _generate(group, "clean", d)  # the clean current batch, temp_c shifted by d sd
             result = baseline.compare(baseline.build_baseline(references), current, as_of=as_of)
             found = {(f["check"], f["column"]) for f in result["findings"]}
             cases += 1
@@ -270,9 +271,14 @@ def render_markdown(report, sweep):
             "the large kinds were sized to be found. High scores mean the checks do what they were written to do on this one "
             "family of series; they are not evidence about real sensors, heavier-tailed noise or other change kinds.",
             "- PSI is a descriptive index, not a significance test. On autocorrelated series it has no p-value, and a batch that "
-            "covers a different part of a seasonal cycle can move it without any change in the process; a short current batch "
-            "(for example `volume_drop`, 1.6 seasonal cycles) can therefore also show a `distribution_shift`, which is counted "
-            "as an unexpected finding.",
+            "covers a different part of a seasonal cycle can move it without any change in the process.",
+            "- Partial seasonal cycles: `clean_partial_cycle` (%d records, %.1f cycles) and `volume_drop` (%d records, %.1f "
+            "cycles) deliver less than whole seasonal cycles, while the baseline holds whole ones. Partial cycles can raise PSI "
+            "on `temp_c` without any change in the process; a resulting `distribution_shift` is counted as an unexpected finding."
+            % (KEEP["clean_partial_cycle"], KEEP["clean_partial_cycle"] / PERIOD, KEEP["volume_drop"], KEEP["volume_drop"] / PERIOD),
+            "- Small mean shifts (%s baseline sd, `mean_shift_small`) are only partly detected by design: the PSI threshold is "
+            "fixed and was not lowered to catch them. The development sensitivity table above shows how detection grows with "
+            "the size of the shift." % SHIFT["mean_shift_small"],
             "- Findings are fixed-rule differences from a stored baseline: no root cause, no model, no production connection.",
             "- Thresholds are not changed after the held-out split is scored; anything held-out reveals is reported as a weakness."]
     return "\n".join(out)
