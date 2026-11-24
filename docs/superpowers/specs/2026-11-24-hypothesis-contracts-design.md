@@ -25,11 +25,14 @@ One schema file with `$defs` for `observation`, `hypothesis`, `probe_result` and
 - **probe_result**: `{"id": "prb-N", "probe": one of PROBES, "column": str | null, "round": int ≥ 1,
   "measured": {str: number | null}, "outcomes": {hyp id: "supports" | "refutes" | "neutral"}}`.
 - **investigation**: `{"format_version": "1", "engine": "deterministic-hypotheses-v1", "catalog_version": "1",
-  "observations": [...], "hypotheses": [...], "probes": [...], "budget": {"max_probes", "used"}, "stop_reason":
+  "baseline_digest": hex64, "source_sha256": hex64, "as_of": str | null, "observations": [...], "hypotheses": [...], "probes": [...], "budget": {"max_probes", "used"}, "stop_reason":
   "no_observations" | "no_informative_probe" | "probe_budget_exhausted" | "resolved", "ranking": [hyp ids],
   "verdict": "no_observations" | "none_supported" | "single_supported" | "multiple_supported", "statement": str,
   "trace_sha256": hex64}`. `statement` is fixed text: "Candidate mechanisms consistent with fixed probes on these
   measurements. Not a root-cause determination." `trace_sha256` is the SHA-256 of the canonical JSON of everything else.
+  `baseline_digest`, `source_sha256` and `as_of` are copied from the comparison, so the digest also covers *which*
+  baseline, file and "as of" time the record describes (a `no_observations` record still names its inputs). The digest
+  detects accidental edits; anyone can recompute it, so it does not authenticate the record.
 
 ## Mechanism catalog (version "1")
 
@@ -130,7 +133,10 @@ Every probe result carries the round it ran in. The record is validated against 
 ## Interface
 
 Inside the baseline comparison result: a "Candidate explanations" section (EN/TR) from `POST /api/baselines/investigate`
-(same body as compare). It shows the verdict and the fixed statement, observation chips, one card per hypothesis with
+(same body as compare). The endpoint answers `{"name": <baseline key>, "investigation": <record>}`; the record is the
+unmodified contract document. The panel shows it only when its `baseline_digest`, `source_sha256` and `as_of` equal those
+of the shown comparison; otherwise (for example the saved baseline was replaced between Compare and Explain) it shows
+"the comparison or its saved baseline changed" and discards the answer. It shows the verdict and the fixed statement, observation chips, one card per hypothesis with
 status (text + icon), competitors, and the probes that supported or refuted it with measured values; a probe timeline by
 round with the budget used and the stop reason. No wording implies a cause was found.
 

@@ -86,12 +86,21 @@
     "investigation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["format_version", "engine", "catalog_version", "observations", "hypotheses", "probes", "budget",
-                   "stop_reason", "ranking", "verdict", "statement", "trace_sha256"],
+      "required": ["format_version", "engine", "catalog_version", "baseline_digest", "source_sha256", "as_of",
+                   "observations", "hypotheses", "probes", "budget", "stop_reason", "ranking", "verdict", "statement",
+                   "trace_sha256"],
       "properties": {
         "format_version": {"const": "1"},
         "engine": {"const": "deterministic-hypotheses-v1"},
         "catalog_version": {"const": "1"},
+        "baseline_digest": {"$ref": "#/$defs/hex64"},
+        "source_sha256": {"$ref": "#/$defs/hex64"},
+        "as_of": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "minLength": 1}
+          ]
+        },
         "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
         "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}},
         "probes": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/probe_result"}},

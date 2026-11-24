@@ -96,17 +96,23 @@ async function compareBaseline(){
  if(blResult)blFocus('bl-result');else blFocus('bl-choice');
  if(!blResult&&blCompareError===t('bl.err.notfound'))loadBaselines(true);
 }
+// An investigation record names the baseline digest, file hash and "as of" time it describes; it is shown only
+// under a comparison of exactly those inputs (the saved baseline can be replaced between Compare and Explain).
+function hyMatches(record,result){
+ return !!record&&!!result&&record.baseline_digest===result.baseline_digest&&record.source_sha256===result.source_sha256&&record.as_of===result.as_of;
+}
 // Candidate explanations for the shown comparison: the identical request body goes to the investigate endpoint.
-// The answer belongs to that comparison object; a newer comparison (or none) discards it.
+// The answer belongs to that comparison object; a newer comparison (or none) or other inputs discard it.
 async function explainBaseline(){
  if(blBusy||!blResult||!blResultRequest||!requireSession())return;
  const forResult=blResult,body=blResultRequest;
  blBusy=true;blHy={result:forResult,record:null,error:''};render();
  let record=null,error='';
- try{record=await request('/api/baselines/investigate','POST',JSON.stringify(body),JSON_HEADERS);}
+ try{record=(await request('/api/baselines/investigate','POST',JSON.stringify(body),JSON_HEADERS)).investigation||null;}
  catch(failure){error=failure.status===404?t('bl.err.notfound'):failure.message;}
  blBusy=false;
  if(blResult!==forResult){blHy=null;setNotice(t('hy.err.changed'));render();return;}
+ if(!error&&!hyMatches(record,forResult)){record=null;error=t('hy.err.changed');}
  blHy={result:forResult,record,error};render();
  blFocus(record?'hy-title':'hy-explain');
  if(error===t('bl.err.notfound'))loadBaselines(true);

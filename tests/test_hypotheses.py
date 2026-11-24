@@ -2,6 +2,7 @@
 """Tests of the hypothesis contracts, the fixed mechanism catalog and the deterministic probe loop (F04)."""
 from copy import deepcopy
 from datetime import datetime, timedelta
+import hashlib
 from importlib.resources import files
 import json
 import math
@@ -52,7 +53,7 @@ def probe_result(**over):
 
 def investigation(**over):
     value = {"format_version": "1", "engine": "deterministic-hypotheses-v1", "catalog_version": "1",
-             "observations": [observation()], "hypotheses": [hypothesis()], "probes": [probe_result()],
+             "baseline_digest": "b" * 64, "source_sha256": SHA, "as_of": None, "observations": [observation()], "hypotheses": [hypothesis()], "probes": [probe_result()],
              "budget": {"max_probes": 6, "used": 1}, "stop_reason": "resolved", "ranking": ["hyp-1"],
              "verdict": "single_supported", "statement": hy.STATEMENT}
     value.update(over)
@@ -123,6 +124,19 @@ class SchemaTests(unittest.TestCase):
                 hy.validate("probe_result", bad)
         self.assertEqual(hy.validate("observation", observation(source="profile", check="flatline"))["source"], "profile")
 
+    def test_investigation_names_its_inputs(self):
+        for key in ("baseline_digest", "source_sha256", "as_of"):
+            missing = investigation()
+            del missing[key]
+            with self.assertRaises(InputRejected, msg=key):
+                hy.validate("investigation", missing)
+        for bad in ({"baseline_digest": "B" * 64}, {"baseline_digest": None}, {"source_sha256": "a" * 63},
+                    {"source_sha256": None}, {"as_of": 5}, {"as_of": ""}):
+            with self.assertRaises(InputRejected, msg=bad):
+                hy.validate("investigation", investigation(**bad))
+        self.assertEqual(hy.validate("investigation", investigation(as_of="2026-01-02T00:00:00"))["as_of"],
+                         "2026-01-02T00:00:00")
+
     def test_unknown_kind_and_non_dict(self):
         for kind in ("verdict", None, 3):
             with self.assertRaises(InputRejected):
@@ -153,6 +167,10 @@ class TraceTests(unittest.TestCase):
             hy.verify_investigation(broken)
         with self.assertRaises(InputRejected):
             hy.verify_investigation({**record, "statement": "Root cause found."})
+        # The inputs a record names are covered by its digest.
+        for key, value in (("baseline_digest", "c" * 64), ("source_sha256", "d" * 64), ("as_of", "2026-01-02T00:00:00")):
+            with self.assertRaises(InputRejected, msg=key):
+                hy.verify_investigation({**record, key: value})
 
 
 class ObservationTests(unittest.TestCase):
@@ -619,6 +637,9 @@ class InvestigateTests(unittest.TestCase):
         self.assertEqual(record["ranking"][0], "hyp-1")
         self.assertEqual(record["budget"], {"max_probes": 6, "used": len(record["probes"])})
         self.assertEqual(record["statement"], hy.STATEMENT)
+        base, current, as_of = self.unit
+        self.assertEqual((record["baseline_digest"], record["source_sha256"], record["as_of"]),
+                         (base["digest"], hashlib.sha256(current).hexdigest(), as_of))
         for probe in record["probes"]:
             for value in probe["measured"].values():
                 self.assertTrue(value is None or round(value, 6) == value)
@@ -650,6 +671,10 @@ class InvestigateTests(unittest.TestCase):
         self.assertEqual((record["observations"], record["hypotheses"], record["probes"]), ([], [], []))
         self.assertEqual((record["stop_reason"], record["verdict"], record["budget"]["used"]),
                          ("no_observations", "no_observations", 0))
+        # Even with nothing to explain, the record names the baseline, the file and the "as of" time it describes.
+        self.assertEqual((record["baseline_digest"], record["source_sha256"], record["as_of"]),
+                         (base["digest"], hashlib.sha256(current).hexdigest(), as_of))
+        self.assertIsNone(hy.investigate(base, current)["as_of"])
         hy.verify_investigation(record)
 
     def test_budget_of_one(self):

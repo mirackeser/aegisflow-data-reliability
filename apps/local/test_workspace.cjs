@@ -118,4 +118,30 @@ console.log('role view verified.');
  assert.equal(context.blClockField(context.blEntry('a')),null);
  assert.equal(context.blClockField(context.blEntry('c')),null);
  console.log('baseline as-of clock verified.');
+ // Candidate explanations are shown only when they describe the baseline, file and "as of" time of the shown comparison.
+ const shown={baseline_digest:'b'.repeat(64),source_sha256:'c'.repeat(64),as_of:null};
+ assert.equal(context.hyMatches({...shown,trace_sha256:'x'},shown),true);
+ assert.equal(context.hyMatches({...shown,baseline_digest:'d'.repeat(64)},shown),false);
+ assert.equal(context.hyMatches({...shown,source_sha256:'d'.repeat(64)},shown),false);
+ assert.equal(context.hyMatches({...shown,as_of:'2026-01-01T00:00:00'},shown),false);
+ assert.equal(context.hyMatches(undefined,shown),false);assert.equal(context.hyMatches(shown,null),false);
+ const notices=[];let answer=null;
+ Object.assign(context,{t:k=>k,render:()=>{},setNotice:m=>notices.push(m),requireSession:()=>true,JSON_HEADERS:{},
+  document:{getElementById:()=>null},request:async()=>answer,__shown:shown});
+ (async()=>{
+  run("blBusy=false;blHy=null;blResult=__shown;blResultRequest={name:'p',csv_b64:''}");
+  answer={name:'p',investigation:{...shown,trace_sha256:'x'}};
+  await context.explainBaseline();
+  assert.equal(run('blHy.record.trace_sha256'),'x');assert.equal(run('blHy.error'),'');
+  // The baseline was replaced between Compare and Explain: the answer names another baseline and is not shown.
+  run("blHy=null");
+  answer={name:'p',investigation:{...shown,baseline_digest:'d'.repeat(64),trace_sha256:'y'}};
+  await context.explainBaseline();
+  assert.equal(run('blHy.record'),null);assert.equal(run('blHy.error'),'hy.err.changed');assert.equal(run('blBusy'),false);
+  run("blHy=null");answer={name:'p'};
+  await context.explainBaseline();
+  assert.equal(run('blHy.record'),null);assert.equal(run('blHy.error'),'hy.err.changed');
+  assert.deepEqual(notices,[]);
+  console.log('candidate explanations bound to their comparison verified.');
+ })().catch(error=>{console.error(error);process.exitCode=1;});
 }

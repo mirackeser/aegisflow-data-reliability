@@ -577,7 +577,7 @@ const STRINGS={
 'hy.m.r':['median ratio','ortanca oranı'],'hy.m.sd_ratio':['standard deviation ratio','standart sapma oranı'],'hy.m.mean_shift_sd':['mean shift in baseline standard deviations','taban çizgisi standart sapması cinsinden ortalama kayması'],
 'hy.m.share':['share','pay'],'hy.m.ratio':['ratio','oran'],'hy.m.cv':['gap variation (CV)','aralık değişkenliği (CV)'],'hy.m.lag_ratio':['lag ÷ limit','gecikme ÷ sınır'],
 'hy.m.longest_run_share':['longest empty run ÷ all empty cells','en uzun boş dizi ÷ tüm boş hücreler'],'hy.m.none':['no measured value','ölçülen değer yok'],'hy.m.undefined':['not measurable','ölçülemedi'],
-'hy.err.changed':['The comparison changed while the probes ran; the result was discarded.','Sınamalar çalışırken karşılaştırma değişti; sonuç atıldı.'],
+'hy.err.changed':['The comparison or its saved baseline changed while the probes ran, so the result was discarded. Compare again.','Sınamalar çalışırken karşılaştırma ya da kayıtlı taban çizgisi değişti; bu yüzden sonuç atıldı. Yeniden karşılaştırın.'],
 'conn.note':['“Available” means the inspection works, not that a production system is connected.','“Kullanılabilir”, incelemenin çalıştığı anlamına gelir; bir üretim sisteminin bağlı olduğu anlamına gelmez.']
 };
 function tt(key,fallback){return STRINGS[key]?t(key):fallback;}

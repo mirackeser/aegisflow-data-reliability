@@ -451,13 +451,20 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(call('/api/baselines/investigate',b'not json')[0],400)
    self.assertEqual(call('/api/baselines/investigate',[1])[0],400)
    self.assertEqual(oversize(1400001),413)
-   status,result=call('/api/baselines/investigate',body)
-   self.assertEqual((status,result.pop('name')),(200,'plant'))
-   self.assertEqual(hy.verify_investigation(result),result)
+   status,answer=call('/api/baselines/investigate',body)
+   self.assertEqual((status,set(answer),answer['name']),(200,{'name','investigation'},'plant'))
+   result=answer['investigation']
+   self.assertIs(hy.verify_investigation(result),result)
    self.assertEqual(result,hy.investigate(self.w.baselines.get('plant'),current,as_of=as_of))
    self.assertEqual(result['statement'],hy.STATEMENT)
    compared=call('/api/baselines/compare',body)[1]
    self.assertEqual({o['evidence_sha256'] for o in result['observations']},{compared['source_sha256']})
+   self.assertEqual((result['baseline_digest'],result['source_sha256'],result['as_of']),(compared['baseline_digest'],compared['source_sha256'],compared['as_of']))
+   # Baseline replaced between Compare and Explain: the digests differ, so the panel can refuse the stale answer.
+   self.assertEqual(call('/api/baselines/save',{'name':'Plant','references_b64':[b64(r) for r in he.scenario(he.GROUPS[1],'clean')[0]],'replace':True})[0],200)
+   stale=call('/api/baselines/investigate',body)[1]['investigation']
+   self.assertEqual(stale['source_sha256'],compared['source_sha256'])
+   self.assertNotEqual(stale['baseline_digest'],compared['baseline_digest'])
   finally:server.shutdown();server.server_close();thread.join()
  def test_baseline_body_caps_fit_base64_files_at_the_csv_limit(self):
   import base64,json

@@ -144,13 +144,18 @@ class BaselineStore:
         return {**compare_baseline(record, payload, as_of=as_of), "name": key}
 
     def investigate(self, name, payload, as_of=None):
-        """Candidate explanations for the comparison of ``payload`` with a saved baseline (same inputs as ``compare``)."""
+        """Candidate explanations for the comparison of ``payload`` with a saved baseline (same inputs as ``compare``).
+
+        Returns ``{"name": key, "investigation": record}``: the record is the unmodified contract document (it verifies
+        with ``hypotheses.verify_investigation``) and names the baseline digest, file hash and "as of" time it describes,
+        so a caller can tell when the baseline was replaced after its comparison.
+        """
         if type(payload) is not bytes:
             raise InputRejected("The CSV must be a file")
         with self.lock:
             key = self._find(name)
             record = self.items[key]["record"]
-        return {**investigate_baseline(record, payload, as_of=as_of), "name": key}
+        return {"name": key, "investigation": investigate_baseline(record, payload, as_of=as_of)}
 
     def remove(self, name):
         with self.lock:

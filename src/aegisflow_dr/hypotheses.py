@@ -85,7 +85,10 @@ def trace_digest(record):
 
 
 def verify_investigation(record):
-    """Return ``record`` unchanged when it is schema-valid and its trace digest matches; else raise InputRejected."""
+    """Return ``record`` unchanged when it is schema-valid and its trace digest matches; else raise InputRejected.
+
+    The digest detects accidental edits; anyone can recompute it, so it is not an authentication of the record.
+    """
     validate("investigation", record)
     if record["trace_sha256"] != trace_digest(record):
         raise InputRejected("Investigation trace digest does not match its content")
@@ -441,7 +444,10 @@ def investigate(baseline, payload, *, as_of=None, max_probes=MAX_PROBES_DEFAULT)
     hypotheses = generate(observations)
     probes, stop = _loop(observations, hypotheses,
                          lambda probe, column: _PROBE_FUNCTIONS[probe](current, column), max_probes)
-    record = {"format_version": FORMAT, "engine": ENGINE, "catalog_version": CATALOG_VERSION, "observations": observations,
+    # The inputs the record describes (as the comparison names them) are part of the digested content.
+    record = {"format_version": FORMAT, "engine": ENGINE, "catalog_version": CATALOG_VERSION,
+              "baseline_digest": comparison["baseline_digest"], "source_sha256": comparison["source_sha256"],
+              "as_of": comparison["as_of"], "observations": observations,
               "hypotheses": hypotheses, "probes": probes, "budget": {"max_probes": max_probes, "used": len(probes)},
               "stop_reason": stop, "ranking": _rank(hypotheses), "verdict": _verdict(observations, hypotheses),
               "statement": STATEMENT}
