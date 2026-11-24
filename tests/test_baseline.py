@@ -2,6 +2,8 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 import json
+import math
+import random
 import unittest
 
 from aegisflow_dr import baseline as bl
@@ -296,3 +298,203 @@ class LoadBaselineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def series(n=400, offset=0, step=60, shift=0.0, seed=1, columns=("v", "w", "tag"), blank_tag=0, ts=None):
+    """ts, then seeded Gaussian ``v`` and ``w``, then text ``tag``; ``blank_tag`` empties that many tag cells."""
+    rng = random.Random(seed)
+    rows = [",".join(("ts",) + columns)]
+    for i in range(offset, offset + n):
+        cells = [ts(i) if ts else (START + timedelta(seconds=step * i)).isoformat()]
+        for name in columns:
+            if name == "v":
+                cells.append("%.3f" % (rng.gauss(50, 5) + shift))
+            elif name in ("w", "z"):
+                cells.append("%.3f" % rng.gauss(10, 2))
+            else:
+                cells.append("" if i - offset < blank_tag else "t%d" % (i % 4))
+        rows.append(",".join(cells))
+    return ("\n".join(rows) + "\n").encode()
+
+
+def base_record(**kw):
+    return bl.build_baseline([series(seed=10 + k, offset=400 * k, **kw) for k in range(3)])
+
+
+def keys(result):
+    return [(f["check"], f["column"]) for f in result["findings"]]
+
+
+def reasons(result):
+    return {(n["check"], n["column"]): n["reason"] for n in result["not_evaluated"]}
+
+
+class CompareTests(unittest.TestCase):
+    def test_self_comparison_is_quiet(self):
+        data = series()
+        r = bl.build_baseline([data])
+        out = bl.compare(r, data, as_of=(START + timedelta(seconds=60 * 400)).isoformat())
+        self.assertEqual((out["status"], out["findings"]), ("NO_DRIFT", []))
+        self.assertEqual(out["baseline_digest"], r["digest"])
+        self.assertEqual(out["records"], 400)
+        self.assertEqual(out["source_sha256"], r["references"][0]["sha256"])
+        for entry in r["numeric"].values():
+            self.assertEqual(bl.psi(entry["counts"], entry["counts"]), 0.0)
+        self.assertEqual(set(out), {"format_version", "engine", "baseline_digest", "source_sha256", "records", "as_of",
+                                    "findings", "not_evaluated", "status"})
+
+    def test_psi_hand_computed(self):
+        b, c = [50.5 / 101, 50.5 / 101], [90.5 / 101, 10.5 / 101]
+        expected = sum((y - x) * math.log(y / x) for x, y in zip(b, c))
+        self.assertEqual(bl.psi([50, 50], [90, 10]), round(expected, 6))
+        self.assertGreater(bl.psi([50, 50], [90, 10]), 0.5)
+
+    def test_distribution_shift_found_and_detail(self):
+        r = base_record()
+        out = bl.compare(r, series(offset=1200, seed=99, shift=15.0), as_of=None)
+        self.assertEqual(keys(out), [("distribution_shift", "v")])
+        d = out["findings"][0]["detail"]
+        self.assertGreater(d["psi"], 0.25)
+        self.assertEqual(d["threshold"], 0.25)
+        self.assertEqual(len(d["baseline_proportions"]), len(d["current_proportions"]))
+        self.assertEqual(len(d["baseline_proportions"]), len(d["edges"]) + 1)
+        self.assertAlmostEqual(sum(d["baseline_proportions"]), 1.0, places=5)
+        self.assertAlmostEqual(sum(d["current_proportions"]), 1.0, places=5)
+        self.assertGreater(d["current_mean"], d["baseline_mean"] + 10)
+        self.assertEqual(out["status"], "DRIFT")
+        json.dumps(out)
+
+    def test_sampling_ratio_boundaries(self):
+        r = base_record()
+        for step, expect in ((90, False), (91, True), (40, False), (39, True)):
+            out = bl.compare(r, series(step=step, seed=5))
+            self.assertEqual(("sampling_interval_change", "ts") in keys(out), expect, step)
+        d = bl.compare(r, series(step=91, seed=5))["findings"][0]["detail"]
+        self.assertEqual(d, {"baseline_seconds": 60, "current_seconds": 91, "ratio": round(91 / 60, 4)})
+
+    def test_volume_band(self):
+        r = base_record()
+        for n, direction in ((267, None), (266, "drop"), (600, None), (601, "increase")):
+            out = bl.compare(r, series(n=n, seed=5))
+            found = [f for f in out["findings"] if f["check"] == "volume_change"]
+            self.assertEqual([f["detail"]["direction"] for f in found], [direction] if direction else [], n)
+        d = found[0]["detail"]
+        self.assertEqual((d["baseline_min"], d["baseline_max"], d["current"]), (400, 400, 601))
+        self.assertIsNone(found[0]["column"])
+
+    def test_freshness(self):
+        r = base_record()
+        data = series(seed=5)
+        latest = START + timedelta(seconds=60 * 399)
+        ok = bl.compare(r, data, as_of=(latest + timedelta(seconds=180)).isoformat())
+        self.assertNotIn(("freshness", "ts"), keys(ok))
+        late = bl.compare(r, data, as_of=(latest + timedelta(seconds=181)).isoformat())
+        f = [x for x in late["findings"] if x["check"] == "freshness"][0]
+        self.assertEqual(f["detail"], {"lag_seconds": 181, "sla_seconds": 180, "latest": latest.isoformat()})
+        self.assertEqual(late["as_of"], (latest + timedelta(seconds=181)).isoformat())
+        self.assertEqual(reasons(bl.compare(r, data))[("freshness", "ts")], "no_as_of")
+        self.assertIsNone(bl.compare(r, data)["as_of"])
+        self.assertEqual(reasons(bl.compare(r, data, as_of="2026-01-02T00:00:00Z"))[("freshness", "ts")], "timezone_mismatch")
+        self.assertEqual(reasons(bl.compare(r, data, as_of=(latest - timedelta(seconds=1)).isoformat()))[("freshness", "ts")],
+                         "as_of_before_latest_record")
+        for bad in ("yesterday", 5, b"2026-01-01", ""):
+            with self.assertRaises(InputRejected, msg=repr(bad)):
+                bl.compare(r, data, as_of=bad)
+
+    def test_freshness_with_aware_data_and_mixed_awareness(self):
+        aware = [series(seed=10 + k, offset=400 * k, ts=lambda i: (START + timedelta(seconds=60 * i)).isoformat() + "Z")
+                 for k in range(3)]
+        r = bl.build_baseline(aware)
+        data = series(seed=5, ts=lambda i: (START + timedelta(seconds=60 * i)).isoformat() + "Z")
+        out = bl.compare(r, data, as_of="2026-01-01T07:00:00Z")
+        self.assertEqual([f["check"] for f in out["findings"]], ["freshness"])
+        self.assertEqual(reasons(bl.compare(r, data, as_of="2026-01-01T07:00:00"))[("freshness", "ts")], "timezone_mismatch")
+        naive = series(seed=5)
+        out = bl.compare(r, naive, as_of="2026-01-01T07:00:00Z")
+        self.assertEqual(reasons(out)[("freshness", "ts")], "timezone_mismatch")
+        self.assertEqual(reasons(out)[("sampling_interval_change", "ts")], "too_few_intervals")
+        half = lambda i: (START + timedelta(seconds=60 * i)).isoformat() + ("Z" if i % 2 else "")
+        out = bl.compare(r, series(seed=5, ts=half), as_of="2026-01-01T07:00:00Z")
+        self.assertEqual(out["records"], 400)
+
+    def test_empty_rate_change(self):
+        r = base_record()
+        self.assertEqual([k for k in keys(bl.compare(r, series(seed=5, blank_tag=40))) if k[0] == "empty_rate_change"], [])
+        out = bl.compare(r, series(seed=5, blank_tag=44))
+        self.assertEqual(keys(out), [("empty_rate_change", "tag")])
+        self.assertEqual(out["findings"][0]["detail"], {"baseline": 0.0, "current": 0.11})
+
+    def test_schema_changes(self):
+        r = base_record()
+        data = series(seed=5, columns=("v", "z", "tag"))
+        rows = data.decode().splitlines()
+        rows = [rows[0]] + [line.rsplit(",", 1)[0] + ",%d" % (j * 3) for j, line in enumerate(rows[1:])]
+        out = bl.compare(r, ("\n".join(rows) + "\n").encode())
+        self.assertEqual(keys(out), [("column_missing", "w"), ("column_added", "z"), ("role_change", "tag")])
+        self.assertEqual(out["findings"][2]["detail"], {"baseline": "text", "current": "numeric"})
+        self.assertNotIn(("distribution_shift", "w"), keys(out))
+        self.assertEqual(reasons(out)[("distribution_shift", "tag")], "role_changed")
+        order = [bl.CHECKS.index(f["check"]) for f in out["findings"]]
+        self.assertEqual(order, sorted(order))
+
+    def test_findings_sorted_by_check_then_column(self):
+        r = base_record()
+        out = bl.compare(r, series(n=700, seed=5, shift=20.0, step=120, blank_tag=300), as_of="2026-01-01T00:00:00")
+        self.assertEqual(keys(out), [("sampling_interval_change", "ts"), ("volume_change", None), ("empty_rate_change", "tag"),
+                                     ("distribution_shift", "v")])
+
+    def test_not_evaluated_reasons(self):
+        r = base_record()
+        no_ts = b"v,w,tag\n" + b"\n".join(b"%d,%d,x" % (i, i) for i in range(400)) + b"\n"
+        out = bl.compare(r, no_ts, as_of="2026-01-01T00:00:00")
+        self.assertEqual(keys(out)[0], ("column_missing", "ts"))
+        self.assertEqual(reasons(out)[("sampling_interval_change", "ts")], "no_time_column")
+        self.assertEqual(reasons(out)[("freshness", "ts")], "no_time_column")
+        few = bl.compare(r, series(n=30, seed=5))
+        self.assertEqual(reasons(few)[("distribution_shift", "v")], "too_few_values")
+        # constant column and short column in the baseline
+        rows = ["ts,c,s"] + ["%s,5,%s" % ((START + timedelta(seconds=60 * i)).isoformat(), i if i < 49 else "") for i in range(120)]
+        r2 = bl.build_baseline([("\n".join(rows) + "\n").encode()])
+        out = bl.compare(r2, ("\n".join(rows) + "\n").encode())
+        self.assertEqual(reasons(out), {("distribution_shift", "c"): "constant_in_baseline", ("freshness", "ts"): "no_as_of",
+                                        ("distribution_shift", "s"): "too_few_values_in_baseline"})
+        # baseline without time column
+        plain = b"a,b\n" + b"\n".join(b"%d,%d" % (i, i * 2) for i in range(60)) + b"\n"
+        r3 = bl.build_baseline([plain])
+        out = bl.compare(r3, plain, as_of="2026-01-01T00:00:00")
+        self.assertEqual(reasons(out), {("sampling_interval_change", None): "no_baseline_interval",
+                                        ("freshness", None): "no_time_column"})
+        self.assertEqual(out["status"], "NO_DRIFT")
+
+    def test_no_sla_when_no_sampling_median(self):
+        few = [series(n=5, seed=3)]
+        r = bl.build_baseline(few)
+        self.assertIsNone(r["freshness_sla_seconds"])
+        out = bl.compare(r, series(n=5, seed=3), as_of="2026-01-02T00:00:00")
+        self.assertEqual(reasons(out)[("freshness", "ts")], "no_sla")
+        self.assertEqual(reasons(out)[("sampling_interval_change", "ts")], "no_baseline_interval")
+        r = bl.build_baseline(few, freshness_sla_seconds=60)
+        out = bl.compare(r, series(n=5, seed=3), as_of="2026-01-02T00:00:00")
+        self.assertEqual(keys(out), [("freshness", "ts")])
+
+    def test_time_column_role_change_treated_as_absent(self):
+        r = base_record()
+        rows = series(seed=5).decode().splitlines()
+        text = [rows[0]] + ["id%d" % j + line[line.index(","):] for j, line in enumerate(rows[1:])]
+        out = bl.compare(r, ("\n".join(text) + "\n").encode(), as_of="2026-01-01T00:00:00")
+        self.assertIn(("role_change", "ts"), keys(out))
+        self.assertEqual(reasons(out)[("freshness", "ts")], "no_time_column")
+        self.assertEqual(reasons(out)[("sampling_interval_change", "ts")], "no_time_column")
+
+    def test_tampered_baseline_rejected_before_reading_payload(self):
+        r = base_record()
+        bad = deepcopy(r)
+        bad["numeric"]["v"]["counts"][0] += 1
+        with self.assertRaises(InputRejected):
+            bl.compare(bad, b"\xff\x00 not csv")
+        with self.assertRaises(InputRejected):
+            bl.compare(r, b"\xff\x00 not csv")
+        with self.assertRaises(InputRejected):
+            bl.compare(r, "text, not bytes")
+        with self.assertRaises(InputRejected):
+            bl.compare("nonsense", series())

@@ -180,3 +180,160 @@ def load_baseline(obj):
     if obj["digest"] != canonical_digest(obj):
         raise InputRejected("Baseline digest does not match its content")
     return obj
+
+
+def psi(baseline_counts, current_counts):
+    """Population stability index of two bin-count lists, each share smoothed with ``PSI_SMOOTH`` per bin.
+
+    A descriptive index, not a significance test.
+    """
+    bins = len(baseline_counts)
+    b_total, c_total = sum(baseline_counts) + PSI_SMOOTH * bins, sum(current_counts) + PSI_SMOOTH * bins
+    total = 0.0
+    for b_count, c_count in zip(baseline_counts, current_counts):
+        b, c = (b_count + PSI_SMOOTH) / b_total, (c_count + PSI_SMOOTH) / c_total
+        total += (c - b) * math.log(c / b)
+    return round(total, 6)
+
+
+def _sort_key(item):
+    column = item["column"]
+    return CHECKS.index(item["check"]), column is not None, column or ""
+
+
+def _sampling(base, stamps, usable):
+    if base["sampling"]["median_interval_seconds"] is None:
+        return None, "no_baseline_interval"
+    if not usable:
+        return None, "no_time_column"
+    current = interval_median(stamps)
+    if current is None:
+        return None, "too_few_intervals"
+    reference = base["sampling"]["median_interval_seconds"]
+    ratio = current / reference
+    if ratio > SAMPLING_RATIO or ratio < 1 / SAMPLING_RATIO:
+        return {"baseline_seconds": reference, "current_seconds": current, "ratio": round(ratio, 4)}, None
+    return None, None
+
+
+def _freshness(base, stamps, usable, aware, as_of_time):
+    if as_of_time is None:
+        return None, "no_as_of"
+    if not usable:
+        return None, "no_time_column"
+    sla = base["freshness_sla_seconds"]
+    if sla is None:
+        return None, "no_sla"
+    if not stamps or (as_of_time.tzinfo is not None) != aware:
+        return None, "timezone_mismatch"
+    latest = max(stamps)
+    lag = (as_of_time - latest).total_seconds()
+    if lag < 0:
+        return None, "as_of_before_latest_record"
+    if lag > sla:
+        return {"lag_seconds": lag, "sla_seconds": sla, "latest": latest.isoformat()}, None
+    return None, None
+
+
+def _shares(counts):
+    total = sum(counts)
+    return [round(c / total, 6) for c in counts]
+
+
+def _distribution(entry, values):
+    if entry["edges"] is None:
+        return None, "too_few_values_in_baseline"
+    if not entry["edges"]:
+        return None, "constant_in_baseline"
+    if len(values) < MIN_VALUES:
+        return None, "too_few_values"
+    counts = bin_counts(entry["edges"], values)
+    score = psi(entry["counts"], counts)
+    if score <= PSI_SHIFT:
+        return None, None
+    return {"psi": score, "threshold": PSI_SHIFT, "baseline_mean": entry["mean"], "current_mean": round(fmean(values), 6),
+            "baseline_sd": entry["sd"], "current_sd": round(pstdev(values), 6),
+            "baseline_proportions": _shares(entry["counts"]), "current_proportions": _shares(counts),
+            "edges": list(entry["edges"])}, None
+
+
+def compare(baseline, payload, *, as_of=None):
+    """Compare one CSV payload with a stored baseline; findings are fixed-rule differences, not causes."""
+    base = load_baseline(baseline)
+    if as_of is not None and type(as_of) is not str:
+        raise InputRejected("as_of must be a timestamp string")
+    as_of_time = None if as_of is None else parse_timestamp(as_of.strip())
+    if as_of is not None and as_of_time is None:
+        raise InputRejected("as_of is not a recognised timestamp")
+    header, rows = read_table(payload)
+    records = len(rows)
+    profiles = {name: _column(name, [row[i] for row in rows]) for i, name in enumerate(header)}
+    base_roles = {c["name"]: c["role"] for c in base["columns"]}
+    findings, skipped = [], []
+
+    def found(check, column, **detail):
+        findings.append({"check": check, "column": column, "detail": detail})
+
+    def not_evaluated(check, column, reason):
+        skipped.append({"check": check, "column": column, "reason": reason})
+
+    for name in base_roles:
+        if name not in profiles:
+            found("column_missing", name)
+    for name in header:
+        if name not in base_roles:
+            found("column_added", name)
+    shared = [name for name in header if name in base_roles]
+    for name in shared:
+        role = profiles[name][0]["role"]
+        if role != base_roles[name]:
+            found("role_change", name, baseline=base_roles[name], current=role)
+            if "numeric" in (role, base_roles[name]):
+                not_evaluated("distribution_shift", name, "role_changed")
+
+    clock = base["time_column"]
+    usable = clock in profiles and profiles[clock][0]["role"] == "timestamp"
+    aware = any(r["first"] is not None and datetime.fromisoformat(r["first"]).tzinfo is not None for r in base["references"])
+    stamps = []
+    if usable:
+        index = header.index(clock)
+        parsed = (parse_timestamp(row[index].strip()) for row in rows)
+        stamps = [ts for ts in parsed if ts is not None and (ts.tzinfo is not None) == aware]
+    detail, reason = _sampling(base, stamps, usable)
+    if detail:
+        found("sampling_interval_change", clock, **detail)
+    if reason:
+        not_evaluated("sampling_interval_change", clock, reason)
+
+    volume = base["volume"]
+    if records < volume["min_records"] / VOLUME_RATIO:
+        found("volume_change", None, baseline_min=volume["min_records"], baseline_max=volume["max_records"], current=records,
+              direction="drop")
+    elif records > volume["max_records"] * VOLUME_RATIO:
+        found("volume_change", None, baseline_min=volume["min_records"], baseline_max=volume["max_records"], current=records,
+              direction="increase")
+
+    detail, reason = _freshness(base, stamps, usable, aware, as_of_time)
+    if detail:
+        found("freshness", clock, **detail)
+    if reason:
+        not_evaluated("freshness", clock, reason)
+
+    for name in shared:
+        profile, kinds = profiles[name]
+        current_share = profile["empty"] / records
+        if current_share - base["empty_share"][name] > EMPTY_RATE_DELTA:
+            found("empty_rate_change", name, baseline=round(base["empty_share"][name], 4), current=round(current_share, 4))
+        if profile["role"] == "numeric" and base_roles[name] == "numeric":
+            values = [float(row[header.index(name)]) for row, kind in zip(rows, kinds) if kind in ("integer", "decimal")]
+            detail, reason = _distribution(base["numeric"][name], values)
+            if detail:
+                found("distribution_shift", name, **detail)
+            if reason:
+                not_evaluated("distribution_shift", name, reason)
+
+    findings.sort(key=_sort_key)
+    skipped.sort(key=_sort_key)
+    return {"format_version": FORMAT, "engine": ENGINE, "baseline_digest": base["digest"],
+            "source_sha256": hashlib.sha256(payload).hexdigest(), "records": records, "as_of": as_of,
+            "findings": findings, "not_evaluated": skipped, "status": "DRIFT" if findings else "NO_DRIFT"}
