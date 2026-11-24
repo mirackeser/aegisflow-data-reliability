@@ -62,6 +62,28 @@ assert.ok(STRINGS['hy.note'][0].includes('Probes assume one mechanism acts on a 
 assert.ok(STRINGS['hy.note'][1].includes('aynı anda tek bir mekanizmanın etkili olduğunu varsayar'),'hy.note (TR) must disclose the one-mechanism assumption');
 assert.ok(/Refuted: .*assuming one mechanism acts on the column at a time/.test(STRINGS['hy.hyp.legend'][0]),'hy.hyp.legend must qualify Refuted');
 assert.ok(/Çürütüldü: .*tek bir mekanizmanın etkili olduğu varsayımıyla/.test(STRINGS['hy.hyp.legend'][1]),'hy.hyp.legend (TR) must qualify Refuted');
+// Mechanism descriptions are hypothetical: they say what the mechanism would look like, never that it happened (final
+// review I2). Turkish must not use the reported-fact -mış/-miş/-muş/-müş forms the first draft used.
+const reportedFact=['ölçeklenmiş','kaymış','büyümüş','bırakmış','değişmiş','yüklenmiş','teslim edilmiş','geç gelmiş','dağılmış'];
+for(const m of mechanisms){
+ const [en,tr]=STRINGS['hy.mech.'+m+'.x'];
+ assert.ok(en.startsWith('If this were the change: '),`hy.mech.${m}.x must start with the conditional prefix`);
+ assert.ok(tr.startsWith('Bu değişiklik olsaydı: '),`hy.mech.${m}.x (TR) must start with the conditional prefix`);
+ assert.ok(!/\p{L}(mış|miş|muş|müş)(?!\p{L})/u.test(tr),`hy.mech.${m}.x (TR) must not state the mechanism as a reported fact`);
+}
+for(const [key,[,tr]] of Object.entries(STRINGS))
+ if(key.startsWith('hy.'))for(const word of reportedFact)assert.ok(!tr.toLocaleLowerCase('tr').includes(word),`${key} (TR): "${word}" states a mechanism as a reported fact`);
+assert.ok(!('hy.explain' in STRINGS)&&!('hy.explain.x' in STRINGS),'the button no longer says "Explain"');
+assert.deepEqual(STRINGS['hy.list'],['List candidate explanations','Aday açıklamaları listele']);
+// Turkish wording of the budget and evidence lines (final review triage).
+assert.equal(STRINGS['hy.budget'][1],'Kullanılan sınama: {used} / {max}');
+assert.equal(STRINGS['hy.ev.supports'][1],'{probe}: destekliyor ({values})');
+assert.equal(STRINGS['hy.ev.refutes'][1],'{probe}: çürütüyor ({values})');
+assert.equal(STRINGS['hy.ev.neutral'][1],'{probe}: karar yok ({values})');
+// Probe budget numbers in the UI follow the engine's constants.
+const [maxDefault,maxLimit]=engine.match(/^MAX_PROBES_DEFAULT, MAX_PROBES_LIMIT = (\d+), (\d+)$/m).slice(1);
+for(const text of STRINGS['hy.list.x'])assert.deepEqual(text.match(/\d+/g),[maxDefault],`hy.list.x must name the default budget ${maxDefault}: ${text}`);
+for(const text of STRINGS['role.A25.limit'])assert.deepEqual(text.match(/\d+/g),[maxLimit,maxDefault],`role.A25.limit must name the budget limit and default: ${text}`);
 for(const role of ['A24','A25','A28'])assert.ok(/simulated mechanisms, deterministic probes with fixed thresholds, no model/.test(STRINGS['role.'+role+'.limit'][0]),`role.${role}.limit must state its limits`);
 assert.ok(/fixed catalog of candidate mechanisms exists \(F04\), but naming a root cause needs a model and real labelled data/.test(STRINGS['role.A23.limit'][0]),'role.A23.limit must keep root cause out of reach');
 console.log(`${checked} UI strings verified: both languages present, placeholders consistent, no missing keys.`);

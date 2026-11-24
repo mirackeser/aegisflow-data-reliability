@@ -114,7 +114,7 @@ async function explainBaseline(){
  if(blResult!==forResult){blHy=null;setNotice(t('hy.err.changed'));render();return;}
  if(!error&&!hyMatches(record,forResult)){record=null;error=t('hy.err.changed');}
  blHy={result:forResult,record,error};render();
- blFocus(record?'hy-title':'hy-explain');
+ blFocus(record?'hy-title':'hy-list');
  if(error===t('bl.err.notfound'))loadBaselines(true);
 }
 async function removeBaseline(name){
@@ -337,8 +337,8 @@ function hySection(r){
  const hy=blHy&&blHy.result===r?blHy:null,pending=!!hy&&!hy.record&&!hy.error;
  return h('section',{class:'hy','aria-labelledby':'hy-title','aria-busy':pending?'true':null},
   h('h4',{id:'hy-title',tabindex:'-1',text:t('hy.title')}),
-  hy?.record?null:h('p',{class:'hint',id:'hy-explain-x',text:t('hy.explain.x')}),
-  hy?.record?null:h('div',{class:'button-row'},h('button',{type:'button',id:'hy-explain',class:'secondary','aria-describedby':'hy-explain-x',disabled:blBusy,onclick:explainBaseline},t(pending?'bl.busy':'hy.explain'))),
+  hy?.record?null:h('p',{class:'hint',id:'hy-list-x',text:t('hy.list.x')}),
+  hy?.record?null:h('div',{class:'button-row'},h('button',{type:'button',id:'hy-list',class:'secondary','aria-describedby':'hy-list-x',disabled:blBusy,onclick:explainBaseline},t(pending?'bl.busy':'hy.list'))),
   hy?.error?h('p',{class:'hint bad',role:'alert',text:hy.error}):null,
   hy?.record?hyView(hy.record):null);
 }
