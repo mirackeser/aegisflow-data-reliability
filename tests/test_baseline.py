@@ -102,19 +102,26 @@ class BuildBaselineTests(unittest.TestCase):
         self.assertEqual(aware["references"][0]["first"], "2026-01-01T00:00:00+00:00")
 
     def test_edges_counts_and_constant_column(self):
-        r = bl.build_baseline([reference(n=100, value=lambda i: i + 1)])
+        r = bl.build_baseline([reference(n=200, value=lambda i: i + 1)])
         entry = r["numeric"]["v"]
         self.assertEqual(len(entry["edges"]), 9)
         self.assertTrue(all(a < b for a, b in zip(entry["edges"], entry["edges"][1:])))
         self.assertEqual(len(entry["counts"]), 10)
-        self.assertEqual(sum(entry["counts"]), 100)
-        self.assertEqual((entry["mean"], entry["median"], entry["count"]), (50.5, 50.5, 100))
-        flat = bl.build_baseline([reference(n=60, value=lambda i: 3)])["numeric"]["v"]
-        self.assertEqual((flat["edges"], flat["counts"], flat["sd"]), ([], [60], 0.0))
-        few = bl.build_baseline([reference(n=49)])["numeric"]["v"]
+        self.assertEqual(sum(entry["counts"]), 200)
+        self.assertEqual((entry["mean"], entry["median"], entry["count"]), (100.5, 100.5, 200))
+        flat = bl.build_baseline([reference(n=160, value=lambda i: 3)])["numeric"]["v"]
+        self.assertEqual((flat["edges"], flat["counts"], flat["sd"]), ([], [160], 0.0))
+        few = bl.build_baseline([reference(n=149)])["numeric"]["v"]
         self.assertIsNone(few["edges"])
         self.assertIsNone(few["counts"])
-        self.assertEqual(few["count"], 49)
+        self.assertEqual(few["count"], 149)
+        enough = bl.build_baseline([reference(n=150)])["numeric"]["v"]
+        self.assertEqual((sum(enough["counts"]), enough["count"]), (150, 150))
+
+    def test_min_values_is_150(self):
+        # Set analytically before the held-out split was scored: (bins - 1) / n_current <= PSI_SHIFT / 4 with 10 bins.
+        self.assertEqual(bl.MIN_VALUES, 150)
+        self.assertGreaterEqual(bl.MIN_VALUES, 9 / (bl.PSI_SHIFT / 4))
 
     def test_empty_share_and_empty_column(self):
         data = reference(n=50, value=lambda i: "" if i < 10 else i, tag=lambda i: "")
@@ -292,7 +299,8 @@ class LoadBaselineTests(unittest.TestCase):
         for name, edit in cases.items():
             with self.assertRaises(InputRejected, msg=name):
                 bl.load_baseline(forge(r, edit) if name != "digest_type" else {**r, "digest": 5})
-        constant = bl.build_baseline([reference(n=60, value=lambda i: 3)])
+        constant = bl.build_baseline([reference(n=160, value=lambda i: 3)])
+        self.assertEqual(constant["numeric"]["v"]["edges"], [])
         self.assertEqual(bl.load_baseline(json.loads(json.dumps(constant))), constant)
         self.assertEqual(bl.load_baseline(forge(constant, lambda x: None)), forge(constant, lambda x: None))
 
@@ -472,16 +480,18 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(keys(out)[0], ("column_missing", "ts"))
         self.assertEqual(reasons(out)[("sampling_interval_change", "ts")], "no_time_column")
         self.assertEqual(reasons(out)[("freshness", "ts")], "no_time_column")
-        few = bl.compare(r, series(n=30, seed=5))
+        few = bl.compare(r, series(n=149, seed=5))
         self.assertEqual(reasons(few)[("distribution_shift", "v")], "too_few_values")
+        self.assertNotIn(("distribution_shift", "v"), reasons(bl.compare(r, series(n=150, seed=5))))
+        self.assertIn("v", bl.compare(r, series(n=150, seed=5))["measurements"]["psi"])
         # constant column and short column in the baseline
-        rows = ["ts,c,s"] + ["%s,5,%s" % ((START + timedelta(seconds=60 * i)).isoformat(), i if i < 49 else "") for i in range(120)]
+        rows = ["ts,c,s"] + ["%s,5,%s" % ((START + timedelta(seconds=60 * i)).isoformat(), i if i < 149 else "") for i in range(200)]
         r2 = bl.build_baseline([("\n".join(rows) + "\n").encode()])
         out = bl.compare(r2, ("\n".join(rows) + "\n").encode())
         self.assertEqual(reasons(out), {("distribution_shift", "c"): "constant_in_baseline", ("freshness", "ts"): "no_as_of",
                                         ("distribution_shift", "s"): "too_few_values_in_baseline"})
         # baseline without time column
-        plain = b"a,b\n" + b"\n".join(b"%d,%d" % (i, i * 2) for i in range(60)) + b"\n"
+        plain = b"a,b\n" + b"\n".join(b"%d,%d" % (i, i * 2) for i in range(200)) + b"\n"
         r3 = bl.build_baseline([plain])
         out = bl.compare(r3, plain, as_of="2026-01-01T00:00:00")
         self.assertEqual(reasons(out), {("sampling_interval_change", None): "no_baseline_interval",

@@ -42,8 +42,12 @@ with `profiling.read_table` (so the same 1 MB / 20,000-record / 40-column limits
   method="inclusive")`), sorted and de-duplicated; a value goes to bin `bisect.bisect_right(edges, v)`, so there are
   `len(edges) + 1` bins. `counts` are the baseline values per bin (integers summing to `count`). When `edges` is empty (a
   constant column) the entry is `{"count", "mean", "sd", "median", "edges": [], "counts": [count]}` and the column is
-  reported `not_evaluated` with reason `constant_in_baseline` at comparison time. When fewer than `MIN_VALUES` (50) numeric
+  reported `not_evaluated` with reason `constant_in_baseline` at comparison time. When fewer than `MIN_VALUES` (150) numeric
   values exist, `edges`/`counts` are `None` and comparison reports `too_few_values_in_baseline`.
+- `MIN_VALUES` = 150 (amendment 2026-11-24, previously 50): with no change, E[PSI] ≈ (B − 1)(1/n_baseline + 1/n_current)
+  for B = 10 bins; requiring the current-size term (B − 1)/n_current ≤ `PSI_SHIFT` / 4 gives n_current ≥ 144, rounded to
+  150. It was set before the held-out split was scored, after an independent reviewer's null simulation showed
+  P(PSI > 0.25) ≈ 0.20 at 50 values. The same minimum applies to the baseline and the current file.
 - `digest`: SHA-256 hex of the canonical JSON (`sort_keys=True, separators=(",", ":"), ensure_ascii=False`) of every
   other field.
 
@@ -83,7 +87,7 @@ sorted by `CHECKS` order then column name (`None` first). Checks, in order:
 | `volume_change` | finding when records < `min_records` / `VOLUME_RATIO` (1.5) or > `max_records` x 1.5; detail `{"baseline_min", "baseline_max", "current", "direction": "drop" | "increase"}`; column `None`. |
 | `freshness` | needs `as_of`, a time column and an SLA (else `not_evaluated`, reasons `no_as_of`, `no_time_column`, `no_sla`). `as_of` is parsed with `profiling.parse_timestamp`; an unparsable string raises `InputRejected`. Awareness must match the data (else reason `timezone_mismatch`). lag = as_of − latest current timestamp in seconds; lag < 0 gives reason `as_of_before_latest_record`. Finding when lag > SLA; detail `{"lag_seconds", "sla_seconds", "latest"}`. Column = time column. |
 | `empty_rate_change` | column in both; current empty share − baseline empty share > `EMPTY_RATE_DELTA` (0.10); detail `{"baseline", "current"}` rounded to 4. |
-| `distribution_shift` | numeric in both with baseline edges; needs ≥ 50 current numeric values (else reason `too_few_values`). Current values are binned with the baseline edges. PSI = Σ (c − b) ln(c / b) over bins, where b and c are bin shares after adding `PSI_SMOOTH` (0.5) to every bin count on both sides. Finding when PSI > `PSI_SHIFT` (0.25); detail `{"psi", "threshold", "baseline_mean", "current_mean", "baseline_sd", "current_sd", "baseline_proportions", "current_proportions", "edges"}` (floats rounded to 6). The decision is PSI only; mean/sd are context. |
+| `distribution_shift` | numeric in both with baseline edges; needs ≥ `MIN_VALUES` (150) current numeric values (else reason `too_few_values`). Current values are binned with the baseline edges. PSI = Σ (c − b) ln(c / b) over bins, where b and c are bin shares after adding `PSI_SMOOTH` (0.5) to every bin count on both sides. Finding when PSI > `PSI_SHIFT` (0.25); detail `{"psi", "threshold", "baseline_mean", "current_mean", "baseline_sd", "current_sd", "baseline_proportions", "current_proportions", "edges"}` (floats rounded to 6). The decision is PSI only; mean/sd are context. |
 
 The PSI threshold 0.25 is the conventional "significant population shift" rule of thumb in credit-risk practice, chosen before
 any measurement; 1.5 for sampling and volume ratios, 3 intervals for freshness and 0.10 for empty share are design choices

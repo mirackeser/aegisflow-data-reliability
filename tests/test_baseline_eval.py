@@ -242,7 +242,35 @@ class MutantTests(unittest.TestCase):
 class SensitivityAndReportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = be.main()
+        cls.null = be.null_psi()
+        with mock.patch.object(be, "null_psi", return_value=cls.null):
+            cls.text = be.main()
+
+    def test_null_psi_is_seeded_and_corpus_independent(self):
+        self.assertEqual([row["n_current"] for row in self.null], [150, 200, 400])
+        for row in self.null:
+            self.assertEqual((row["n_baseline"], row["draws"]), (1200, 1000))
+            self.assertEqual(row["expected"], round(9 * (1 / 1200 + 1 / row["n_current"]), 6))
+            self.assertLess(abs(row["mean_psi"] - row["expected"]), 0.02, row)
+            self.assertTrue(0 <= row["above"] <= row["draws"])
+        means = [row["mean_psi"] for row in self.null]
+        self.assertEqual(means, sorted(means, reverse=True))
+        self.assertEqual(be.null_psi(draws=20), be.null_psi(draws=20))
+        with mock.patch.object(be, "split_of", side_effect=AssertionError("corpus used")), \
+                mock.patch.object(be, "generate", side_effect=AssertionError("corpus used")):
+            self.assertEqual(be.null_psi(draws=20), be.null_psi(draws=20))
+
+    def test_report_shows_the_null_table(self):
+        self.assertIn("E[PSI] ≈ (B − 1)(1/n_baseline + 1/n_current)", self.text)
+        self.assertIn("`MIN_VALUES = 150`", self.text)
+        for row in self.null:
+            self.assertIn("| %d | %.4f | %.4f | %d/%d |" % (row["n_current"], row["mean_psi"], row["expected"], row["above"],
+                                                           row["draws"]), self.text)
+        self.assertLess(self.text.index("E[PSI]"), self.text.index("## Sensitivity"))
+
+    def test_docstring_describes_the_generator(self):
+        self.assertNotIn("slowly varying", be.__doc__)
+        self.assertIn("i.i.d.", be.__doc__)
 
     def test_sensitivity_is_development_only_and_monotone_in_cases(self):
         sweep = be.sensitivity()
@@ -261,17 +289,25 @@ class SensitivityAndReportTests(unittest.TestCase):
         for phrase in ("Synthetic generated series only", "no real sensors", "not a significance test", "no p-value",
                        "no root cause", "chosen by the authors of the checks", "not fitted", "n/a", "PSI_SHIFT = 0.25",
                        "only partly detected by design", "development sensitivity table", "less than whole seasonal cycles",
-                       "Partial cycles can raise PSI", "`clean_partial_cycle` (350 records, 3.5 cycles)",
-                       "`volume_drop` (160 records, 1.6 cycles)"):
+                       "Fewer records raise PSI sampling noise on every column", "i.i.d. ones included",
+                       "add a further shift on `temp_c`", "no-change PSI table",
+                       "`clean_partial_cycle` (350 records, 3.5 cycles)", "`volume_drop` (160 records, 1.6 cycles)",
+                       "development 37, validation 14 and held-out 9 groups", "its intervals are wide",
+                       "a perfect 9/9 has a Wilson 95% lower bound of 70.1%",
+                       "keys from the same group are correlated", "optimistic",
+                       "case-level rates are the more conservative reading"):
             self.assertIn(phrase, self.text)
+        self.assertNotIn("Partial cycles can raise PSI on `temp_c` without", self.text)
+        self.assertNotIn("60%", self.text)
 
     def test_include_heldout_flag_requests_the_heldout_split(self):
         with mock.patch.object(be, "evaluate", return_value="report") as evaluate, \
                 mock.patch.object(be, "sensitivity", return_value="sweep"), \
+                mock.patch.object(be, "null_psi", return_value="null"), \
                 mock.patch.object(be, "render_markdown", return_value="text") as render:
             self.assertEqual(be.main(["--include-heldout"]), "text")
             evaluate.assert_called_once_with(splits=("development", "validation", "heldout"))
-            render.assert_called_once_with("report", "sweep")
+            render.assert_called_once_with("report", "sweep", "null")
             be.main([])
             evaluate.assert_called_with(splits=("development", "validation"))
 

@@ -3,8 +3,8 @@
 
 The record holds column names, roles, counts, shares, means, standard deviations, medians and
 decile edges. It holds no record, identifier or text value; decile edges are derived numeric
-values and reveal approximate ranges. Thresholds are fixed rules of thumb written down before
-any measurement, not guarantees for any real sensor. Nothing here infers a root cause.
+values and reveal approximate ranges. Thresholds are fixed rules of thumb written down before any measurement,
+not guarantees for any real sensor. Nothing here infers a root cause.
 """
 from bisect import bisect_right
 from datetime import datetime
@@ -17,7 +17,12 @@ from .pipeline import InputRejected
 from .profiling import MAX_COLUMNS, _column, parse_timestamp, read_table
 
 FORMAT, ENGINE = "1", "deterministic-baseline-v1"
-MAX_REFERENCES, MIN_DELTAS, MIN_VALUES = 5, 10, 50
+MAX_REFERENCES, MIN_DELTAS = 5, 10
+# Fewest numeric values for decile edges (baseline) and for a PSI comparison (current). With no change,
+# E[PSI] ~ (B - 1)(1/n_baseline + 1/n_current) for B = 10 bins. Requiring the current-size term
+# (B - 1)/n_current <= PSI_SHIFT / 4 gives n_current >= 144, rounded to 150. Set before the held-out split was
+# scored, after an independent null simulation showed P(PSI > 0.25) ~ 0.20 at the earlier minimum of 50.
+MIN_VALUES = 150
 FRESHNESS_INTERVALS, SAMPLING_RATIO, VOLUME_RATIO = 3, 1.5, 1.5
 EMPTY_RATE_DELTA, PSI_SHIFT, PSI_SMOOTH = 0.10, 0.25, 0.5
 CHECKS = ("column_missing", "column_added", "role_change", "sampling_interval_change", "volume_change", "freshness",
