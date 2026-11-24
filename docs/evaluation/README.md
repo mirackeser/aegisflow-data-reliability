@@ -27,3 +27,13 @@ drifts from what the code produces.
 - 100% on this corpus is expected for simple deterministic rules whose contract the corpus was built from. It is **not**
   evidence about real data, unseen fault kinds, other schemas, or any language model. The fault kinds were chosen by the
   same authors who wrote the contract; independent, real-world labelled data would be needed to say more.
+
+## Profiling evaluation (sensor-style series)
+
+`python -m aegisflow_dr.profiling_eval` scores the generic profiling checks (`profiling.profile_csv`) against injected faults in
+generated series: large and small spikes, flat lines, time gaps, repeated and out-of-order timestamps, null bursts and
+corrupted values, plus clean series that must stay quiet. `profiling.md` is the committed report and a test fails if it drifts.
+It uses the same discipline as above (hash-assigned development, validation and held-out groups, record-level truth from the
+injector, Wilson intervals, `n/a` instead of 100% when nothing could be measured) and adds three things: a threshold sweep on
+the development split only, a measured false-alarm rate on clean series, and column-level scoring where the finding lists too
+few records to score by record. Scope: synthetic series only; nothing here is evidence about real sensors or a language model.

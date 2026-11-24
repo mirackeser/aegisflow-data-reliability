@@ -327,6 +327,27 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(len(call('GET','/api/knowledge')[1]['documents']),6)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_profile_finds_injected_faults_and_refuses_bad_requests(self):
+  import json
+  server=make_server(self.w,'pf-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  def call(body,headers=None,mime='text/csv',length=None):
+   c=HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+   h={'Authorization':'Bearer pf-token'} if headers is None else dict(headers)
+   h.update({'Content-Type':mime,'Content-Length':str(len(body) if length is None else length)})
+   c.request('POST','/api/profile',body=body,headers=h);r=c.getresponse();value=(r.status,json.loads(r.read() or b'{}'));c.close();return value
+  rows=['ts,temp']+['2026-01-01T00:%02d:%02d,%.3f'%(i//60,i%60,20+i*0.01+(0.1 if i%2 else -0.1)) for i in range(60)]
+  rows[31]='2026-01-01T00:00:30,29.900'
+  try:
+   status,report=call(('\n'.join(rows)+'\n').encode())
+   self.assertEqual((status,report['status'],report['time_column'],report['records']),(200,'FINDINGS',"ts",60))
+   self.assertIn(('outlier','temp',[31]),[(f['check'],f['column'],f['records']) for f in report['findings']])
+   self.assertEqual(call(b'a\n1\n',headers={})[0],403)
+   self.assertEqual(call(b'a\n1\n',mime='application/json')[0],403)
+   self.assertEqual(call(b'a,a\n1,2\n')[0],422)
+   self.assertEqual(call(b'\xff\xfe')[0],422)
+   self.assertEqual(call(b'a\n1\n',length=1000001)[0],413)
+  finally:
+   server.shutdown();server.server_close();thread.join()
  def test_http_schema_registry_register_contract_drift_and_refusals(self):
   import json
   server=make_server(self.w,'sr-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
