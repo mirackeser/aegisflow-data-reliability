@@ -137,14 +137,21 @@ made in this document, not fitted. PSI on autocorrelated series is not a hypothe
 - `apps/local/baseline_store.py`: named baselines (slug of 1–64 characters `[a-z0-9_-]`, Turkish letters folded as in the
   knowledge base), at most 50, in `baselines.json`, written atomically with mode 0600; loading re-validates every record with
   `load_baseline` and, on any failure, moves the file aside to `baselines.rejected.json` and starts empty (same policy as
-  `schema_store`). Saving an existing name requires `replace: true`.
+  `schema_store`). Saving an existing name requires `replace: true`. A write builds the new mapping, writes it, and only
+  then replaces the in-memory state, so a failed write leaves memory and disk in agreement.
 - Endpoints (session-authorized like the others): `GET /api/baselines` (names, created time, reference count, records, time
-  column, digest), `POST /api/baselines/save` JSON `{"name", "references": [csv text, ...], "freshness_sla_seconds"?,
-  "replace"?}` (body ≤ 5,300,000 bytes), `POST /api/baselines/compare` JSON `{"name", "csv", "as_of"?}`, `POST
-  /api/baselines/remove` JSON `{"name"}`. `InputRejected` → 422 with the message, malformed → 400, unknown name → 404.
+  column, `time_aware` (true/false, `null` without a time column), digest), `POST /api/baselines/save` JSON
+  `{"name", "references_b64": [base64 file bytes, ...], "freshness_sla_seconds"?, "replace"?}` (body ≤ 7,200,000 bytes),
+  `POST /api/baselines/compare` JSON `{"name", "csv_b64", "as_of"?}` (body ≤ 1,400,000 bytes), `POST
+  /api/baselines/remove` JSON `{"name"}`. Amendment (2026-11-24, final review): files travel as base64 of their exact
+  bytes (decoded with `base64.b64decode(value, validate=True)`), so the stored SHA-256 values equal the files' own hashes
+  (BOM included) and non-UTF-8 files are refused like every other upload; the caps cover base64 of a 1 MB CSV plus the
+  JSON around it. `InputRejected` (bad base64 included) → 422 with the message, malformed → 400, unknown name → 404.
 - Data sources page: a "Compare with a baseline" panel (EN/TR) next to the profile panel: choose 1–5 reference files and a
   name to save a baseline; pick a saved baseline and compare the selected file with an optional "as of" time and a "Use now"
-  button. Result: status chip; four summary tiles (sampling interval, volume, freshness, distribution) showing baseline vs
+  button. For a time-zone-aware baseline the entered local time is sent as a UTC instant (`…Z`); for a naive baseline the
+  operator says whether the data's timestamps are local time or UTC, "Use now" fills now in that clock, and the value is
+  sent without a time zone. A one-line hint names the clock in use. Result: status chip; four summary tiles (sampling interval, volume, freshness, distribution) showing baseline vs
   current and ok / changed / not evaluated; a PSI bar per numeric column with the 0.25 threshold marked; for a selected
   column a paired bar chart of baseline vs current bin shares; a list of findings and of not-evaluated checks with
   reasons; the honest scope note. Keyboard reachable, labelled controls, text alternatives for charts, works on mobile.

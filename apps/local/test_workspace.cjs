@@ -78,3 +78,44 @@ assert.deepEqual(P.roleView(map,undefined).roles.map(r=>r.current),[null,null,nu
 assert.deepEqual(P.roleView(map,planned,'planned').roles.map(r=>r.agent_id),['A01']);
 assert.equal(P.roleView(map,planned,'all').roles.length,3);assert.equal(P.roleView(undefined,undefined).roles.length,0);
 console.log('role view verified.');
+// Baseline panel helpers: exact file bytes as base64, and the "as of" clock follows the baseline's timestamps.
+{
+ process.env.TZ='Europe/Istanbul';
+ const vm=require('node:vm'),fs=require('node:fs');
+ const context=vm.createContext({btoa,Uint8Array,String,Number,Date,Math,Promise,console});
+ vm.runInContext(fs.readFileSync(__dirname+'/baseline.js','utf8'),context);
+ const run=code=>vm.runInContext(code,context);
+ const file=bytes=>({arrayBuffer:async()=>Uint8Array.from(bytes).buffer});
+ const big=Array.from({length:100003},(_,i)=>(i*37)%256);
+ Promise.all([context.blBase64(file([0xef,0xbb,0xbf,0xff])),context.blBase64(file(big)),context.blBase64(file([]))]).then(([bom,large,empty])=>{
+  assert.equal(bom,'77u//w==');
+  assert.equal(large,Buffer.from(big).toString('base64'));
+  assert.equal(empty,'');
+  console.log('baseline file bytes verified.');
+ });
+ run("blAsOf='2026-11-24T10:00:00'");
+ assert.equal(context.blAsOfForRequest({time_aware:true}),'2026-11-24T07:00:00Z');
+ run("blAsOf='2026-11-24T10:00'");
+ assert.equal(context.blAsOfForRequest({time_aware:true}),'2026-11-24T07:00:00Z');
+ assert.equal(context.blAsOfForRequest({time_aware:false}),'2026-11-24T10:00');
+ assert.equal(context.blAsOfForRequest({time_aware:null}),'2026-11-24T10:00');
+ assert.equal(context.blAsOfForRequest(null),'2026-11-24T10:00');
+ run("blAsOf=''");
+ assert.equal(context.blAsOfForRequest({time_aware:true}),'');
+ const pattern=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+ const local=context.blNow(),utc=context.blNow(true);
+ assert.match(local,pattern);assert.match(utc,pattern);
+ // Istanbul is UTC+3 all year: the local wall clock is three hours ahead of UTC.
+ const gap=(Date.parse(local+'Z')-Date.parse(utc+'Z'))/1000;
+ assert.ok(Math.abs(gap-10800)<=2,`local minus UTC is ${gap} s`);
+ run("blList={baselines:[{name:'a',time_aware:true},{name:'b',time_aware:false},{name:'c',time_aware:null}]}");
+ assert.equal(context.blAsOfHint(context.blEntry('a')),'bl.asof.x.aware');
+ assert.equal(context.blAsOfHint(context.blEntry('b')),'bl.asof.x.local');
+ assert.equal(context.blAsOfHint(context.blEntry('c')),'bl.asof.x.none');
+ assert.equal(context.blAsOfHint(context.blEntry('missing')),'bl.asof.x.none');
+ run("blClock='utc'");
+ assert.equal(context.blAsOfHint(context.blEntry('b')),'bl.asof.x.utc');
+ assert.equal(context.blClockField(context.blEntry('a')),null);
+ assert.equal(context.blClockField(context.blEntry('c')),null);
+ console.log('baseline as-of clock verified.');
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Baseline comparison panel: save a stored summary of earlier CSV files and compare the selected file with it.
 // Every number shown comes from the compare result; PSI is a descriptive index, not a significance test, and no cause is inferred.
-let blList=null,blLoading=false,blLoadFailed=false,blFiles=null,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blColumn=null;
+let blList=null,blLoading=false,blLoadFailed=false,blFiles=null,blName='',blRefs=[],blSla='',blChoice='',blAsOf='',blBusy=false,blSaveError='',blCompareError='',blResult=null,blResultFile=null,blColumn=null,blClock='local';
 const BL_MAX_REFS=5,BL_MAX_BYTES=1000000,BL_THRESHOLD=0.25;
 const BL_TRANSLIT={'ı':'i','ß':'ss','ø':'o','đ':'d','ł':'l','æ':'ae','œ':'oe'};
 // Mirrors baseline_store.slug so an existing name can be confirmed before it is replaced.
@@ -10,7 +10,25 @@ function blSlug(name){
  return folded.replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64).replace(/^-+|-+$/g,'');
 }
 function blPad(n){return String(n).padStart(2,'0');}
-function blNow(){const d=new Date();return `${d.getFullYear()}-${blPad(d.getMonth()+1)}-${blPad(d.getDate())}T${blPad(d.getHours())}:${blPad(d.getMinutes())}:${blPad(d.getSeconds())}`;}
+// Wall-clock "now" for the datetime-local field: this computer's local time, or UTC when the data's naive stamps are UTC.
+function blNow(utc=false){
+ const d=new Date(),f=utc?['getUTCFullYear','getUTCMonth','getUTCDate','getUTCHours','getUTCMinutes','getUTCSeconds']:['getFullYear','getMonth','getDate','getHours','getMinutes','getSeconds'];
+ const [y,mo,da,ho,mi,se]=f.map(k=>d[k]());
+ return `${y}-${blPad(mo+1)}-${blPad(da)}T${blPad(ho)}:${blPad(mi)}:${blPad(se)}`;
+}
+function blEntry(name){return (blList?.baselines||[]).find(b=>b.name===name)||null;}
+// Time-zone-aware data gets the entered local time as an explicit UTC instant; naive data gets the wall-clock value as typed.
+function blAsOfForRequest(entry){
+ if(!blAsOf||entry?.time_aware!==true)return blAsOf;
+ const instant=new Date(blAsOf);
+ return Number.isNaN(instant.getTime())?blAsOf:instant.toISOString().replace(/\.\d{3}Z$/,'Z');
+}
+// Exact file bytes as base64, so the server hashes and decodes the file itself (BOM and invalid UTF-8 included).
+async function blBase64(file){
+ const bytes=new Uint8Array(await file.arrayBuffer());let text='';
+ for(let i=0;i<bytes.length;i+=0x8000)text+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));
+ return btoa(text);
+}
 function blRound(v,digits=1){const f=10**digits;return Math.round(v*f)/f;}
 function blDur(s){
  if(s===null||s===undefined)return '—';
@@ -45,8 +63,8 @@ async function saveBaseline(){
  if(exists&&!confirm(t('bl.confirm.replace',{name:key})))return;
  blBusy=true;blSaveError='';render();
  try{
-  const references=await Promise.all(blRefs.map(f=>f.text()));
-  const body={name,references,replace:exists};
+  const references_b64=await Promise.all(blRefs.map(blBase64));
+  const body={name,references_b64,replace:exists};
   if(blSla.trim())body.freshness_sla_seconds=Number(blSla.trim());
   const saved=await request('/api/baselines/save','POST',JSON.stringify(body),JSON_HEADERS);
   blChoice=saved.name;blRefs=[];blName='';if(blFiles)blFiles.value='';
@@ -63,8 +81,8 @@ async function compareBaseline(){
  blBusy=true;blCompareError='';render();
  const file=selectedFile;
  try{
-  const body={name:blChoice,csv:await file.text()};
-  if(blAsOf)body.as_of=blAsOf;
+  const body={name:blChoice,csv_b64:await blBase64(file)};
+  if(blAsOf)body.as_of=blAsOfForRequest(blEntry(blChoice));
   blResult=await request('/api/baselines/compare','POST',JSON.stringify(body),JSON_HEADERS);blResultFile=file;
   const changed=blResult.findings.find(f=>f.check==='distribution_shift');
   blColumn=changed?changed.column:Object.keys(blResult.measurements.psi)[0]||null;
@@ -251,23 +269,36 @@ function blSaveForm(){
    h('button',{type:'button',class:'secondary','aria-label':t('bl.remove.label',{name:b.name}),disabled:blBusy,onclick:()=>removeBaseline(b.name)},t('bl.remove'))))))
    :h('p',{class:'hint',text:t('bl.saved.none')}));
 }
+// Which clock the "as of" field uses depends on the chosen baseline's timestamps.
+function blAsOfHint(entry){
+ if(!entry||entry.time_aware===null)return 'bl.asof.x.none';
+ if(entry.time_aware)return 'bl.asof.x.aware';
+ return blClock==='utc'?'bl.asof.x.utc':'bl.asof.x.local';
+}
+function blClockField(entry){
+ if(entry?.time_aware!==false)return null;
+ return h('div',{class:'bl-field'},h('label',{for:'bl-clock',text:t('bl.clock')}),
+  h('select',{id:'bl-clock',onchange:e=>{blClock=e.target.value;render();blFocus('bl-clock');}},
+   ['local','utc'].map(v=>h('option',{value:v,selected:v===blClock,text:t('bl.clock.'+v)}))));
+}
 function blCompareForm(){
  const names=blList?.baselines||[];
  if(blList&&blChoice&&!names.some(b=>b.name===blChoice))blChoice='';
  if(!blChoice&&names.length)blChoice=names[0].name;
- const tooBig=selectedFile&&selectedFile.size>BL_MAX_BYTES;
+ const tooBig=selectedFile&&selectedFile.size>BL_MAX_BYTES,entry=blEntry(blChoice),naive=entry?.time_aware===false;
  const compareButton=h('button',{type:'submit',class:'primary',disabled:blBusy||!selectedFile||!blChoice||tooBig},t(blBusy?'bl.busy':'bl.compare'));
  return h('form',{class:'bl-form','aria-labelledby':'bl-compare-title',novalidate:true,onsubmit:e=>{e.preventDefault();compareBaseline();}},
   h('h4',{id:'bl-compare-title',text:t('bl.compare.title')}),
   h('div',{class:'bl-field'},h('label',{for:'bl-choice',text:t('bl.choice')}),
-   h('select',{id:'bl-choice',disabled:!names.length,onchange:e=>{blChoice=e.target.value;blCompareError='';if(blResult){blResult=null;render();blFocus('bl-choice');}else compareButton.disabled=blBusy||!selectedFile||!blChoice||tooBig;}},
+   h('select',{id:'bl-choice',disabled:!names.length,onchange:e=>{blChoice=e.target.value;blCompareError='';blResult=null;render();blFocus('bl-choice');}},
     names.length?names.map(b=>h('option',{value:b.name,selected:b.name===blChoice,text:b.name})):h('option',{value:'',text:t('bl.saved.none')}))),
   h('div',{class:'bl-field'},h('span',{class:'bl-label',text:t('bl.current')}),
    h('p',{class:'file-state',text:selectedFile?selectedFile.name:t('bl.current.none')})),
+  blClockField(entry),
   h('div',{class:'bl-field'},h('label',{for:'bl-asof',text:t('bl.asof')}),
    h('div',{class:'bl-inline'},h('input',{id:'bl-asof',type:'datetime-local',step:'1',value:blAsOf,'aria-describedby':'bl-asof-hint',oninput:e=>{blAsOf=e.target.value;}}),
-    h('button',{type:'button',class:'secondary',onclick:()=>{blAsOf=blNow();const input=document.getElementById('bl-asof');if(input)input.value=blAsOf;}},t('bl.now'))),
-   h('small',{id:'bl-asof-hint',text:t('bl.asof.x')})),
+    h('button',{type:'button',class:'secondary',onclick:()=>{blAsOf=blNow(naive&&blClock==='utc');const input=document.getElementById('bl-asof');if(input)input.value=blAsOf;}},t('bl.now'))),
+   h('small',{id:'bl-asof-hint',text:t(blAsOfHint(entry))})),
   tooBig?h('p',{class:'hint bad',text:t('err.size')}):null,
   blCompareError?h('p',{class:'hint bad',role:'alert',text:blCompareError}):null,
   h('div',{class:'button-row'},compareButton));

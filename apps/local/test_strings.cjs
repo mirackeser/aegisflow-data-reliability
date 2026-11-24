@@ -31,7 +31,7 @@ for(const check of ['column_missing','column_added','role_change','sampling_inte
  assert.ok(STRINGS['bl.check.'+check],`baseline check ${check} has no label`);
 for(const reason of ['no_baseline_interval','too_few_intervals','no_as_of','no_time_column','no_sla','timezone_mismatch','as_of_before_latest_record','too_few_values','too_few_values_in_baseline','constant_in_baseline','role_changed'])
  assert.ok(STRINGS['bl.reason.'+reason],`baseline reason ${reason} is not explained`);
-for(const key of ['bl.state.ok','bl.state.changed','bl.state.skipped','bl.d.volume.drop','bl.d.volume.increase','bl.explain.column_missing','bl.explain.column_added','bl.status.DRIFT','bl.status.NO_DRIFT','bl.tile.sampling','bl.tile.volume','bl.tile.freshness','bl.tile.distribution'])
+for(const key of ['bl.asof.x.aware','bl.asof.x.local','bl.asof.x.utc','bl.asof.x.none','bl.clock.local','bl.clock.utc','bl.state.ok','bl.state.changed','bl.state.skipped','bl.d.volume.drop','bl.d.volume.increase','bl.explain.column_missing','bl.explain.column_added','bl.status.DRIFT','bl.status.NO_DRIFT','bl.tile.sampling','bl.tile.volume','bl.tile.freshness','bl.tile.distribution'])
  assert.ok(STRINGS[key],`${key} is missing`);
 // The privacy note must not overclaim: medians and decile edges are values from the data.
 assert.ok(STRINGS['bl.note'][0].includes('medians and decile edges are values from the data and reveal approximate ranges'),'bl.note must say decile edges reveal approximate ranges');
