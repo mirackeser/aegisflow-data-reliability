@@ -58,6 +58,18 @@ def _canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
+def _encode(kind, obj):
+    """(reference, canonical bytes) of ``obj`` stored under ``kind``."""
+    if type(kind) is not str or not _KIND.fullmatch(kind):
+        raise InputRejected("Invalid evidence kind")
+    try:
+        body = _canonical(obj)
+    except (TypeError, ValueError, RecursionError):
+        raise InputRejected("Evidence must be finite JSON") from None
+    digest = sha256(body).hexdigest()
+    return {"id": "%s:%s" % (kind, digest[:32]), "sha256": digest}, body
+
+
 class EvidenceStore:
     """In-memory, digest-addressed, bounded and thread-safe store of JSON evidence for one run."""
 
@@ -67,26 +79,27 @@ class EvidenceStore:
 
     def put(self, kind, obj):
         """Store ``obj`` under ``kind``; return its reference. Storing equal content twice returns the same reference."""
-        if type(kind) is not str or not _KIND.fullmatch(kind):
-            raise InputRejected("Invalid evidence kind")
-        try:
-            body = _canonical(obj)
-        except (TypeError, ValueError, RecursionError):
-            raise InputRejected("Evidence must be finite JSON") from None
-        digest = sha256(body).hexdigest()
-        ref = {"id": "%s:%s" % (kind, digest[:32]), "sha256": digest}
+        ref, body = _encode(kind, obj)
+        return self._store(ref, kind, body)
+
+    def _store(self, ref, kind, body, used=(0, 0), *, bounded=True):
         with self._lock:
             stored = self._items.get(ref["id"])
             if stored is not None:
-                if stored[1] != digest:  # a 128-bit prefix collision; refuse rather than alias
+                if stored[1] != ref["sha256"]:  # a 128-bit prefix collision; refuse rather than alias
                     raise InputRejected("Evidence identifier collision")
                 return dict(ref)
-            if len(self._items) >= self._max_items or self._bytes + len(body) > self._max_bytes:
+            if bounded and (len(self._items) + used[0] >= self._max_items
+                            or self._bytes + used[1] + len(body) > self._max_bytes):
                 raise InputRejected("Evidence store is full")
-            self._items[ref["id"]] = (body, digest)
+            self._items[ref["id"]] = (body, ref["sha256"])
             self._kinds[ref["id"]] = kind
             self._bytes += len(body)
         return dict(ref)
+
+    def stage(self):
+        """A private write area for one agent over this store (see ``StagedEvidence``)."""
+        return StagedEvidence(self)
 
     def _entry(self, ref):
         if (type(ref) is not dict or set(ref) != {"id", "sha256"} or type(ref["id"]) is not str
@@ -118,6 +131,47 @@ class EvidenceStore:
         with self._lock:
             return [{"id": key, "sha256": digest} for key, (_, digest) in self._items.items()
                     if kind is None or self._kinds[key] == kind]
+
+
+class StagedEvidence(EvidenceStore):
+    """One agent's view of the run's store: reads see the store and the agent's own writes; writes stay staged.
+
+    The runtime commits the staged items when the agent completes and drops them when it abandons the agent at its
+    deadline, so a thread that keeps running after its deadline can never add evidence to the run. Bounds count the
+    store plus this view's items; a commit is not refused, so the agents of one wave (at most 4) may together exceed
+    the bounds by what they staged.
+    """
+
+    def __init__(self, parent):
+        super().__init__(max_items=parent._max_items, max_bytes=parent._max_bytes)
+        self._parent = parent
+
+    def put(self, kind, obj):
+        ref, body = _encode(kind, obj)
+        with self._parent._lock:
+            stored = self._parent._items.get(ref["id"])
+            used = (len(self._parent._items), self._parent._bytes)
+        if stored is not None:
+            if stored[1] != ref["sha256"]:
+                raise InputRejected("Evidence identifier collision")
+            return dict(ref)
+        return self._store(ref, kind, body, used)
+
+    def _entry(self, ref):
+        return super()._entry(ref) or self._parent._entry(ref)
+
+    def kind(self, ref):
+        if EvidenceStore._entry(self, ref) is not None:
+            return self._kinds[ref["id"]]
+        return self._parent.kind(ref)
+
+    def refs(self, kind=None):
+        return self._parent.refs(kind) + super().refs(kind)
+
+    def commit(self):
+        """Add every staged item to the run's store, in the order the agent wrote them."""
+        for ref in super().refs():
+            self._parent._store(ref, self._kinds[ref["id"]], self._items[ref["id"]][0], bounded=False)
 
 
 @dataclass
@@ -165,7 +219,7 @@ class AgentContext:
                 or (self.as_of is not None and type(self.as_of) is not str)
                 or (self.retriever is not None and not callable(self.retriever))
                 or (self.history is not None and type(self.history) is not list)
-                or type(self.evidence) is not EvidenceStore
+                or not isinstance(self.evidence, EvidenceStore)
                 or (self.model is not None and type(self.model) is not LocalModel)
                 or (self.cache is not None and type(self.cache) is not ContextCache)
                 or type(self.prior) is not dict or not callable(self.clock)

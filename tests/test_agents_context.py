@@ -74,6 +74,40 @@ class Evidence(unittest.TestCase):
             store.put("x", {"a": 1})
 
 
+class Staged(unittest.TestCase):
+    def test_an_agents_writes_stay_private_until_committed(self):
+        store = EvidenceStore()
+        shared = store.put("profile", {"rows": 3})
+        view = store.stage()
+        self.assertIsInstance(view, EvidenceStore)
+        self.assertEqual(view.put("profile", {"rows": 3}), shared)  # already in the store: nothing staged
+        own = view.put("lineage", {"to": ["customer_sales"]})
+        self.assertEqual(view.put("lineage", {"to": ["customer_sales"]}), own)
+        self.assertTrue(view.has(own) and view.has(shared))
+        self.assertFalse(store.has(own))
+        self.assertEqual((view.kind(own), view.kind(shared), view.get(own)), ("lineage", "profile",
+                                                                              {"to": ["customer_sales"]}))
+        self.assertEqual(view.refs(), [shared, own])
+        self.assertEqual(view.refs("lineage"), [own])
+        view.commit()
+        self.assertTrue(store.has(own))
+        self.assertEqual(store.refs(), [shared, own])
+
+    def test_a_dropped_view_leaves_no_trace_and_bounds_count_the_store(self):
+        store = EvidenceStore(max_items=2)
+        store.put("a", {"n": 1})
+        view = store.stage()
+        view.put("a", {"n": 2})
+        with self.assertRaisesRegex(InputRejected, "^Evidence store is full$"):
+            view.put("a", {"n": 3})
+        self.assertEqual(len(store.refs()), 1)  # never committed: as if the agent never wrote
+        collided = EvidenceStore()
+        ref = collided.put("x", {"a": 1})
+        collided._items[ref["id"]] = (collided._items[ref["id"]][0], "f" * 64)
+        with self.assertRaisesRegex(InputRejected, "^Evidence identifier collision$"):
+            collided.stage().put("x", {"a": 1})
+
+
 class Context(unittest.TestCase):
     def test_defaults_and_validation(self):
         ctx = AgentContext(PAYLOAD, "local", "case-1")
