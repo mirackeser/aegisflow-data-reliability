@@ -136,9 +136,16 @@ class Run:
             options = {"cache": ctx.cache, "agent_id": ctx.agent_id,
                        "identity": CacheIdentity(ctx.tenant_id, ctx.agent_id.lower(), PROMPT_VERSION,
                                                  context_ref["sha256"])}
+        asked = ctx.clock()
         answer = ctx.model.complete(template.system, template.user(context), schema, max_tokens=max_tokens, **options)
         if answer.cache != "hit":
             ctx.usage.llm_calls += 1
+        ctx.emit("llm_call", {"template": name, "model": answer.model, "prompt_sha256": answer.prompt_sha256,
+                              "ok": answer.ok, "error_code": answer.error_code, "tokens_in": answer.tokens_in,
+                              "tokens_out": answer.tokens_out, "cache": answer.cache,
+                              "latency_ms": max(0, round((ctx.clock() - asked) * 1000))})
+        if answer.cache != "none":
+            ctx.emit("cache", {"template": name, "result": answer.cache})
         self.tokens_in += answer.tokens_in
         self.tokens_out += answer.tokens_out
         self.llm = {"provider": PROVIDER, "model": answer.model, "prompt_sha256": answer.prompt_sha256,
@@ -168,7 +175,7 @@ class Run:
             "usage": {"tool_calls": self.ctx.usage.tool_calls, "llm_calls": self.ctx.usage.llm_calls,
                       "tokens_in": self.tokens_in, "tokens_out": self.tokens_out,
                       "latency_ms": max(0, round((perf_counter() - started) * 1000))},
-            "transport": "in_process", "llm": self.llm, "retrieval": self.retrieval,
+            "transport": "mcp_local" if self.ctx.usage.mcp_calls else "in_process", "llm": self.llm, "retrieval": self.retrieval,
             "error_code": None if completed else error_code, "advisory_text": self.advisory if completed else None,
         })
 

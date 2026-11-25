@@ -4,8 +4,9 @@
 ``triage`` is the case intake the binding role table describes ("triggers use the observation checks produced by
 profiling.profile_csv / baseline.compare / pipeline.diagnose_csv plus case inputs"). It calls those modules
 directly, once per case, because routing needs them before any specialist runs; it keeps only names, roles, counts,
-flags and observation ids (no cell values). The runtime (next batch) wires these executors into a run: these
-functions decide, they never start, stop or retry anything themselves.
+flags and observation ids (no cell values). Inside a run the three intake calls go through the runtime's hooks so they
+appear as ``tool_call`` events (profiling attributed to A10, the comparison and the contract diagnosis to A01). The
+runtime wires these executors into a run: these functions decide, they never start, stop or retry anything themselves.
 """
 from uuid import NAMESPACE_URL, uuid5
 
@@ -25,7 +26,9 @@ REASONING = ("A23", "A24", "A25")
 MAX_SPECIALISTS, MAX_WAVE = 8, 4
 LIMITS = {"specialists": 8, "llm_calls": 12, "tokens": 40_000, "elapsed_ms": 90_000}
 MAX_NAME = 128
-NO_RETRY = frozenset({"INPUT_REJECTED", "RESULT_REJECTED", "TOOL_BUDGET_EXCEEDED"})
+NO_RETRY = frozenset({"INPUT_REJECTED", "RESULT_REJECTED", "TOOL_BUDGET_EXCEEDED", "DEADLINE_EXCEEDED",
+                      "BUDGET_EXCEEDED"})
+BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
 _PRIORITY = {"P0": 0, "P1": 1, "P2": 2}
 _AGENT_IDS = frozenset(spec.agent_id for spec in ROLES)
 
@@ -35,12 +38,20 @@ def is_order_extract(header):
     return ORDER_KEY in header and sum(column in header for column in EXPECTED_COLUMNS) >= 2
 
 
+def _call(ctx, agent, name, fn, *args, **kwargs):
+    """An intake call: direct outside a run, else through the runtime hooks as a ``tool_call`` of ``agent``."""
+    if ctx.hooks is None:
+        return fn(*args, **kwargs)
+    return ctx.hooks.intake_tool(agent, name, fn, args, kwargs)
+
+
 def _intake(ctx):
     header, _ = read_table(ctx.payload)
     if any(len(name) > MAX_NAME for name in header):
         raise InputRejected("Column names longer than %d characters are not supported" % MAX_NAME)
-    profile = profile_csv(ctx.payload)
-    comparison = None if ctx.baseline is None else compare(ctx.baseline, ctx.payload, as_of=ctx.as_of)
+    profile = _call(ctx, "A10", "profile_csv", profile_csv, ctx.payload)
+    comparison = None if ctx.baseline is None else _call(ctx, "A01", "baseline_compare", compare, ctx.baseline,
+                                                         ctx.payload, as_of=ctx.as_of)
     order = is_order_extract(header)
     second_order = False
     if ctx.second_payload is not None:
@@ -51,7 +62,8 @@ def _intake(ctx):
     found = [(f["check"], f["column"]) for f in profile["findings"]]
     found += [(f["check"], f["column"]) for f in (comparison or {"findings": []})["findings"]]
     if order:
-        found += [(f.check, f.column or None) for f in diagnose_csv(ctx.payload).findings]
+        found += [(f.check, f.column or None) for f in _call(ctx, "A01", "diagnose_csv", diagnose_csv,
+                                                             ctx.payload).findings]
     signals = sorted(set(found), key=lambda item: (item[0], item[1] or ""))
     observations = observations_from(comparison or {"source_sha256": profile["source_sha256"], "findings": []}, profile)
     return {
@@ -126,19 +138,24 @@ def _graph(agents, depends, case_id):
     return waves
 
 
+# Reasoning dependencies (role table): A23 compares its suggestion with A24/A25, and A28 ranks A24's result.
+REASONING_DEPENDS = {"A23": ("A24", "A25"), "A28": ("A24",)}
+
+
 def plan_waves(selected, case_id):
     """Dependency waves of at most 4: specialists (every one after A10), then the reasoning roles.
 
-    Uses ``coordination.routing.TaskGraph`` for validation, cycle detection and ready sets; its host worker
-    assignment (A26 for read-only evidence work) is not used here.
+    The reasoning stage starts after every specialist (so A24/A25 follow A11/A20); A23 follows A24 and A25 and
+    A28 (added whenever A24 is selected) follows A24. Uses ``coordination.routing.TaskGraph`` for validation, cycle
+    detection and ready sets; its host worker assignment (A26 for read-only evidence work) is not used here.
     """
     specialists = [a for a in selected if a in SPECIALISTS]
-    reasoning = [a for a in selected if a in REASONING]
+    reasoning = [a for a in selected if a in REASONING] + (["A28"] if "A24" in selected else [])
     stages = []
     if specialists:
         stages += [("specialists", w) for w in _graph(specialists, lambda a: () if a == "A10" else ("A10",), case_id)]
     if reasoning:
-        stages += [("reasoning", w) for w in _graph(reasoning, lambda a: (), case_id)]
+        stages += [("reasoning", w) for w in _graph(reasoning, lambda a: REASONING_DEPENDS.get(a, ()), case_id)]
     return stages
 
 
@@ -153,15 +170,21 @@ def _usage(result, key):
     return value if type(value) is int and value >= 0 else 0
 
 
-def budget_usage(prior, elapsed_ms):
-    """Run usage against the per-run limits; ``exceeded`` names every limit above its maximum."""
+def budget_usage(prior, elapsed_ms, limits=None):
+    """Run usage against the per-run limits (default: the catalog ``LIMITS``).
+
+    ``exceeded`` names every limit above its maximum, and, once the runtime has skipped an agent with
+    BUDGET_EXCEEDED, every limit that was reached (the runtime stops at a limit, so usage never goes above it).
+    """
+    limits = LIMITS if limits is None else limits
     results = [r for a, r in sorted(prior.items()) if a in _AGENT_IDS and type(r) is dict]
     used = {"specialists": sum(r.get("agent_id") in SPECIALISTS and r.get("status") not in ("SKIPPED", None)
                                for r in results),
             "llm_calls": sum(_usage(r, "llm_calls") for r in results),
             "tokens": sum(_usage(r, "tokens_in") + _usage(r, "tokens_out") for r in results),
             "elapsed_ms": elapsed_ms}
-    return used, [name for name in LIMITS if used[name] > LIMITS[name]]
+    stopped = any(r.get("error_code") == BUDGET_EXCEEDED for r in results)
+    return used, [name for name in LIMITS if used[name] > limits[name] or (stopped and used[name] >= limits[name])]
 
 
 @executor("A01")
@@ -249,9 +272,10 @@ def dependency_planner(run):
 
 @executor("A05")
 def budget_controller(run):
-    used, exceeded = budget_usage(run.ctx.prior, run.ctx.elapsed_ms())
-    ref = run.put("budget_check", {"used": used, "limits": LIMITS, "exceeded": exceeded})
-    params = {**{"used_" + k: v for k, v in used.items()}, **{"limit_" + k: v for k, v in LIMITS.items()},
+    limits = run.ctx.limits or LIMITS
+    used, exceeded = budget_usage(run.ctx.prior, run.ctx.elapsed_ms(), limits)
+    ref = run.put("budget_check", {"used": used, "limits": limits, "exceeded": exceeded})
+    params = {**{"used_" + k: v for k, v in used.items()}, **{"limit_" + k: limits[k] for k in LIMITS},
               "exceeded": exceeded}
     run.claim("a05.budget_exceeded" if exceeded else "a05.within_budget", params, ref)
 

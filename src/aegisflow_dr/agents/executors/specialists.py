@@ -326,6 +326,7 @@ def incident_similarity_knowledge(run):
     passages = passages[:MAX_LIST]
     run.retrieval = {"citations": [{k: p[k] for k in ("source", "revision", "citation")} for p in passages],
                      "cache": "none"}
+    ctx.emit("retrieval", {"citations": len(passages), "sources": bounded(sorted({p["source"] for p in passages}))})
     run.uncertainty = ("medium", "retrieval_lexical")
     if not passages or "local_llm" not in ctx.allowed_tools:
         return

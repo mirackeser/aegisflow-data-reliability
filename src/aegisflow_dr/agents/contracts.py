@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 from referencing import Registry
 from referencing.exceptions import NoSuchResource
+from referencing.jsonschema import DRAFT202012
 
 from ..pipeline import InputRejected
 from .registry import role
@@ -26,11 +27,19 @@ def _offline(uri):
     raise NoSuchResource(ref=uri)
 
 
-@lru_cache(maxsize=2)
-def _validator(name):
+def _schema(name):
     schema = json.loads(files("aegisflow_dr").joinpath("data", name + ".json").read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema, registry=Registry(retrieve=_offline))
+    return schema
+
+
+@lru_cache(maxsize=3)
+def _validator(name):
+    # The run record embeds tasks and results by their $id; every schema is packaged, nothing is fetched.
+    registry = Registry(retrieve=_offline).with_resources(
+        (schema["$id"], DRAFT202012.create_resource(schema))
+        for schema in (_schema("agent-task-v1"), _schema("agent-result-v1")))
+    return Draft202012Validator(_schema(name), registry=registry)
 
 
 def _string_keys(value):
@@ -66,3 +75,8 @@ def validate_task(value):
 def validate_result(value):
     """Return ``value`` unchanged when it satisfies ``agent-result-v1``; else raise InputRejected."""
     return _validate("agent-result-v1", "result", value)
+
+
+def validate_run(value):
+    """Return ``value`` unchanged when it satisfies ``agent-run-v1`` (tasks and results included); else raise."""
+    return _validate("agent-run-v1", "run", value)

@@ -5,8 +5,14 @@
 retriever, history, tenant_id, case_id), the run's evidence store, the optional local model and context cache, and
 ``prior`` (agent id -> result of the agents that already ran in this run). ``for_task`` binds a copy to one task:
 the bound copy enforces the task's tool allowlist (itself a subset of the role's, see ``contracts.validate_task``)
-and its tool budget, and counts tool calls and their latency. Executors reach existing modules only through
-``tool``; the case intake (``executors.orchestration.triage``) is the one deliberate exception and is labelled so.
+and its tool budget, and counts tool calls. Executors reach existing modules only through ``tool``; the case
+intake (``executors.orchestration.triage``) is the one deliberate exception and is labelled so.
+
+``hooks`` is the runtime's tool transport and event sink (``runtime._Hooks``): when set, ``tool`` dispatches through
+``hooks.call_tool(ctx, name, fn, args, kwargs)`` (in process or over the local MCP profile, timed and reported as a
+``tool_call`` event) and ``emit`` forwards typed events. Without hooks a tool is called directly and ``emit`` does
+nothing, so executors behave the same outside a run. ``limits`` are the run's budget limits for A05 (None: the
+catalog limits).
 
 Evidence is stored as canonical JSON. A reference is ``{"id", "sha256"}`` where the id is the kind plus the first
 32 hex digits of the digest, so the same object always gets the same reference and a reference cannot silently
@@ -120,6 +126,7 @@ class Usage:
     llm_calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    mcp_calls: int = 0  # tool calls that went through the local MCP profile
 
 
 def _payload_ok(value, required):
@@ -147,6 +154,8 @@ class AgentContext:
     max_tool_calls: int = 0
     usage: Usage = field(default_factory=Usage)
     memo: dict = field(default_factory=dict, repr=False, compare=False)
+    hooks: Any = field(default=None, repr=False, compare=False)
+    limits: Any = None
 
     def __post_init__(self):
         if (not _payload_ok(self.payload, True) or not _payload_ok(self.second_payload, False)
@@ -159,7 +168,10 @@ class AgentContext:
                 or type(self.evidence) is not EvidenceStore
                 or (self.model is not None and type(self.model) is not LocalModel)
                 or (self.cache is not None and type(self.cache) is not ContextCache)
-                or type(self.prior) is not dict or not callable(self.clock)):
+                or type(self.prior) is not dict or not callable(self.clock)
+                or (self.hooks is not None and not (callable(getattr(self.hooks, "call_tool", None))
+                                                    and callable(getattr(self.hooks, "event", None))))
+                or (self.limits is not None and type(self.limits) is not dict)):
             raise InputRejected("Invalid agent context")
         if self.started is None:
             object.__setattr__(self, "started", self.clock())
@@ -183,11 +195,18 @@ class AgentContext:
             raise ToolBudgetExceeded()
         self.usage.tool_calls += 1
         try:
-            return fn(*args, **kwargs)
-        except InputRejected:
+            if self.hooks is None:
+                return fn(*args, **kwargs)
+            return self.hooks.call_tool(self, name, fn, args, kwargs)
+        except (InputRejected, PolicyDenied):
             raise
         except Exception:  # any tool-side failure (including injected retrievers) becomes a typed outcome
             raise ToolError() from None
+
+    def emit(self, kind, data):
+        """Forward a typed event of the bound agent to the runtime (no-op outside a run)."""
+        if self.hooks is not None:
+            self.hooks.event(self.agent_id, kind, data)
 
     def remember(self, key, build):
         """Case-scoped memo shared by every bound copy (for the deterministic case intake).

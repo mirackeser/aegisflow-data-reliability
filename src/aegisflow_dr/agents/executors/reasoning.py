@@ -9,15 +9,28 @@ fixed probes".
 from hashlib import sha256
 import re
 
+from ...batch import DATASETS
 from ...hypotheses import CATALOG, MECHANISMS, investigate, verify_investigation
 from ...pipeline import InputRejected
 from ..contracts import validate_result
-from ..prompts import hypothesis_schema
+from ..prompts import VOCABULARY, hypothesis_schema
 from ..registry import ROLES
 from ._base import MAX_LIST, NeedsEvidence, bounded, executor
 from .orchestration import triage, unmapped
 
 _HEX = re.compile(r"[0-9a-f]{64}")
+_RUN_ID = re.compile(r"(?:obs|hyp|prb|sig)-[0-9]{1,4}|(?:g|c|f|opt)[0-9]{1,3}|A(?:0[1-9]|[12][0-9]|3[0-6])")
+_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+# Claims that may rest on a model suggestion; they are labelled advisory and never accepted as findings.
+ADVISORY_CLAIMS = {"A02": ("a02.worded",), "A22": ("a22.relevance",), "A23": ("a23.suggested", "a23.compared"),
+                   "A29": ("a29.options",), "A30": ("a30.proposal",)}
+# Words a claim parameter may carry besides column names and ids: the prompt vocabulary (checks, mechanisms, probes,
+# roles, statuses, reason codes) plus the fixed words the executors and the modules they wrap emit.
+CLAIM_WORDS = VOCABULARY | frozenset(DATASETS) | frozenset({
+    "declared_dataset_dag", "specialists", "reasoning", "first", "second", "one_to_one", "one_to_many", "many_to_one",
+    "many_to_many", "resolved", "no_informative_probe", "probe_budget_exhausted", "completed", "completed_with_gaps",
+    "failed_agents", "pending", "safe_stop", "retry_once_same_input", "policy_denied", "llm_calls", "tokens",
+    "elapsed_ms"})
 _AGENT_IDS = frozenset(spec.agent_id for spec in ROLES)
 CITATION_KINDS = ("retrieval", "similar_runs")
 
@@ -136,14 +149,31 @@ def _suggestion_problem(evidence, refs, claim, observations, signals):
     return None
 
 
-def _check_claim(claim, own, evidence, observations, signals):
+def _token(value, names):
+    if type(value) is not str:
+        return True  # numbers, booleans and null
+    return (value in CLAIM_WORDS or value in names or bool(_RUN_ID.fullmatch(value) or _HEX.fullmatch(value)
+                                                           or _CODE.fullmatch(value)))
+
+
+def free_text_params(params, names):
+    """True when any string parameter is not a known word, column name, run id, digest or upper-case code."""
+    return not all(_token(item, names) for value in params.values()
+                   for item in (value if type(value) is list else [value]))
+
+
+def _check_claim(agent, claim, own, evidence, observations, signals, names):
     refs = claim["evidence_refs"]
     if any(ref not in own for ref in refs):
         return "rejected", "ref_not_in_result"
     if any(not evidence.has(ref) for ref in refs):
         return "rejected", "evidence_missing_or_altered"
+    if free_text_params(claim["params"], names):
+        return "rejected", "free_text_in_params"
     if all(evidence.kind(ref) != "llm_suggestion" for ref in refs):
         return "accepted", "evidence_verified"
+    if claim["text_key"] not in ADVISORY_CLAIMS.get(agent, ()):
+        return "rejected", "model_suggestion_as_support"
     problem = _suggestion_problem(evidence, refs, claim, observations, signals)
     return ("rejected", problem) if problem else ("advisory", "model_suggestion")
 
@@ -156,11 +186,18 @@ def _known_citations(evidence, refs):
     return known
 
 
-def judge(results, evidence, observations, signals=()):
-    """Per-claim verdicts for every completed result: accepted (evidence resolves and matches its digest), advisory
-    (it rests on a model suggestion whose observation ids exist, whose A23 mechanisms explain them per the catalog and
-    whose A02 goals and questions each rest on known signal/observation ids) or rejected. Every retrieval citation
-    must appear in that result's own retrieval evidence."""
+def judge(results, evidence, observations, signals=(), names=frozenset()):
+    """Per-claim verdicts for every completed result, each with a reason:
+
+    - rejected: a reference outside the result, missing from the store or not matching its digest; a string parameter
+      that is not a known word, a column name in ``names``, a run id, a digest or an upper-case code (model free text
+      belongs in ``advisory_text`` only); a model suggestion cited by a claim that is not one of the model roles'
+      advisory claims; or a suggestion whose ids or mechanisms do not hold (see below);
+    - advisory: an advisory claim resting on a model suggestion whose observation ids exist, whose A23 mechanisms
+      explain them per the catalog and whose A02 goals and questions each rest on known signal/observation ids;
+    - accepted: every reference resolves and matches its digest, and no model suggestion is cited.
+
+    Every retrieval citation must appear in that result's own retrieval evidence."""
     verdicts = []
     for agent, result in sorted(results.items()):
         if type(result) is not dict or result.get("status") != "COMPLETED":
@@ -175,7 +212,7 @@ def judge(results, evidence, observations, signals=()):
             continue
         own = result["evidence_refs"]
         for index, claim in enumerate(result["claims"]):
-            verdict, reason = _check_claim(claim, own, evidence, observations, signals)
+            verdict, reason = _check_claim(agent, claim, own, evidence, observations, signals, names)
             verdicts.append({"agent": agent, "claim": index, "text_key": claim["text_key"], "verdict": verdict,
                              "reason": reason})
         known = _known_citations(evidence, [ref for ref in own if evidence.has(ref)])
@@ -188,7 +225,7 @@ def judge(results, evidence, observations, signals=()):
 @executor("A27")
 def evidence_verification(run):
     t = triage(run.ctx)
-    verdicts = judge(run.ctx.prior, run.ctx.evidence, t["observations"], t["signals"])
+    verdicts = judge(run.ctx.prior, run.ctx.evidence, t["observations"], t["signals"], run.vocabulary()[0])
     ref = run.put("judge_verdict", {"verdicts": verdicts})
     counts = {name: sum(v["verdict"] == name for v in verdicts) for name in ("accepted", "advisory", "rejected")}
     rejected = sorted({v["agent"] for v in verdicts if v["verdict"] == "rejected"})
