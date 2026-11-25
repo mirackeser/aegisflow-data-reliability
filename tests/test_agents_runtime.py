@@ -316,6 +316,51 @@ class Budgets(unittest.TestCase):
         self.assertNotIn("relevance", [next(iter(c["format"]["properties"])) for c in transport.calls])
         self.assertEqual(record["abandoned"], [])  # measured on the run clock, not cut in real time
 
+    def test_late_writes_of_an_abandoned_agent_never_reach_the_record(self):
+        def run(late):
+            wrote, release = threading.Event(), threading.Event()
+
+            def retriever(query, limit):
+                (time.sleep if late else release.wait)(0.6)
+                return RETRIEVER(query, limit)
+
+            def a22(task, ctx, execute_agent):
+                value = execute_agent(task, ctx)  # stores its retrieval evidence after the deadline
+                wrote.set()
+                return value
+
+            def hold(event):  # the run thread waits for the late write before going on (only in the late run)
+                if late and event["type"] == "agent_finished" and event["agent_id"] == "A22":
+                    wrote.wait(5)
+
+            try:
+                with wrapped({"A22": a22}):
+                    return execute(Case(ORDERS, "orders", retriever=retriever), budget=Budget(agent_deadline_ms=300),
+                                   on_event=hold)
+            finally:
+                release.set()
+                self.assertTrue(wrote.wait(5) if late else True)
+
+        late, silent = run(True), run(False)
+        self.assertEqual(late["abandoned"], ["A22"])
+        self.assertNotIn("retrieval", {ref["kind"] for ref in late["evidence"]})
+        self.assertEqual(late, silent)
+        self.assertEqual(late["trace_sha256"], silent["trace_sha256"])
+
+    def test_closing_agents_respect_the_wall_limit_with_a_fixed_grace(self):
+        normal = execute(Case(ORDERS, "orders"))
+        self.assertEqual(row(normal, "A27")["task"]["budget"]["deadline_ms"], 60_000)
+        clock = Clock()
+
+        def hanging(url, body, timeout):
+            clock.advance(timeout)
+            raise TimeoutError("no answer")
+
+        record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=LocalModel(transport=hanging), clock=clock,
+                         budget=Budget(wall_ms=50_000))
+        for agent in ("A27", "A34", "A35", "A36", "A26", "A05", "A01"):
+            self.assertEqual(row(record, agent)["task"]["budget"]["deadline_ms"], runtime.CLOSING_GRACE_MS, agent)
+
     def test_model_call_timeout_never_exceeds_the_task_deadline(self):
         local, transport = model()
         execute(Case(DRIFTED, "drift", baseline=BASELINE), model=local, budget=Budget(agent_deadline_ms=1500))
@@ -614,6 +659,23 @@ class Record(unittest.TestCase):
 
 
 class Events(unittest.TestCase):
+    def test_agent_finished_is_published_when_the_agent_completes(self):
+        received = []
+
+        def slow(task, ctx, execute_agent):
+            time.sleep(0.3)
+            return execute_agent(task, ctx)
+
+        with wrapped({"A08": slow}):  # A08 and A09 share a wave; the lower id is the slower one
+            record = execute(Case(DRIFTED, "drift", baseline=BASELINE), on_event=received.append,
+                             clock=time.monotonic)
+        live = [e["agent_id"] for e in received if e["type"] == "agent_finished" and e["agent_id"] in ("A08", "A09")]
+        self.assertEqual(live, ["A09", "A08"])
+        sealed = [e for e in record["events"] if e["type"] == "agent_finished" and e["agent_id"] in ("A08", "A09")]
+        self.assertEqual([e["agent_id"] for e in sealed], ["A08", "A09"])  # the record keeps agent-id order
+        self.assertGreater(sealed[0]["t_ms"], sealed[1]["t_ms"])  # each stamped at its real completion
+        self.assertEqual([e["seq"] for e in record["events"]], list(range(1, len(record["events"]) + 1)))
+
     def test_on_event_receives_exactly_the_recorded_events(self):
         received = []
 
@@ -625,7 +687,11 @@ class Events(unittest.TestCase):
         cache = ContextCache()
         record = execute(Case(GAP, "gap", baseline=BASELINE, retriever=RETRIEVER), model=local, cache=cache,
                          on_event=subscriber)
-        self.assertEqual(received, record["events"])
+        self.assertEqual([e["seq"] for e in received], list(range(1, len(received) + 1)))  # arrival order
+        self.assertEqual(sorted(json.dumps({k: v for k, v in e.items() if k != "seq"}, sort_keys=True)
+                                for e in received),
+                         sorted(json.dumps({k: v for k, v in e.items() if k != "seq"}, sort_keys=True)
+                                for e in record["events"]))  # the same events; the record seals a canonical order
         self.assertEqual([e["seq"] for e in record["events"]], list(range(1, len(record["events"]) + 1)))
         self.assertTrue({e["type"] for e in record["events"]} == set(EVENT_TYPES))
         self.assertEqual(record["events"][0]["type"], "run_started")

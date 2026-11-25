@@ -18,9 +18,11 @@ prerequisites are named; a prerequisite that was never selected does not block.
 A05's limits are enforced here. Before a wave starts, specialists over the specialist limit, model roles without
 model calls or tokens left, and every non-closing role once the wall time is used are SKIPPED with
 ``BUDGET_EXCEEDED``, so no new wave is scheduled after the wall limit. Each agent runs in its own daemon thread and is
-waited for at most its ``deadline_ms`` (the agent deadline, capped by the run time left), measured in real time: an
-agent still running then is FAILED with ``DEADLINE_EXCEEDED``, its late result and events are discarded and it is
-listed in ``abandoned`` (a Python thread cannot be killed; a daemon thread never blocks process exit). This bounds
+waited for at most its ``deadline_ms`` (the agent deadline, capped by the run time left; closing controls get the
+run time left plus ``CLOSING_GRACE_MS``), measured in real time: an agent still running then is FAILED with
+``DEADLINE_EXCEEDED`` and listed in ``abandoned``. Everything that attempt did or still does (buffered events,
+staged evidence, its result) is discarded, so the record never depends on how far the thread got (a Python thread
+cannot be killed; a daemon thread never blocks process exit). This bounds
 tool calls and injected retrievers too. Model calls are bounded before that by their own timeout, which is the time
 left of the task's deadline (at most 30 s). The case intake and rule tools are bounded by their input limits. An agent
 whose injected-clock latency exceeds its deadline is also FAILED with ``DEADLINE_EXCEEDED``. A06 decides on every
@@ -36,7 +38,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import re
-from threading import Event, Lock, Thread
+from threading import Condition, Lock, Thread, local
 from time import monotonic, perf_counter
 from typing import Any
 from uuid import uuid4
@@ -58,6 +60,9 @@ from .prompts import case_vocabulary
 from .registry import ROLES, role
 
 RECORD_VERSION, POLICY_VERSION, MAX_TOOL_CALLS = "1", "1", 8
+# Closing controls run after a budget stop too, but within the wall limit plus this fixed grace (their deadline is
+# min(agent deadline, run time left + grace)); they are deterministic bookkeeping that takes milliseconds.
+CLOSING_GRACE_MS = 2_000
 NOT_SELECTED, INTAKE_REJECTED = "NOT_SELECTED", "INTAKE_REJECTED"
 DEADLINE_EXCEEDED, EXECUTOR_ERROR, DEPENDENCY_UNMET = "DEADLINE_EXCEEDED", "EXECUTOR_ERROR", "DEPENDENCY_UNMET"
 AGENT_IDS = tuple(spec.agent_id for spec in ROLES)
@@ -141,7 +146,7 @@ class _Hooks:
 
     def __init__(self, run, mcp, reason):
         self._run, self._mcp, self._reason = run, mcp, reason
-        self._buffers, self._lock, self._abandoned = {}, Lock(), set()
+        self._buffers, self._lock, self._abandoned, self.local = {}, Lock(), set(), local()
         self.intake = []
         self.discarded = 0  # events of abandoned agents, which arrive after their deadline
 
@@ -155,16 +160,20 @@ class _Hooks:
         for item in pending:
             self._run.log.publish(item)
 
-    def abandon(self, agent):
-        """Publish what the agent did before its deadline; drop anything it does afterwards."""
-        self.flush(agent)
+    def abandon(self, agent, token):
+        """Drop what an abandoned attempt did and will do: its buffered events now, its later events on arrival.
+
+        Discarding the partial work (like its staged evidence) keeps the record independent of how far the thread
+        got before its deadline. ``token`` identifies the attempt, so a later attempt of the same role is unaffected.
+        """
         with self._lock:
-            self._abandoned.add(agent)
+            self.discarded += len(self._buffers.pop(agent, []))
+            self._abandoned.add(token)
 
     def event(self, agent_id, kind, data):
         pending = self._run.log.stamp(agent_id, kind, data)
         with self._lock:
-            if agent_id in self._abandoned:
+            if getattr(self.local, "token", None) in self._abandoned:
                 self.discarded += 1
                 return
             buffer = self._buffers.get(agent_id)
@@ -291,8 +300,8 @@ class _Run:
         return refs[:64]
 
     def task(self, agent, llm_calls=0, tokens=0, closing=False):
-        remaining = self.limits["elapsed_ms"] - self.elapsed_ms()
-        deadline = self.budget.agent_deadline_ms if closing else max(1, min(self.budget.agent_deadline_ms, remaining))
+        remaining = max(0, self.limits["elapsed_ms"] - self.elapsed_ms()) + (CLOSING_GRACE_MS if closing else 0)
+        deadline = max(1, min(self.budget.agent_deadline_ms, remaining))
         return validate_task({
             "task_id": self.task_id(agent), "run_id": self.run_id, "tenant_id": self.case.tenant_id,
             "case_id": self.case.case_id, "agent_id": agent, "goal": role(agent).name[:300],
@@ -321,7 +330,8 @@ class _Run:
     def _judge_a2a(self, task, ctx):
         try:
             self.pki = self.pki or self.stack.enter_context(transports.ephemeral_pki())  # one CA per run
-            received = transports.a2a_review(task, lambda t: resolve("A27")(t, ctx), pki=self.pki)
+            timeout = min(transports.A2A_TIMEOUT_S, task["budget"]["deadline_ms"] / 1000)
+            received = transports.a2a_review(task, lambda t: resolve("A27")(t, ctx), pki=self.pki, timeout=timeout)
             result = validate_result(received)
             if (result["task_id"] != task["task_id"] or result["agent_id"] != "A27"
                     or any(not ctx.evidence.has(ref) for ref in result["evidence_refs"])):
@@ -334,7 +344,12 @@ class _Run:
         return {**result, "transport": transports.A2A_MTLS}
 
     def run_wave(self, stage, agents, *, closing=False, retry=None):
-        """Run ``agents`` (at most 4) concurrently; publish their events and results in agent-id order."""
+        """Run ``agents`` (at most 4) concurrently; record each one as soon as it completes or reaches its deadline.
+
+        Each agent writes to its own staged evidence view, committed on completion and dropped on abandonment. Its
+        events and ``agent_finished`` are published at its completion (live order); the wave's span of the log is then
+        sealed into agent-id order for the record.
+        """
         agents = sorted(agents)
         number = len(self.waves_run) + 1
         self.waves_run.append({"wave": number, "stage": stage, "agents": agents})
@@ -347,7 +362,7 @@ class _Run:
         if not runnable:
             return
         ctx = replace(self.ctx, prior=dict(self.results))
-        workers = []
+        done, completed, pending = Condition(), {}, {}
         for agent, task in runnable:
             self.tasks[agent] = task
             self.attempts[agent] = self.attempts.get(agent, 0) + 1
@@ -356,32 +371,46 @@ class _Run:
                                                "depends_on": [d for d in DEPENDS.get(agent, ())
                                                               if self.selection.get(d, {}).get("selected")],
                                                "budget": task["budget"]})
-            workers.append((agent, task, self._spawn(agent, task, ctx)))
-        for agent, task, (box, done, began) in workers:
-            remaining = task["budget"]["deadline_ms"] / 1000 - (perf_counter() - began)
-            abandoned = not done.wait(max(0.0, remaining))
-            if abandoned:  # still running at its deadline: its late result and events are discarded
-                self.hooks.abandon(agent)
-                self.abandoned.append(agent)
-                result = _typed(agent, task["task_id"], "FAILED", DEADLINE_EXCEEDED)
-            else:
-                result = box["result"]
+            view, token = self.ctx.evidence.stage(), object()
+            pending[agent] = (task, view, token, perf_counter() + task["budget"]["deadline_ms"] / 1000)
+            self._spawn(agent, task, replace(ctx, evidence=view), token, done, completed)
+        mark = self.log.mark()
+        while pending:
+            due = min(item[3] for item in pending.values())
+            with done:
+                done.wait_for(lambda: completed.keys() & pending.keys(), timeout=max(0.0, due - perf_counter()))
+                ready = sorted(completed.keys() & pending.keys())
+            for agent in ready:
+                pending.pop(agent)[1].commit()
                 self.hooks.flush(agent)
-            if retry:
-                result = self._merge_attempts(self.results[agent], result)
-            self.results[agent] = result
-            self.emit(agent, "agent_finished", self._finished(agent, result, abandoned=abandoned))
+                self._record(agent, *completed[agent], retry)
+            now = perf_counter()
+            for agent in sorted(a for a, item in pending.items() if now >= item[3]):
+                task, _, token, _ = pending.pop(agent)  # still running: its staged evidence is never committed
+                self.hooks.abandon(agent, token)
+                self.abandoned.append(agent)
+                self._record(agent, _typed(agent, task["task_id"], "FAILED", DEADLINE_EXCEEDED), self.clock(), retry,
+                             abandoned=True)
+        self.log.seal(mark)
 
-    def _spawn(self, agent, task, ctx):
-        """Run one agent in a daemon thread; return (result box, done event, real start time)."""
-        box, done = {}, Event()
+    def _record(self, agent, result, at, retry, *, abandoned=False):
+        if retry:
+            result = self._merge_attempts(self.results[agent], result)
+        self.results[agent] = result
+        data = self._finished(agent, result, abandoned=abandoned)
+        self.log.publish(self.log.stamp(agent, "agent_finished", data, at))
 
+    def _spawn(self, agent, task, ctx, token, done, completed):
+        """Run one agent attempt in a daemon thread that reports (result, completion time) to ``completed``."""
         def work():
-            box["result"] = self._execute(agent, task, ctx)  # _execute never raises
-            done.set()
+            self.hooks.local.token = token
+            result = self._execute(agent, task, ctx)  # _execute never raises
+            at = self.clock()
+            with done:
+                completed[agent] = (result, at)
+                done.notify_all()
 
         Thread(target=work, name="agent-" + agent, daemon=True).start()
-        return box, done, perf_counter()
 
     def _finished(self, agent, result, *, abandoned=False, runtime=False):
         data = {"status": result["status"], "error_code": result["error_code"], "transport": result["transport"],
