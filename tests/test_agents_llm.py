@@ -42,9 +42,11 @@ def model(*responses, **kwargs):
 
 class Construction(unittest.TestCase):
     def test_loopback_hosts_only(self):
-        for host in ("127.0.0.1", "localhost", "::1"):
+        for host in ("127.0.0.1", "::1"):
             LocalModel(host=host, transport=Fake())
-        for host in ("0.0.0.0", "10.0.0.5", "example.com", "127.0.0.2", "localhost.example.com", "", None, "::"):
+        # A name goes through the resolver and the hosts file, so only the literal loopback addresses are accepted.
+        for host in ("localhost", "LOCALHOST", "[::1]", "0.0.0.0", "10.0.0.5", "example.com", "127.0.0.2",
+                     "localhost.example.com", "", None, "::"):
             with self.subTest(host=host), self.assertRaisesRegex(InputRejected, "^Local model host must be loopback$"):
                 LocalModel(host=host)
 
@@ -147,6 +149,17 @@ class Complete(unittest.TestCase):
             local, _ = model(error)
             with self.subTest(error=error):
                 self.assertEqual(local.complete("s", "u", SCHEMA).error_code, "TIMEOUT")
+
+    def test_a_call_timeout_bounds_the_request_and_never_exceeds_the_model_limit(self):
+        local, fake = model(envelope('{"mechanisms": []}'), envelope('{"mechanisms": []}'),
+                            envelope('{"mechanisms": []}'), timeout=20)
+        local.complete("s", "u", SCHEMA, timeout=2.5)
+        local.complete("s", "u", SCHEMA, timeout=45)
+        local.complete("s", "u", SCHEMA, cache=ContextCache(), identity=IDENTITY, agent_id="A23", timeout=0.25)
+        self.assertEqual([call[2] for call in fake.calls], [2.5, 20.0, 0.25])
+        for bad in (0, -1, float("nan"), float("inf"), True, "5"):
+            with self.subTest(timeout=bad), self.assertRaisesRegex(InputRejected, "^Invalid model call timeout$"):
+                local.complete("s", "u", SCHEMA, timeout=bad)
 
     def test_rejects_invalid_requests_before_any_call(self):
         local, fake = model()

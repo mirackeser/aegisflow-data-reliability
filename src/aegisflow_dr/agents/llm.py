@@ -30,7 +30,7 @@ from ..pipeline import InputRejected
 from .registry import role
 
 PROVIDER, TEMPERATURE, SEED = "ollama", 0, 7
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal addresses only: a name goes through the resolver
 MAX_OUTPUT_TOKENS, MAX_TIMEOUT_S = 512, 30.0
 MAX_PROMPT_CHARS, MAX_RESPONSE_BYTES = 32_000, 1_000_000
 MODEL_UNAVAILABLE, INVALID_OUTPUT, TIMEOUT = "MODEL_UNAVAILABLE", "INVALID_OUTPUT", "TIMEOUT"
@@ -161,13 +161,17 @@ class LocalModel:
         self._transport = transport or _urllib_transport
 
     def complete(self, system, user, schema, *, max_tokens=MAX_OUTPUT_TOKENS, cache=None, identity=None,
-                 agent_id=None):
+                 agent_id=None, timeout=None):
         """Return an LLMResult for one schema-constrained chat request.
 
         Model-side failures are returned as typed results; invalid requests raise InputRejected before any call.
         Caching needs all of ``cache``, ``identity`` and ``agent_id``; the identity's kind must be the agent id in
-        lower case and the agent must be a model-using role.
+        lower case and the agent must be a model-using role. ``timeout`` (seconds) bounds this call further, for
+        example to a task's remaining deadline; the model's own timeout (at most 30 s) is never exceeded.
         """
+        if timeout is not None and (type(timeout) not in (int, float) or not 0 < timeout < float("inf")):
+            raise InputRejected("Invalid model call timeout")
+        limit = self._timeout if timeout is None else min(self._timeout, float(timeout))
         for text in (system, user):
             if type(text) is not str or not 1 <= len(text) <= MAX_PROMPT_CHARS or not _encodable(text):
                 raise InputRejected("Invalid model prompt")
@@ -183,20 +187,20 @@ class LocalModel:
             raise InputRejected("Invalid model output schema") from None
         digest = sha256(body).hexdigest()
         if cache is None and identity is None and agent_id is None:
-            return self._call(body, digest, schema)
+            return self._call(body, digest, schema, limit)
         if type(cache) is not ContextCache or type(identity) is not CacheIdentity:
             raise InputRejected("Invalid model cache")
         if "local_llm" not in role(agent_id).allowed_tools or identity.kind != agent_id.lower():
             raise InputRejected("Cache identity must bind a model-using agent")
-        return self._cached(body, digest, schema, cache, identity)
+        return self._cached(body, digest, schema, cache, identity, limit)
 
-    def _cached(self, body, digest, schema, cache, identity):
+    def _cached(self, body, digest, schema, cache, identity, limit):
         started = perf_counter()
         for _ in range(2):
             built = []
 
             def builder():
-                result = replace(self._call(body, digest, schema), cache="miss")
+                result = replace(self._call(body, digest, schema, limit), cache="miss")
                 if not result.ok:
                     raise _Uncached(result)
                 built.append(result)
@@ -217,9 +221,9 @@ class LocalModel:
                                  round((perf_counter() - started) * 1000), "hit")
             cache.invalidate(tenant=identity.tenant, kind=identity.kind, version=identity.version,
                              evidence_sha256=identity.evidence_sha256)
-        return replace(self._call(body, digest, schema), cache="miss")  # entry kept reappearing; do not store
+        return replace(self._call(body, digest, schema, limit), cache="miss")  # entry kept reappearing; do not store
 
-    def _call(self, body, digest, schema):
+    def _call(self, body, digest, schema, limit):
         started = perf_counter()
 
         def result(ok, data, error, tokens_in=0, tokens_out=0):
@@ -227,7 +231,7 @@ class LocalModel:
                              round((perf_counter() - started) * 1000))
 
         try:
-            raw = self._transport(self._url, body, self._timeout)
+            raw = self._transport(self._url, body, limit)
         except Exception as error:  # any transport failure, including injected transports, is a typed outcome
             timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
             return result(False, None, TIMEOUT if timed_out else MODEL_UNAVAILABLE)
