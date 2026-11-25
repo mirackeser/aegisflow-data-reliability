@@ -11,6 +11,8 @@ from aegisflow_dr.agents.executors.reasoning import judge
 from aegisflow_dr.baseline import build_baseline
 from aegisflow_dr.hypotheses import trace_digest
 
+NAMES = frozenset({"order_id", "created_at", "total"})
+
 
 def params(result, key):
     return [c["params"] for c in result["claims"] if c["text_key"] == key]
@@ -149,7 +151,8 @@ class Judge(unittest.TestCase):
         chain(ctx, ["A10", "A23"])
         observations = [{"id": "obs-1", "source": "baseline", "check": "volume_change", "column": None,
                          "direction": "increase"}]
-        self.assertEqual([v["reason"] for v in judge({"A23": ctx.prior["A23"]}, ctx.evidence, observations)],
+        self.assertEqual([v["reason"] for v in judge({"A23": ctx.prior["A23"]}, ctx.evidence, observations,
+                                                     names=NAMES)],
                          ["mechanism_does_not_explain"])
         a10 = ctx.prior["A10"]
         stray = ctx.evidence.put("profile", {"other": 1})
@@ -166,12 +169,12 @@ class Judge(unittest.TestCase):
         results = {"A10": unbound, "A23": unknown,
                    "A12": completed("A12", "NEEDS_EVIDENCE"), "A13": {"status": "COMPLETED"},
                    "A14": completed("A15"), "A99": {"status": "COMPLETED"}}
-        reasons = {v["agent"]: v["reason"] for v in judge(results, ctx.evidence, observations)}
+        reasons = {v["agent"]: v["reason"] for v in judge(results, ctx.evidence, observations, names=NAMES)}
         self.assertEqual(reasons, {"A10": "ref_not_in_result", "A23": "unknown_observation",
                                    "A13": "invalid_result", "A14": "invalid_result", "invalid": "invalid_result"})
-        self.assertEqual([v["reason"] for v in judge({"A10": missing}, ctx.evidence, observations)][:1],
+        self.assertEqual([v["reason"] for v in judge({"A10": missing}, ctx.evidence, observations, names=NAMES)][:1],
                          ["evidence_missing_or_altered"])
-        self.assertEqual([v["reason"] for v in judge({"A23": not_list}, ctx.evidence, observations)],
+        self.assertEqual([v["reason"] for v in judge({"A23": not_list}, ctx.evidence, observations, names=NAMES)],
                          ["unknown_observation"])
 
     def test_a02_wording_is_advisory_only_when_every_goal_maps(self):
@@ -182,7 +185,7 @@ class Judge(unittest.TestCase):
         observations = [{"id": "obs-1", "source": "baseline", "check": "volume_change", "column": None,
                          "direction": "increase"}]
         self.assertEqual([v["verdict"] for v in judge({"A02": ctx.prior["A02"]}, ctx.evidence, observations,
-                                                      signals)], ["accepted", "advisory"])
+                                                      signals, names=NAMES)], ["accepted", "advisory"])
         self.assertEqual(params(run("A27", ctx), "a27.verdict")[0]["advisory"], 1)
         good = ctx.evidence.get(ctx.prior["A02"]["claims"][1]["evidence_refs"][0])
         question = good["data"]["questions"][0]
@@ -196,17 +199,18 @@ class Judge(unittest.TestCase):
             forged["claims"][1]["evidence_refs"] = [ref]
             forged["evidence_refs"].append(ref)
             with self.subTest(suggestion=suggestion["goals"]):
-                self.assertEqual([v["reason"] for v in judge({"A02": forged}, ctx.evidence, observations, signals)],
+                self.assertEqual([v["reason"] for v in judge({"A02": forged}, ctx.evidence, observations, signals,
+                                                             names=NAMES)],
                                  ["evidence_verified", "goal_not_mapped"])
 
     def test_every_citation_must_be_in_the_results_own_retrieval_evidence(self):
         passage = {"source": "kb", "revision": "1", "citation": "kb#1", "passage": "About duplicates."}
         ctx = context(retriever=lambda q, n: [passage])
         a22 = run("A22", ctx)
-        self.assertEqual([v["verdict"] for v in judge({"A22": a22}, ctx.evidence, [])], ["accepted"])
+        self.assertEqual([v["verdict"] for v in judge({"A22": a22}, ctx.evidence, [], names=NAMES)], ["accepted"])
         forged = copy.deepcopy(a22)
         forged["retrieval"]["citations"].append({"source": "kb", "revision": "2", "citation": "kb#9"})
-        self.assertEqual([v["reason"] for v in judge({"A22": forged}, ctx.evidence, [])],
+        self.assertEqual([v["reason"] for v in judge({"A22": forged}, ctx.evidence, [], names=NAMES)],
                          ["evidence_verified", "unverified_citation"])
         ctx.prior["A22"] = forged
         self.assertEqual(params(run("A27", ctx), "a27.verdict")[0]["rejected_agents"], ["A22"])

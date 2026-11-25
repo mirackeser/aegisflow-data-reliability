@@ -19,6 +19,16 @@ from ..pipeline import InputRejected
 from .registry import role
 
 STATUSES = ("COMPLETED", "NEEDS_EVIDENCE", "POLICY_DENIED", "SKIPPED", "FAILED")
+# The closed set of error codes the executors, the model adapter and the runtime produce. The Judge accepts an
+# upper-case claim parameter only from this set, the statuses or the module vocabulary, never an arbitrary token.
+ERROR_CODES = frozenset({
+    "MODEL_UNAVAILABLE", "INVALID_OUTPUT", "TIMEOUT", "LLM_BUDGET_EXHAUSTED", "TOKEN_BUDGET_EXCEEDED", "UNMAPPED_GOAL",
+    "DEADLINE_EXCEEDED", "A24_NOT_RUN", "NOT_ORDER_EXTRACT", "NO_ACCEPTED_FINDINGS", "NO_BACKFILL_TARGET",
+    "NO_BASELINE", "NO_CDC_SOURCE", "NO_HISTORY", "NO_HISTORY_OR_RETRIEVER", "NO_LOG_SOURCE", "NO_OBSERVATIONS",
+    "NO_PROPOSAL", "NO_REMEDIATION_OPTIONS", "NO_SECOND_SOURCE", "NO_TIME_COLUMN", "NO_TYPE_SIGNAL",
+    "SANDBOX_WRITES_DISABLED", "RAW_VALUE_IN_CONTEXT", "TOOL_NOT_ALLOWED", "NO_FAILED_AGENT", "NO_PROPOSALS",
+    "INPUT_REJECTED", "RESULT_REJECTED", "TOOL_ERROR", "TOOL_BUDGET_EXCEEDED", "BUDGET_EXCEEDED", "NOT_SELECTED",
+    "INTAKE_REJECTED", "EXECUTOR_ERROR", "DEPENDENCY_UNMET"})
 TRANSPORTS = ("in_process", "mcp_local", "a2a_mtls")
 MAX_ADVISORY_CHARS = 600
 
@@ -33,13 +43,14 @@ def _schema(name):
     return schema
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=4)
 def _validator(name):
     # The run record embeds tasks and results by their $id; every schema is packaged, nothing is fetched.
+    schemas = [_schema(n) for n in ("agent-task-v1", "agent-result-v1", "agent-run-v1")]
     registry = Registry(retrieve=_offline).with_resources(
-        (schema["$id"], DRAFT202012.create_resource(schema))
-        for schema in (_schema("agent-task-v1"), _schema("agent-result-v1")))
-    return Draft202012Validator(_schema(name), registry=registry)
+        (schema["$id"], DRAFT202012.create_resource(schema)) for schema in schemas)
+    root = {"$ref": "urn:aegisflow:agents:run:1#/$defs/event"} if name == "event" else _schema(name)
+    return Draft202012Validator(root, registry=registry)
 
 
 def _string_keys(value):
@@ -80,3 +91,8 @@ def validate_result(value):
 def validate_run(value):
     """Return ``value`` unchanged when it satisfies ``agent-run-v1`` (tasks and results included); else raise."""
     return _validate("agent-run-v1", "run", value)
+
+
+def validate_event(value):
+    """Return ``value`` unchanged when it is a run event whose ``data`` matches its type's schema; else raise."""
+    return _validate("event", "event", value)

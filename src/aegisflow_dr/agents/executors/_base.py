@@ -19,7 +19,7 @@ from time import perf_counter
 from ...pipeline import InputRejected
 from ..context import PolicyDenied, ToolBudgetExceeded, ToolError
 from ..contracts import MAX_ADVISORY_CHARS, validate_result, validate_task
-from ..llm import MAX_OUTPUT_TOKENS, PROVIDER, SEED, TEMPERATURE
+from ..llm import MAX_OUTPUT_TOKENS, MAX_TIMEOUT_S, PROVIDER, SEED, TEMPERATURE
 from ..prompts import PROMPT_VERSION, TEMPLATES, case_vocabulary, safe_context
 from ...advisory.context_cache import CacheIdentity
 
@@ -58,6 +58,7 @@ class Run:
         self.llm, self.retrieval, self.advisory = None, None, None
         self.uncertainty = ("low", "deterministic_rule")
         self.tokens_in = self.tokens_out = 0
+        self.began = ctx.clock()  # the task's deadline_ms counts from here
 
     # -- evidence and claims --------------------------------------------------------------------------------------
     def put(self, kind, obj):
@@ -113,7 +114,8 @@ class Run:
         """One schema-constrained model call through the A34 guard; return (data, llm_suggestion reference).
 
         Raises PolicyDenied when the role may not use the model or the context breaks the A34 rule, and
-        ModelFailure when there is no model, no model budget, or no valid output (the model record is kept).
+        ModelFailure when there is no model, no model budget, no time left of the task's deadline, or no valid output
+        (the model record is kept). The call's timeout is the time left of the deadline, at most 30 s.
         """
         ctx, template = self.ctx, TEMPLATES[name]
         if "local_llm" not in ctx.allowed_tools:
@@ -129,6 +131,9 @@ class Run:
         max_tokens = min(template.max_tokens, MAX_OUTPUT_TOKENS, budget["max_tokens"])
         if ctx.usage.llm_calls >= budget["max_llm_calls"] or max_tokens < 1:
             raise ModelFailure("LLM_BUDGET_EXHAUSTED")
+        remaining = budget["deadline_ms"] / 1000 - (ctx.clock() - self.began)
+        if remaining <= 0:
+            raise ModelFailure("DEADLINE_EXCEEDED")
         context_ref = self.put("llm_context", {"agent": ctx.agent_id, "prompt_version": PROMPT_VERSION,
                                                "template": name, "context": context})
         options = {}
@@ -137,7 +142,8 @@ class Run:
                        "identity": CacheIdentity(ctx.tenant_id, ctx.agent_id.lower(), PROMPT_VERSION,
                                                  context_ref["sha256"])}
         asked = ctx.clock()
-        answer = ctx.model.complete(template.system, template.user(context), schema, max_tokens=max_tokens, **options)
+        answer = ctx.model.complete(template.system, template.user(context), schema, max_tokens=max_tokens,
+                                    timeout=min(MAX_TIMEOUT_S, remaining), **options)
         if answer.cache != "hit":
             ctx.usage.llm_calls += 1
         ctx.emit("llm_call", {"template": name, "model": answer.model, "prompt_sha256": answer.prompt_sha256,
@@ -175,7 +181,8 @@ class Run:
             "usage": {"tool_calls": self.ctx.usage.tool_calls, "llm_calls": self.ctx.usage.llm_calls,
                       "tokens_in": self.tokens_in, "tokens_out": self.tokens_out,
                       "latency_ms": max(0, round((perf_counter() - started) * 1000))},
-            "transport": "mcp_local" if self.ctx.usage.mcp_calls else "in_process", "llm": self.llm, "retrieval": self.retrieval,
+            "transport": "mcp_local" if self.ctx.usage.mcp_calls else "in_process", "llm": self.llm,
+            "retrieval": self.retrieval,
             "error_code": None if completed else error_code, "advisory_text": self.advisory if completed else None,
         })
 

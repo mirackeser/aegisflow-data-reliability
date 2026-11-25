@@ -12,7 +12,7 @@ import re
 from ...batch import DATASETS
 from ...hypotheses import CATALOG, MECHANISMS, investigate, verify_investigation
 from ...pipeline import InputRejected
-from ..contracts import validate_result
+from ..contracts import ERROR_CODES, STATUSES, validate_result
 from ..prompts import VOCABULARY, hypothesis_schema
 from ..registry import ROLES
 from ._base import MAX_LIST, NeedsEvidence, bounded, executor
@@ -20,12 +20,13 @@ from .orchestration import triage, unmapped
 
 _HEX = re.compile(r"[0-9a-f]{64}")
 _RUN_ID = re.compile(r"(?:obs|hyp|prb|sig)-[0-9]{1,4}|(?:g|c|f|opt)[0-9]{1,3}|A(?:0[1-9]|[12][0-9]|3[0-6])")
-_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 # Claims that may rest on a model suggestion; they are labelled advisory and never accepted as findings.
 ADVISORY_CLAIMS = {"A02": ("a02.worded",), "A22": ("a22.relevance",), "A23": ("a23.suggested", "a23.compared"),
                    "A29": ("a29.options",), "A30": ("a30.proposal",)}
 # Words a claim parameter may carry besides column names and ids: the prompt vocabulary (checks, mechanisms, probes,
 # roles, statuses, reason codes) plus the fixed words the executors and the modules they wrap emit.
+# Upper-case parameters: agent statuses and the declared error codes only (an arbitrary upper-case token is free text).
+CODE_WORDS = frozenset(STATUSES) | ERROR_CODES | frozenset({"UNKNOWN"})
 CLAIM_WORDS = VOCABULARY | frozenset(DATASETS) | frozenset({
     "declared_dataset_dag", "specialists", "reasoning", "first", "second", "one_to_one", "one_to_many", "many_to_one",
     "many_to_many", "resolved", "no_informative_probe", "probe_budget_exhausted", "completed", "completed_with_gaps",
@@ -153,11 +154,11 @@ def _token(value, names):
     if type(value) is not str:
         return True  # numbers, booleans and null
     return (value in CLAIM_WORDS or value in names or bool(_RUN_ID.fullmatch(value) or _HEX.fullmatch(value)
-                                                           or _CODE.fullmatch(value)))
+                                                           or value in CODE_WORDS))
 
 
 def free_text_params(params, names):
-    """True when any string parameter is not a known word, column name, run id, digest or upper-case code."""
+    """True when any string parameter is not a known word, column name, run id, digest or declared code."""
     return not all(_token(item, names) for value in params.values()
                    for item in (value if type(value) is list else [value]))
 
@@ -186,12 +187,13 @@ def _known_citations(evidence, refs):
     return known
 
 
-def judge(results, evidence, observations, signals=(), names=frozenset()):
+def judge(results, evidence, observations, signals=(), *, names):
     """Per-claim verdicts for every completed result, each with a reason:
 
     - rejected: a reference outside the result, missing from the store or not matching its digest; a string parameter
-      that is not a known word, a column name in ``names``, a run id, a digest or an upper-case code (model free text
-      belongs in ``advisory_text`` only); a model suggestion cited by a claim that is not one of the model roles'
+      that is not a known word, a column name in ``names`` (required: the case's column names), a run id, a digest
+      or a declared status or error code (model free text belongs in ``advisory_text`` only); a model suggestion
+      cited by a claim that is not one of the model roles'
       advisory claims; or a suggestion whose ids or mechanisms do not hold (see below);
     - advisory: an advisory claim resting on a model suggestion whose observation ids exist, whose A23 mechanisms
       explain them per the catalog and whose A02 goals and questions each rest on known signal/observation ids;
@@ -225,7 +227,7 @@ def judge(results, evidence, observations, signals=(), names=frozenset()):
 @executor("A27")
 def evidence_verification(run):
     t = triage(run.ctx)
-    verdicts = judge(run.ctx.prior, run.ctx.evidence, t["observations"], t["signals"], run.vocabulary()[0])
+    verdicts = judge(run.ctx.prior, run.ctx.evidence, t["observations"], t["signals"], names=run.vocabulary()[0])
     ref = run.put("judge_verdict", {"verdicts": verdicts})
     counts = {name: sum(v["verdict"] == name for v in verdicts) for name in ("accepted", "advisory", "rejected")}
     rejected = sorted({v["agent"] for v in verdicts if v["verdict"] == "rejected"})

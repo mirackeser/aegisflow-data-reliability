@@ -5,193 +5,1577 @@
   "description": "The record of one agent run over the 36 roles: selection with reasons, waves, every task and validated result, the ordered event log, Judge verdicts per claim, proposals awaiting human approval, usage, evaluation, transports with certificate fingerprints, budgets and a SHA-256 over the canonical record.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "run_id", "tenant_id", "case_id", "started_at", "finished_at", "duration_ms", "status", "intake",
-               "plan", "selection", "waves", "agents", "events", "judge", "proposals", "approvals", "usage", "evaluation",
-               "transports", "budget", "recovery", "evidence", "event_log", "trace_sha256"],
+  "required": [
+    "version",
+    "run_id",
+    "tenant_id",
+    "case_id",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "status",
+    "intake",
+    "plan",
+    "selection",
+    "waves",
+    "agents",
+    "events",
+    "judge",
+    "proposals",
+    "approvals",
+    "usage",
+    "evaluation",
+    "transports",
+    "budget",
+    "recovery",
+    "abandoned",
+    "evidence",
+    "event_log",
+    "trace_sha256"
+  ],
   "properties": {
-    "version": {"const": "1"},
-    "run_id": {"$ref": "#/$defs/id"},
-    "tenant_id": {"type": "string", "pattern": "^[a-z0-9-]{1,64}(?![\\s\\S])", "maxLength": 64},
-    "case_id": {"$ref": "#/$defs/id"},
-    "started_at": {"$ref": "#/$defs/timestamp"},
-    "finished_at": {"$ref": "#/$defs/timestamp"},
-    "duration_ms": {"$ref": "#/$defs/count"},
-    "status": {"enum": ["completed", "completed_with_gaps", "failed_agents", "budget_exceeded", "input_rejected"]},
-    "intake": {"type": ["object", "null"]},
-    "plan": {"type": ["object", "null"]},
+    "version": {
+      "const": "1"
+    },
+    "run_id": {
+      "$ref": "#/$defs/id"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,64}(?![\\s\\S])",
+      "maxLength": 64
+    },
+    "case_id": {
+      "$ref": "#/$defs/id"
+    },
+    "started_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "finished_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "duration_ms": {
+      "$ref": "#/$defs/count"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "completed_with_gaps",
+        "failed_agents",
+        "budget_exceeded",
+        "input_rejected"
+      ]
+    },
+    "intake": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "plan": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "selection": {
-      "type": "array", "minItems": 36, "maxItems": 36,
+      "type": "array",
+      "minItems": 36,
+      "maxItems": 36,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["agent_id", "selected", "reason", "error_code"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent_id",
+          "selected",
+          "reason",
+          "error_code",
+          "unmet"
+        ],
         "properties": {
-          "agent_id": {"$ref": "#/$defs/agent"},
-          "selected": {"type": "boolean"},
-          "reason": {"$ref": "#/$defs/key"},
-          "error_code": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/code"}]}
+          "agent_id": {
+            "$ref": "#/$defs/agent"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "reason": {
+            "$ref": "#/$defs/key"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/code"
+              }
+            ]
+          },
+          "unmet": {
+            "type": "array",
+            "maxItems": 36,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/agent"
+            }
+          }
         }
       }
     },
     "waves": {
-      "type": "array", "maxItems": 64,
+      "type": "array",
+      "maxItems": 64,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["wave", "stage", "agents"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wave",
+          "stage",
+          "agents"
+        ],
         "properties": {
-          "wave": {"type": "integer", "minimum": 1},
-          "stage": {"$ref": "#/$defs/key"},
-          "agents": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/agent"}}
+          "wave": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "stage": {
+            "$ref": "#/$defs/key"
+          },
+          "agents": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/agent"
+            }
+          }
         }
       }
     },
     "agents": {
-      "type": "array", "minItems": 36, "maxItems": 36,
+      "type": "array",
+      "minItems": 36,
+      "maxItems": 36,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["agent_id", "name", "layer", "kind", "selected", "wave", "attempts", "task", "result"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent_id",
+          "name",
+          "layer",
+          "kind",
+          "selected",
+          "wave",
+          "attempts",
+          "task",
+          "result"
+        ],
         "properties": {
-          "agent_id": {"$ref": "#/$defs/agent"},
-          "name": {"type": "string", "minLength": 1, "maxLength": 128},
-          "layer": {"enum": ["orchestration", "specialists", "reasoning", "remediation", "governance"]},
-          "kind": {"enum": ["control", "rule", "llm", "hybrid"]},
-          "selected": {"type": "boolean"},
-          "wave": {"type": ["integer", "null"], "minimum": 1},
-          "attempts": {"type": "integer", "minimum": 0, "maximum": 64},
-          "task": {"anyOf": [{"type": "null"}, {"$ref": "urn:aegisflow:agents:task:1"}]},
-          "result": {"$ref": "urn:aegisflow:agents:result:1"}
+          "agent_id": {
+            "$ref": "#/$defs/agent"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "layer": {
+            "enum": [
+              "orchestration",
+              "specialists",
+              "reasoning",
+              "remediation",
+              "governance"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "control",
+              "rule",
+              "llm",
+              "hybrid"
+            ]
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "wave": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "urn:aegisflow:agents:task:1"
+              }
+            ]
+          },
+          "result": {
+            "$ref": "urn:aegisflow:agents:result:1"
+          }
         }
       }
     },
     "events": {
-      "type": "array", "maxItems": 4096,
+      "type": "array",
+      "maxItems": 4096,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["seq", "t_ms", "agent_id", "type", "data"],
-        "properties": {
-          "seq": {"type": "integer", "minimum": 1},
-          "t_ms": {"$ref": "#/$defs/count"},
-          "agent_id": {"$ref": "#/$defs/agent"},
-          "type": {"enum": ["run_started", "agent_selected", "agent_skipped", "agent_started", "tool_call", "llm_call",
-                            "retrieval", "cache", "agent_finished", "judge_verdict", "approval_requested",
-                            "run_finished"]},
-          "data": {"type": "object"}
-        }
+        "$ref": "#/$defs/event"
       }
     },
     "judge": {
-      "type": "object", "additionalProperties": false,
-      "required": ["transport", "verdicts", "accepted", "advisory", "rejected", "accepted_findings"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "verdicts",
+        "accepted",
+        "advisory",
+        "rejected",
+        "accepted_findings"
+      ],
       "properties": {
-        "transport": {"$ref": "#/$defs/transport_choice"},
+        "transport": {
+          "$ref": "#/$defs/judge_choice"
+        },
         "verdicts": {
           "type": "array",
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["agent", "claim", "verdict", "reason", "pass"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agent",
+              "claim",
+              "verdict",
+              "reason",
+              "pass"
+            ],
             "properties": {
-              "agent": {"anyOf": [{"$ref": "#/$defs/agent"}, {"const": "invalid"}]},
-              "claim": {"type": ["integer", "null"], "minimum": 0},
-              "text_key": {"$ref": "#/$defs/key"},
-              "verdict": {"enum": ["accepted", "advisory", "rejected"]},
-              "reason": {"$ref": "#/$defs/key"},
-              "pass": {"enum": ["gate", "closing"]}
+              "agent": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/agent"
+                  },
+                  {
+                    "const": "invalid"
+                  }
+                ]
+              },
+              "claim": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "text_key": {
+                "$ref": "#/$defs/key"
+              },
+              "verdict": {
+                "enum": [
+                  "accepted",
+                  "advisory",
+                  "rejected"
+                ]
+              },
+              "reason": {
+                "$ref": "#/$defs/key"
+              },
+              "pass": {
+                "enum": [
+                  "gate",
+                  "closing"
+                ]
+              }
+            }
+          },
+          "maxItems": 4096
+        },
+        "accepted": {
+          "$ref": "#/$defs/count"
+        },
+        "advisory": {
+          "$ref": "#/$defs/count"
+        },
+        "rejected": {
+          "$ref": "#/$defs/count"
+        },
+        "accepted_findings": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agent",
+              "claim"
+            ],
+            "properties": {
+              "agent": {
+                "$ref": "#/$defs/agent"
+              },
+              "claim": {
+                "type": "integer",
+                "minimum": 0
+              }
             }
           }
-        },
-        "accepted": {"$ref": "#/$defs/count"},
-        "advisory": {"$ref": "#/$defs/count"},
-        "rejected": {"$ref": "#/$defs/count"},
-        "accepted_findings": {"type": "array"}
+        }
       }
     },
     "proposals": {
       "type": "array",
       "items": {
-        "type": "object", "required": ["agent", "text_key", "params", "executed"],
-        "properties": {"agent": {"$ref": "#/$defs/agent"}, "executed": {"const": false}}
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "text_key",
+          "params",
+          "executed"
+        ],
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/agent"
+          },
+          "text_key": {
+            "$ref": "#/$defs/key"
+          },
+          "params": {
+            "type": "object"
+          },
+          "executed": {
+            "const": false
+          }
+        }
       }
     },
     "approvals": {
-      "type": "array", "maxItems": 1,
+      "type": "array",
+      "maxItems": 1,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["agent", "decision", "executed", "items"],
-        "properties": {"agent": {"const": "A33"}, "decision": {"const": "pending"}, "executed": {"const": false},
-                       "items": {"type": "array"}}
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "decision",
+          "executed",
+          "items"
+        ],
+        "properties": {
+          "agent": {
+            "const": "A33"
+          },
+          "decision": {
+            "const": "pending"
+          },
+          "executed": {
+            "const": false
+          },
+          "items": {
+            "type": "array"
+          }
+        }
       }
     },
     "usage": {
-      "type": "object", "additionalProperties": false, "required": ["agents", "intake", "totals", "external_spend_usd"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agents",
+        "intake",
+        "totals",
+        "external_spend_usd"
+      ],
       "properties": {
-        "agents": {"type": "object", "minProperties": 36, "maxProperties": 36},
-        "intake": {"type": "object"},
-        "totals": {"type": "object"},
-        "external_spend_usd": {"const": 0}
+        "agents": {
+          "type": "object",
+          "minProperties": 36,
+          "maxProperties": 36,
+          "propertyNames": {
+            "pattern": "^A(?:0[1-9]|[12][0-9]|3[0-6])$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool_calls",
+              "llm_calls",
+              "tokens_in",
+              "tokens_out",
+              "latency_ms"
+            ],
+            "properties": {
+              "tool_calls": {
+                "$ref": "#/$defs/count"
+              },
+              "llm_calls": {
+                "$ref": "#/$defs/count"
+              },
+              "tokens_in": {
+                "$ref": "#/$defs/count"
+              },
+              "tokens_out": {
+                "$ref": "#/$defs/count"
+              },
+              "latency_ms": {
+                "$ref": "#/$defs/count"
+              }
+            }
+          }
+        },
+        "intake": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool_calls",
+            "latency_ms",
+            "calls"
+          ],
+          "properties": {
+            "tool_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "latency_ms": {
+              "$ref": "#/$defs/count"
+            },
+            "calls": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "agent",
+                  "tool",
+                  "outcome",
+                  "latency_ms"
+                ],
+                "properties": {
+                  "agent": {
+                    "$ref": "#/$defs/agent"
+                  },
+                  "tool": {
+                    "$ref": "#/$defs/key"
+                  },
+                  "outcome": {
+                    "enum": [
+                      "ok",
+                      "input_rejected",
+                      "denied",
+                      "error"
+                    ]
+                  },
+                  "latency_ms": {
+                    "$ref": "#/$defs/count"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool_calls",
+            "llm_calls",
+            "tokens_in",
+            "tokens_out",
+            "latency_ms"
+          ],
+          "properties": {
+            "tool_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "llm_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "tokens_in": {
+              "$ref": "#/$defs/count"
+            },
+            "tokens_out": {
+              "$ref": "#/$defs/count"
+            },
+            "latency_ms": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "external_spend_usd": {
+          "const": 0
+        }
       }
     },
-    "evaluation": {"type": ["object", "null"]},
+    "evaluation": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "transports": {
-      "type": "object", "additionalProperties": false, "required": ["requested", "tools", "judge", "agents"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "tools",
+        "judge",
+        "agents"
+      ],
       "properties": {
-        "requested": {"enum": ["auto", "in_process", "mcp", "a2a"]},
-        "tools": {"$ref": "#/$defs/transport_choice"},
-        "judge": {"$ref": "#/$defs/transport_choice"},
-        "agents": {"type": "object", "minProperties": 36, "maxProperties": 36,
-                   "additionalProperties": {"enum": ["in_process", "mcp_local", "a2a_mtls"]}}
+        "requested": {
+          "enum": [
+            "auto",
+            "in_process",
+            "mcp",
+            "a2a"
+          ]
+        },
+        "tools": {
+          "$ref": "#/$defs/tools_choice"
+        },
+        "judge": {
+          "$ref": "#/$defs/judge_choice"
+        },
+        "agents": {
+          "type": "object",
+          "minProperties": 36,
+          "maxProperties": 36,
+          "additionalProperties": {
+            "enum": [
+              "in_process",
+              "mcp_local",
+              "a2a_mtls"
+            ]
+          }
+        }
       }
     },
     "budget": {
-      "type": "object", "additionalProperties": false, "required": ["limits", "used", "exceeded"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limits",
+        "used",
+        "exceeded"
+      ],
       "properties": {
-        "limits": {"$ref": "#/$defs/budget_values"},
-        "used": {"$ref": "#/$defs/budget_values"},
-        "exceeded": {"type": "array", "uniqueItems": true,
-                     "items": {"enum": ["specialists", "llm_calls", "tokens", "elapsed_ms"]}}
+        "limits": {
+          "$ref": "#/$defs/budget_values"
+        },
+        "used": {
+          "$ref": "#/$defs/budget_values"
+        },
+        "exceeded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "specialists",
+              "llm_calls",
+              "tokens",
+              "elapsed_ms"
+            ]
+          }
+        }
       }
     },
     "recovery": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["agent", "error_code", "decision", "retried"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "error_code",
+          "decision",
+          "retried"
+        ],
         "properties": {
-          "agent": {"$ref": "#/$defs/agent"},
-          "error_code": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/code"}]},
-          "decision": {"enum": ["retry_once_same_input", "safe_stop"]},
-          "retried": {"type": "boolean"}
+          "agent": {
+            "$ref": "#/$defs/agent"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/code"
+              }
+            ]
+          },
+          "decision": {
+            "enum": [
+              "retry_once_same_input",
+              "safe_stop"
+            ]
+          },
+          "retried": {
+            "type": "boolean"
+          }
         }
       }
     },
     "evidence": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["id", "sha256", "kind"],
-        "properties": {"id": {"$ref": "#/$defs/id"}, "sha256": {"$ref": "#/$defs/hex64"}, "kind": {"$ref": "#/$defs/key"}}
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "sha256": {
+            "$ref": "#/$defs/hex64"
+          },
+          "kind": {
+            "$ref": "#/$defs/key"
+          }
+        }
       }
     },
     "event_log": {
-      "type": "object", "additionalProperties": false, "required": ["dropped", "callback_errors"],
-      "properties": {"dropped": {"$ref": "#/$defs/count"}, "callback_errors": {"$ref": "#/$defs/count"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dropped",
+        "callback_errors"
+      ],
+      "properties": {
+        "dropped": {
+          "$ref": "#/$defs/count"
+        },
+        "callback_errors": {
+          "$ref": "#/$defs/count"
+        }
+      }
     },
-    "trace_sha256": {"$ref": "#/$defs/hex64"}
+    "trace_sha256": {
+      "$ref": "#/$defs/hex64"
+    },
+    "abandoned": {
+      "type": "array",
+      "maxItems": 36,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/agent"
+      }
+    }
   },
   "$defs": {
-    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}(?![\\s\\S])", "maxLength": 64},
-    "agent": {"type": "string", "pattern": "^A(?:0[1-9]|[12][0-9]|3[0-6])(?![\\s\\S])", "maxLength": 3},
-    "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]{0,63}(?![\\s\\S])", "maxLength": 64},
-    "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])", "maxLength": 64},
-    "hex64": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])", "minLength": 64, "maxLength": 64},
-    "count": {"type": "integer", "minimum": 0, "maximum": 1000000000},
-    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z(?![\\s\\S])"},
-    "budget_values": {
-      "type": "object", "additionalProperties": false, "required": ["specialists", "llm_calls", "tokens", "elapsed_ms"],
-      "properties": {"specialists": {"$ref": "#/$defs/count"}, "llm_calls": {"$ref": "#/$defs/count"},
-                     "tokens": {"type": "integer"}, "elapsed_ms": {"$ref": "#/$defs/count"}}
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}(?![\\s\\S])",
+      "maxLength": 64
     },
-    "transport_choice": {
-      "type": "object", "required": ["mode", "reason"],
+    "agent": {
+      "type": "string",
+      "pattern": "^A(?:0[1-9]|[12][0-9]|3[0-6])(?![\\s\\S])",
+      "maxLength": 3
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.]{0,63}(?![\\s\\S])",
+      "maxLength": 64
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+      "maxLength": 64
+    },
+    "hex64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z(?![\\s\\S])"
+    },
+    "budget_values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "specialists",
+        "llm_calls",
+        "tokens",
+        "elapsed_ms"
+      ],
       "properties": {
-        "mode": {"enum": ["in_process", "mcp_local", "a2a_mtls"]},
-        "reason": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/key"}]},
-        "ca_sha256": {"$ref": "#/$defs/hex64"},
-        "server_sha256": {"$ref": "#/$defs/hex64"},
-        "client_sha256": {"$ref": "#/$defs/hex64"},
-        "tls": {"const": "TLSv1.3"},
-        "address": {"const": "127.0.0.1"}
+        "specialists": {
+          "$ref": "#/$defs/count"
+        },
+        "llm_calls": {
+          "$ref": "#/$defs/count"
+        },
+        "tokens": {
+          "$ref": "#/$defs/count"
+        },
+        "elapsed_ms": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seq",
+        "t_ms",
+        "agent_id",
+        "type",
+        "data"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "t_ms": {
+          "$ref": "#/$defs/count"
+        },
+        "agent_id": {
+          "$ref": "#/$defs/agent"
+        },
+        "type": {
+          "enum": [
+            "run_started",
+            "agent_selected",
+            "agent_skipped",
+            "agent_started",
+            "tool_call",
+            "llm_call",
+            "retrieval",
+            "cache",
+            "agent_finished",
+            "judge_verdict",
+            "approval_requested",
+            "run_finished"
+          ]
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run_started"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_run_started"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent_selected"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_agent_selected"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent_skipped"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_agent_skipped"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent_started"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_agent_started"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_call"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_tool_call"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "llm_call"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_llm_call"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "retrieval"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_retrieval"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cache"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_cache"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent_finished"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_agent_finished"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "judge_verdict"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_judge_verdict"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "approval_requested"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_approval_requested"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run_finished"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/event_run_finished"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "event_run_started": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "tenant_id",
+        "case_id",
+        "transport_plan",
+        "limits"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tenant_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,64}(?![\\s\\S])",
+          "maxLength": 64
+        },
+        "case_id": {
+          "$ref": "#/$defs/id"
+        },
+        "transport_plan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "tools",
+            "judge"
+          ],
+          "properties": {
+            "requested": {
+              "enum": [
+                "auto",
+                "in_process",
+                "mcp",
+                "a2a"
+              ]
+            },
+            "tools": {
+              "$ref": "#/$defs/tools_choice"
+            },
+            "judge": {
+              "$ref": "#/$defs/tools_choice"
+            }
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/budget_values"
+        }
+      }
+    },
+    "event_agent_selected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/key"
+        }
+      }
+    },
+    "event_agent_skipped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "error_code",
+        "unmet"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/key"
+        },
+        "error_code": {
+          "$ref": "#/$defs/code"
+        },
+        "unmet": {
+          "type": "array",
+          "maxItems": 36,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/agent"
+          }
+        }
+      }
+    },
+    "event_agent_started": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wave",
+        "stage",
+        "attempt",
+        "depends_on",
+        "budget"
+      ],
+      "properties": {
+        "wave": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stage": {
+          "$ref": "#/$defs/key"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 36,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/agent"
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_tool_calls",
+            "max_llm_calls",
+            "max_tokens",
+            "deadline_ms"
+          ],
+          "properties": {
+            "max_tool_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "max_llm_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "max_tokens": {
+              "$ref": "#/$defs/count"
+            },
+            "deadline_ms": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        }
+      }
+    },
+    "event_tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "phase",
+        "transport",
+        "reason",
+        "outcome",
+        "latency_ms"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/key"
+        },
+        "phase": {
+          "enum": [
+            "intake",
+            "agent"
+          ]
+        },
+        "transport": {
+          "enum": [
+            "in_process",
+            "mcp_local",
+            "a2a_mtls"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/key"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "input_rejected",
+            "denied",
+            "error"
+          ]
+        },
+        "latency_ms": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "event_llm_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template",
+        "model",
+        "prompt_sha256",
+        "ok",
+        "error_code",
+        "tokens_in",
+        "tokens_out",
+        "cache",
+        "latency_ms"
+      ],
+      "properties": {
+        "template": {
+          "$ref": "#/$defs/key"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "prompt_sha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/code"
+            }
+          ]
+        },
+        "tokens_in": {
+          "$ref": "#/$defs/count"
+        },
+        "tokens_out": {
+          "$ref": "#/$defs/count"
+        },
+        "cache": {
+          "enum": [
+            "hit",
+            "miss",
+            "none"
+          ]
+        },
+        "latency_ms": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "event_retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "citations",
+        "sources"
+      ],
+      "properties": {
+        "citations": {
+          "$ref": "#/$defs/count"
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "event_cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template",
+        "result"
+      ],
+      "properties": {
+        "template": {
+          "$ref": "#/$defs/key"
+        },
+        "result": {
+          "enum": [
+            "hit",
+            "miss"
+          ]
+        }
+      }
+    },
+    "event_agent_finished": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "error_code",
+        "transport",
+        "claims",
+        "evidence_refs",
+        "proposals",
+        "usage",
+        "attempt"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "COMPLETED",
+            "NEEDS_EVIDENCE",
+            "POLICY_DENIED",
+            "SKIPPED",
+            "FAILED"
+          ]
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/code"
+            }
+          ]
+        },
+        "transport": {
+          "enum": [
+            "in_process",
+            "mcp_local",
+            "a2a_mtls"
+          ]
+        },
+        "claims": {
+          "$ref": "#/$defs/count"
+        },
+        "evidence_refs": {
+          "$ref": "#/$defs/count"
+        },
+        "proposals": {
+          "$ref": "#/$defs/count"
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool_calls",
+            "llm_calls",
+            "tokens_in",
+            "tokens_out",
+            "latency_ms"
+          ],
+          "properties": {
+            "tool_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "llm_calls": {
+              "$ref": "#/$defs/count"
+            },
+            "tokens_in": {
+              "$ref": "#/$defs/count"
+            },
+            "tokens_out": {
+              "$ref": "#/$defs/count"
+            },
+            "latency_ms": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "certificates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ca_sha256",
+            "server_sha256",
+            "client_sha256"
+          ],
+          "properties": {
+            "ca_sha256": {
+              "$ref": "#/$defs/hex64"
+            },
+            "server_sha256": {
+              "$ref": "#/$defs/hex64"
+            },
+            "client_sha256": {
+              "$ref": "#/$defs/hex64"
+            }
+          }
+        },
+        "abandoned": {
+          "const": true
+        },
+        "runtime": {
+          "const": true
+        }
+      }
+    },
+    "event_judge_verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "pass",
+        "accepted",
+        "advisory",
+        "rejected",
+        "verdicts"
+      ],
+      "properties": {
+        "subject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/agent"
+            },
+            {
+              "const": "invalid"
+            }
+          ]
+        },
+        "pass": {
+          "enum": [
+            "gate",
+            "closing"
+          ]
+        },
+        "accepted": {
+          "$ref": "#/$defs/count"
+        },
+        "advisory": {
+          "$ref": "#/$defs/count"
+        },
+        "rejected": {
+          "$ref": "#/$defs/count"
+        },
+        "verdicts": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "claim",
+              "verdict",
+              "reason"
+            ],
+            "properties": {
+              "claim": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "verdict": {
+                "enum": [
+                  "accepted",
+                  "advisory",
+                  "rejected"
+                ]
+              },
+              "reason": {
+                "$ref": "#/$defs/key"
+              }
+            }
+          }
+        }
+      }
+    },
+    "event_approval_requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "decision",
+        "executed"
+      ],
+      "properties": {
+        "items": {
+          "$ref": "#/$defs/count"
+        },
+        "decision": {
+          "const": "pending"
+        },
+        "executed": {
+          "const": false
+        }
+      }
+    },
+    "event_run_finished": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "duration_ms",
+        "budget_exceeded"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "completed",
+            "completed_with_gaps",
+            "failed_agents",
+            "budget_exceeded",
+            "input_rejected"
+          ]
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/count"
+        },
+        "budget_exceeded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "specialists",
+              "llm_calls",
+              "tokens",
+              "elapsed_ms"
+            ]
+          }
+        }
+      }
+    },
+    "tools_choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "reason"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "in_process",
+            "mcp_local",
+            "a2a_mtls"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/key"
+            }
+          ]
+        }
+      }
+    },
+    "judge_choice": {
+      "type": "object",
+      "required": [
+        "mode",
+        "reason"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "in_process",
+            "mcp_local",
+            "a2a_mtls"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/key"
+            }
+          ]
+        },
+        "ca_sha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "server_sha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "client_sha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "tls": {
+          "const": "TLSv1.3"
+        },
+        "address": {
+          "const": "127.0.0.1"
+        },
+        "certificates_removed": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     }

@@ -89,11 +89,12 @@ class FakeTransport:
     """Answers each request from its JSON schema, or from queued overrides (bytes, dicts or exceptions)."""
 
     def __init__(self, *overrides):
-        self.overrides, self.calls = list(overrides), []
+        self.overrides, self.calls, self.timeouts = list(overrides), [], []
 
     def __call__(self, url, body, timeout):
         request = json.loads(body)
         self.calls.append(request)
+        self.timeouts.append(timeout)
         if self.overrides:
             override = self.overrides.pop(0)
             if isinstance(override, BaseException):

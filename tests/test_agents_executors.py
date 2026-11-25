@@ -277,7 +277,7 @@ class Control(unittest.TestCase):
                 self.assertEqual(result["uncertainty"]["reason"], "rule_plan_only")
 
     def test_budget_controller(self):
-        ticks = iter([0.0, 0.5])
+        ticks = iter([0.0, 0.5, 0.5])  # context start, task start, the elapsed reading
         ctx = context(clock=lambda: next(ticks))
         result = run("A05", ctx)
         self.assertEqual(result["claims"][0]["text_key"], "a05.within_budget")

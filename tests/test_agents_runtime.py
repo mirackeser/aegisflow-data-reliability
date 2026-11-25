@@ -8,7 +8,9 @@ exercise them through the runtime.
 import copy
 from datetime import datetime, timezone
 import json
+import shutil
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -17,7 +19,7 @@ from agents_support import (BASELINE, BIG_ORDERS, DRIFTED, DUPLICATES, ORDERS, T
 from aegisflow_dr.advisory.context_cache import ContextCache
 from aegisflow_dr.agents import runtime, transport as transports
 from aegisflow_dr.agents.context import PolicyDenied
-from aegisflow_dr.agents.contracts import STATUSES, validate_run
+from aegisflow_dr.agents.contracts import STATUSES, validate_event, validate_run
 from aegisflow_dr.agents.events import EVENT_TYPES, EventLog
 from aegisflow_dr.agents.executors import resolve
 from aegisflow_dr.agents.executors.orchestration import SPECIALISTS
@@ -110,7 +112,7 @@ class Selection(unittest.TestCase):
         self.assertEqual((timed["A12"]["reason"], timed["A16"]["reason"], timed["A08"]["reason"]),
                          ("no_log_source", "no_cdc_source", "no_baseline"))
         self.assertEqual((timed["A28"]["reason"], timed["A30"]["reason"], timed["A06"]["reason"]),
-                         ("a24_not_selected", "no_remediation_options", "no_failed_agent"))
+                         ("a24_not_selected", "not_order_extract", "no_failed_agent"))
         self.assertEqual((timed["A29"]["reason"], timed["A33"]["reason"]), ("accepted_findings", "no_proposals"))
         big = execute(Case(BIG_ORDERS, "big", baseline=BASELINE, second_payload=ORDERS, history=HISTORY,
                            retriever=RETRIEVER))
@@ -129,9 +131,10 @@ class Selection(unittest.TestCase):
         record = execute(Case(DRIFTED, "drift", baseline=BASELINE))
         self.assertEqual((result(record, "A23")["status"], result(record, "A23")["error_code"]),
                          ("NEEDS_EVIDENCE", "MODEL_UNAVAILABLE"))
-        self.assertEqual((result(record, "A29")["error_code"], selection(record)["A30"]["reason"]),
-                         ("MODEL_UNAVAILABLE", "no_remediation_options"))
-        self.assertEqual(selection(record)["A31"]["reason"], "no_patch_proposal")
+        self.assertEqual(result(record, "A29")["error_code"], "MODEL_UNAVAILABLE")
+        for agent, prerequisite in (("A30", "A29"), ("A31", "A30"), ("A32", "A30")):  # gated, not run
+            self.assertEqual((result(record, agent)["error_code"], selection(record)[agent]["unmet"]),
+                             ("DEPENDENCY_UNMET", [prerequisite]))
         self.assertEqual((result(record, "A02")["status"], result(record, "A02")["llm"]), ("COMPLETED", None))
         self.assertEqual(record["usage"]["totals"]["llm_calls"], 0)
 
@@ -161,6 +164,8 @@ class Selection(unittest.TestCase):
         self.assertIsNone(record["intake"])
         self.assertEqual(record["judge"]["verdicts"], [])
         self.assertEqual(record["events"][-1]["type"], "run_finished")
+        self.assertEqual(events(record, "agent_started", "A01"), [])  # no A01 executor ran
+        self.assertTrue(events(record, "agent_finished", "A01")[0]["data"]["runtime"])
         verify_record(record)
 
 
@@ -236,8 +241,8 @@ class Budgets(unittest.TestCase):
                              ("SKIPPED", "BUDGET_EXCEEDED"))
             self.assertTrue(selection(record)[agent]["selected"])
         a22 = result(record, "A22")  # a hybrid keeps its rule part without a model call
-        self.assertEqual((a22["status"], a22["usage"]["llm_calls"], row(record, "A22")["task"]["budget"]["max_llm_calls"]),
-                         ("COMPLETED", 0, 0))
+        budget = row(record, "A22")["task"]["budget"]
+        self.assertEqual((a22["status"], a22["usage"]["llm_calls"], budget["max_llm_calls"]), ("COMPLETED", 0, 0))
 
     def test_token_limit(self):
         local, _ = model()
@@ -247,26 +252,76 @@ class Budgets(unittest.TestCase):
         self.assertEqual(set(self.assert_stopped(record, "tokens")), {"tokens_limit"})
         self.assertEqual(result(record, "A29")["error_code"], "BUDGET_EXCEEDED")
 
-    def test_wall_time_limit_and_agent_deadline(self):
+    def test_wall_time_limit_and_bounded_model_calls(self):
         clock = Clock()
         inner = FakeTransport()
+        timeouts = []
 
-        def slow(url, body, timeout):
-            if "candidates" in json.loads(body)["format"]["properties"]:
-                clock.advance(100)
-            return inner(url, body, timeout)
+        def hanging(url, body, timeout):  # a model that never answers in time: it honours the call timeout
+            timeouts.append(timeout)
+            clock.advance(timeout)
+            raise TimeoutError("no answer")
 
-        record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=LocalModel(transport=slow), clock=clock)
-        a23 = result(record, "A23")
-        self.assertEqual((a23["status"], a23["error_code"]), ("FAILED", "DEADLINE_EXCEEDED"))
-        self.assertEqual(a23["usage"]["llm_calls"], 1)  # the spent call stays accounted
-        self.assertEqual(record["recovery"], [{"agent": "A23", "error_code": "DEADLINE_EXCEEDED",
-                                               "decision": "safe_stop", "retried": False}])
+        record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=LocalModel(transport=hanging), clock=clock,
+                         budget=Budget(wall_ms=50_000))
+        self.assertEqual(timeouts, [30.0, 20.0])  # A02: the model limit; A23: the 20 s left of the run
+        self.assertEqual((result(record, "A02")["status"], result(record, "A02")["llm"]), ("COMPLETED", None))
+        self.assertEqual((result(record, "A23")["status"], result(record, "A23")["error_code"]),
+                         ("NEEDS_EVIDENCE", "TIMEOUT"))
         self.assertEqual(set(self.assert_stopped(record, "elapsed_ms")), {"time_limit"})
         self.assertEqual(result(record, "A29")["error_code"], "BUDGET_EXCEEDED")
         for agent in ("A27", "A34", "A35", "A36", "A26", "A01"):  # closing controls still close the run
             self.assertEqual(result(record, agent)["status"], "COMPLETED", agent)
-        self.assertEqual(record["duration_ms"], 100_000)
+        self.assertEqual(record["duration_ms"], 50_000)  # never beyond the wall limit
+        self.assertFalse(inner.calls)
+
+    def test_a_hanging_agent_is_cut_at_its_deadline(self):
+        release = threading.Event()
+        entered = []
+
+        def hanging(query, limit):
+            entered.append(query)
+            release.wait(10)
+            return RETRIEVER(query, limit)
+
+        started = time.perf_counter()
+        try:
+            record = execute(Case(ORDERS, "orders", retriever=hanging), budget=Budget(agent_deadline_ms=300))
+        finally:
+            release.set()
+        self.assertLess(time.perf_counter() - started, 5)
+        a22 = result(record, "A22")
+        self.assertEqual((a22["status"], a22["error_code"]), ("FAILED", "DEADLINE_EXCEEDED"))
+        self.assertEqual(record["abandoned"], ["A22"])
+        self.assertEqual(record["recovery"][0]["decision"], "safe_stop")  # a deadline is never retried
+        finished = events(record, "agent_finished", "A22")[0]["data"]
+        self.assertEqual((finished["status"], finished["abandoned"]), ("FAILED", True))
+        self.assertEqual(len(entered), 1)
+        self.assertEqual(result(record, "A01")["status"], "COMPLETED")
+
+    def test_no_model_call_once_the_deadline_is_spent(self):
+        clock = Clock()
+
+        def slow(query, limit):
+            clock.advance(2)
+            return RETRIEVER(query, limit)
+
+        local, transport = model()
+        record = execute(Case(GAP, "gap", retriever=slow), model=local, clock=clock,
+                         budget=Budget(agent_deadline_ms=1000))
+        a22 = result(record, "A22")
+        self.assertEqual((a22["status"], a22["error_code"], a22["usage"]["latency_ms"]),
+                         ("FAILED", "DEADLINE_EXCEEDED", 2000))
+        self.assertEqual(a22["usage"]["tool_calls"], 1)  # the work done before the deadline stays accounted
+        self.assertNotIn("relevance", [next(iter(c["format"]["properties"])) for c in transport.calls])
+        self.assertEqual(record["abandoned"], [])  # measured on the run clock, not cut in real time
+
+    def test_model_call_timeout_never_exceeds_the_task_deadline(self):
+        local, transport = model()
+        execute(Case(DRIFTED, "drift", baseline=BASELINE), model=local, budget=Budget(agent_deadline_ms=1500))
+        seen = list(transport.timeouts)
+        self.assertTrue(seen)
+        self.assertTrue(all(0 < t <= 1.5 for t in seen))
 
     def test_specialist_limit(self):
         record = execute(Case(DRIFTED, "drift", baseline=BASELINE), budget=Budget(specialists=2))
@@ -274,6 +329,70 @@ class Budgets(unittest.TestCase):
         ran = [a for a in SPECIALISTS if result(record, a)["status"] not in ("SKIPPED",)]
         self.assertEqual(len(ran), 2)
         self.assertEqual(record["budget"]["used"]["specialists"], 2)
+
+
+class Dependencies(unittest.TestCase):
+    def fail(self, task, ctx, execute_agent):
+        raise RuntimeError("bug")
+
+    def test_a_failed_profile_gates_every_dependent(self):
+        local, _ = model()
+        with wrapped({"A10": self.fail}):
+            record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=local)
+        self.assertEqual((result(record, "A10")["status"], row(record, "A10")["attempts"]), ("FAILED", 2))
+        gated = {a: selection(record)[a]["unmet"] for a in AGENT_IDS
+                 if result(record, a)["error_code"] == "DEPENDENCY_UNMET"}
+        self.assertEqual(gated, {"A08": ["A10"], "A09": ["A10"], "A11": ["A10"], "A13": ["A10"], "A14": ["A10"],
+                                 "A19": ["A10"], "A20": ["A10"], "A24": ["A11", "A20"], "A25": ["A11", "A20"],
+                                 "A23": ["A24", "A25"], "A28": ["A24"]})
+        for agent, unmet in gated.items():
+            event = events(record, "agent_skipped", agent)[-1]["data"]
+            self.assertEqual((event["reason"], event["error_code"], event["unmet"]),
+                             ("dependency_unmet", "DEPENDENCY_UNMET", unmet))
+            self.assertIsNone(row(record, agent)["task"])
+            self.assertTrue(selection(record)[agent]["selected"])
+        self.assertEqual(record["status"], "failed_agents")
+
+    def test_a_failed_counter_hypothesis_gates_a23_and_a28(self):
+        local, _ = model()
+        def typed(status, code):
+            return lambda task, ctx, execute_agent: runtime._typed("A24", task["task_id"], status, code)
+
+        for name, fake in (("failed", self.fail), ("needs_evidence", typed("NEEDS_EVIDENCE", "NO_BASELINE")),
+                           ("policy_denied", typed("POLICY_DENIED", "TOOL_NOT_ALLOWED"))):
+            with self.subTest(name), wrapped({"A24": fake}):
+                record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=local)
+            self.assertEqual({a: result(record, a)["error_code"] for a in ("A23", "A28")},
+                             {"A23": "DEPENDENCY_UNMET", "A28": "DEPENDENCY_UNMET"})
+            self.assertEqual((selection(record)["A23"]["unmet"], selection(record)["A28"]["unmet"]),
+                             (["A24"], ["A24"]))
+            self.assertEqual(result(record, "A25")["status"], "COMPLETED")
+            self.assertEqual(result(record, "A29")["status"], "COMPLETED")  # specialist findings still feed A29
+
+    def test_a_retry_that_succeeds_releases_the_dependents(self):
+        calls = []
+
+        def once(task, ctx, execute_agent):
+            calls.append(task["task_id"])
+            if len(calls) == 1:
+                raise RuntimeError("transient")
+            return execute_agent(task, ctx)
+
+        with wrapped({"A10": once}):
+            record = execute(Case(DRIFTED, "drift", baseline=BASELINE))
+        self.assertEqual((result(record, "A10")["status"], row(record, "A10")["attempts"]), ("COMPLETED", 2))
+        self.assertEqual(result(record, "A08")["status"], "COMPLETED")
+        investigated = SPECIALISTS + ("A23", "A24", "A25", "A28")  # (no model here, so A29 needs evidence)
+        self.assertFalse([a for a in investigated if result(record, a)["error_code"] == "DEPENDENCY_UNMET"])
+
+    def test_a_budget_skipped_prerequisite_is_unmet_and_unselected_ones_do_not_block(self):
+        local, _ = model()
+        record = execute(Case(DRIFTED, "drift", baseline=BASELINE), model=local, budget=Budget(llm_calls=2))
+        self.assertEqual(result(record, "A29")["error_code"], "BUDGET_EXCEEDED")
+        self.assertEqual((result(record, "A30")["error_code"], selection(record)["A30"]["unmet"]),
+                         ("DEPENDENCY_UNMET", ["A29"]))
+        gap = execute(Case(GAP, "gap"), model=local)  # A23 without a baseline: A24/A25 not selected
+        self.assertEqual(result(gap, "A23")["status"], "COMPLETED")
 
 
 class Recovery(unittest.TestCase):
@@ -315,16 +434,15 @@ class Recovery(unittest.TestCase):
         def crash(task, ctx, execute_agent):
             raise RuntimeError("bug")
 
-        with wrapped({"A10": crash, "A13": rejected, "A14": crash, "A33": crash}):
+        with wrapped({"A13": rejected, "A14": crash, "A33": crash}):
             record = execute(Case(ORDERS, "orders"), model=model()[0])
         self.assertEqual([(i["agent"], i["decision"], i["retried"]) for i in record["recovery"]],
-                         [("A10", "retry_once_same_input", True),  # first recovery (wave of A10)
-                          ("A13", "safe_stop", False), ("A14", "retry_once_same_input", True),  # a later wave
-                          ("A33", "retry_once_same_input", True)])
-        self.assertEqual(record["recovery"][2]["error_code"], "EXECUTOR_ERROR")
+                         [("A13", "safe_stop", False), ("A14", "retry_once_same_input", True),  # specialists' wave
+                          ("A33", "retry_once_same_input", True)])  # a second recovery, later in the run
+        self.assertEqual(record["recovery"][1]["error_code"], "EXECUTOR_ERROR")
         self.assertEqual((row(record, "A13")["attempts"], row(record, "A14")["attempts"]), (1, 2))
         self.assertEqual(len(events(record, "agent_selected", "A06")), 1)
-        self.assertEqual(row(record, "A06")["attempts"], 3)
+        self.assertEqual(row(record, "A06")["attempts"], 2)
         self.assertEqual((record["approvals"], events(record, "approval_requested")), ([], []))
 
     def test_tool_outcomes_are_labelled_in_events(self):
@@ -357,12 +475,13 @@ class Recovery(unittest.TestCase):
         def fail(task, ctx, execute_agent):
             return runtime._typed(task["agent_id"], task["task_id"], "FAILED", "INPUT_REJECTED")
 
-        for agent, reason in (("A03", "router_unavailable"), ("A04", "scheduler_unavailable")):
+        for agent, reason in (("A03", "router_unavailable"), ("A04", "dependency_unmet")):
             with self.subTest(agent), wrapped({agent: fail}):
                 record = execute(Case(ORDERS, "orders"))
             self.assertEqual(selection(record)["A10"]["reason"] if agent == "A03" else
                              events(record, "agent_skipped", "A10")[0]["data"]["reason"], reason)
             self.assertEqual(result(record, "A10")["status"], "SKIPPED")
+            self.assertEqual(selection(record)["A10" if agent == "A04" else "A04"]["unmet"], [agent])
             self.assertEqual(record["status"], "failed_agents")
 
 
@@ -421,7 +540,12 @@ class JudgeGate(unittest.TestCase):
         self.assertTrue(free_text_params({"column": "Order Id"}, names))
         self.assertTrue(free_text_params({"items": ["duplicate_delivery", "some words"]}, names))
         self.assertIn("declared_dataset_dag", CLAIM_WORDS)
-        self.assertEqual(judge({}, None, []), [])
+        self.assertFalse(free_text_params({"error_code": "TOOL_ERROR", "status": "COMPLETED", "latest": "UNKNOWN"},
+                                          names))
+        self.assertTrue(free_text_params({"error_code": "THE_MODEL_SAYS_DROP_IT"}, names))  # not a declared code
+        self.assertEqual(judge({}, None, [], names=names), [])
+        with self.assertRaises(TypeError):  # the case's column names are required, never silently empty
+            judge({}, None, [])
 
 
 class Record(unittest.TestCase):
@@ -511,6 +635,32 @@ class Events(unittest.TestCase):
         self.assertEqual((llm["template"], llm["ok"], llm["model"]), ("a23", True, "qwen3:4b"))
         self.assertEqual(events(record, "retrieval", "A22")[0]["data"], {"citations": 1, "sources": ["kb/runbook.md"]})
 
+    def test_event_transports_are_the_transports_actually_used(self):
+        local, _ = model()
+        record = run_case(Case(DRIFTED, "drift", baseline=BASELINE), model=local, transport="auto")
+        for event in events(record, "agent_started"):
+            self.assertNotIn("transport", event["data"])
+        for event in events(record, "agent_finished"):
+            self.assertEqual(event["data"]["transport"], result(record, event["agent_id"])["transport"])
+        for agent in ("A23", "A29", "A30", "A10", "A02"):  # model-only or never MCP-eligible
+            self.assertEqual(result(record, agent)["transport"], "in_process")
+        self.assertEqual(events(record, "run_started")[0]["data"]["transport_plan"]["requested"], "auto")
+
+    def test_event_data_is_typed_per_event(self):
+        log = EventLog(Clock(), 0.0)
+        for kind, data in (("agent_selected", {}), ("agent_selected", {"reason": "always", "extra": 1}),
+                           ("tool_call", {"tool": "x"}), ("run_finished", {"status": "fine", "duration_ms": 0,
+                                                                          "budget_exceeded": []})):
+            with self.subTest(kind=kind, data=data), self.assertRaisesRegex(ValueError, "Invalid event"):
+                log.stamp("A01", kind, data)
+        record = execute(Case(ORDERS, "orders"))
+        for event in record["events"]:
+            validate_event(event)
+        changed = copy.deepcopy(record["events"][0])
+        changed["data"]["limits"] = "none"
+        with self.assertRaises(InputRejected):
+            validate_event(changed)
+
     def test_a_failing_subscriber_never_breaks_the_run(self):
         def broken(event):
             raise RuntimeError("subscriber down")
@@ -522,16 +672,20 @@ class Events(unittest.TestCase):
     def test_event_log_bounds_and_validation(self):
         clock = Clock()
         delivered = []
-        log = EventLog(clock, 0.0, delivered.append, max_events=2)
+        log = EventLog(clock, 0.0, delivered.append, max_events=3)
         clock.advance(0.25)
-        self.assertEqual(log.emit("A01", "run_started", {"n": 1})["t_ms"], 250)
-        log.emit("A10", "tool_call", {})
-        self.assertIsNone(log.emit("A10", "tool_call", {}))
-        self.assertEqual((log.dropped, len(log.events()), len(delivered)), (1, 2, 2))
+        selected = {"reason": "always"}
+        self.assertEqual(log.emit("A01", "agent_selected", selected)["t_ms"], 250)
+        log.emit("A10", "agent_selected", selected)
+        self.assertIsNone(log.emit("A10", "agent_selected", selected))  # the last slot is kept for run_finished
+        finished = {"status": "completed", "duration_ms": 250, "budget_exceeded": []}
+        self.assertEqual(log.emit("A01", "run_finished", finished)["seq"], 3)
+        self.assertIsNone(log.emit("A01", "run_finished", finished))
+        self.assertEqual((log.dropped, len(log.events()), len(delivered)), (2, 3, 3))
         for bad in (("A99", "tool_call", {}), ("A10", "gossip", {}), ("A10", "tool_call", [])):
             with self.subTest(bad), self.assertRaises(ValueError):
                 log.stamp(*bad)
-        for settings in ((1, 0.0), (clock, 0.0, 5), (clock, 0.0, None, 0)):
+        for settings in ((1, 0.0), (clock, 0.0, 5), (clock, 0.0, None, 1)):
             with self.subTest(settings), self.assertRaises(ValueError):
                 EventLog(*settings[:3], **({"max_events": settings[3]} if len(settings) > 3 else {}))
 
@@ -576,6 +730,14 @@ class Transports(unittest.TestCase):
             execute(Case(ORDERS, "orders"), transport="a2a")
         self.assertEqual(len(roots), 1)
         self.assertFalse(roots[0].exists())
+        record = execute(Case(ORDERS, "orders"), transport="a2a")
+        self.assertIs(record["transports"]["judge"]["certificates_removed"], True)
+        leftovers = []
+        with mock.patch.object(transports.shutil, "rmtree", side_effect=lambda path, **kw: leftovers.append(path)):
+            kept = execute(Case(ORDERS, "orders"), transport="a2a")
+        self.assertIs(kept["transports"]["judge"]["certificates_removed"], False)  # reported, never hidden
+        for leftover in leftovers:
+            shutil.rmtree(leftover)
 
     def test_judge_falls_back_in_process_when_the_exchange_fails(self):
         def refuse(task, review, *, pki, timeout=None):
@@ -584,10 +746,18 @@ class Transports(unittest.TestCase):
         def mismatch(task, review, *, pki, timeout=None):
             return {**review(task), "task_id": "other.a27"}
 
+        def crash(task, review, *, pki, timeout=None):
+            raise RuntimeError("judge bug")
+
+        with mock.patch.object(transports, "a2a_review", side_effect=crash):
+            record = execute(Case(ORDERS, "orders"), transport="a2a")
+        self.assertEqual(result(record, "A27")["error_code"], "EXECUTOR_ERROR")  # a bug is not a transport failure
+        self.assertEqual(record["transports"]["judge"]["mode"], "a2a_mtls")
         for fake in (refuse, mismatch):
             with self.subTest(fake.__name__), mock.patch.object(transports, "a2a_review", side_effect=fake):
                 record = execute(Case(ORDERS, "orders"), transport="a2a")
-            self.assertEqual(record["transports"]["judge"], {"mode": "in_process", "reason": "a2a_exchange_failed"})
+            self.assertEqual({k: record["transports"]["judge"][k] for k in ("mode", "reason")},
+                             {"mode": "in_process", "reason": "a2a_exchange_failed"})
             self.assertEqual((result(record, "A27")["status"], result(record, "A27")["transport"]),
                              ("COMPLETED", "in_process"))
 

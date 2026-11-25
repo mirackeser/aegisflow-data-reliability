@@ -6,28 +6,38 @@
 1. A01 opens the run and the case intake runs once (its profile, comparison and contract calls are ``tool_call``
    events of A10 and A01). An unreadable case ends the run as ``input_rejected``.
 2. A02 plans, A03 routes (at most 8 specialists; every other role gets a SKIPPED row with its reason), A04 turns the
-   selection into dependency waves of at most 4, which run concurrently in a thread pool.
+   selection into dependency waves of at most 4, whose agents run concurrently, each in its own thread.
 3. A27 (the Judge) gates the claim set, over A2A with mutual TLS when available; only accepted specialist claims feed
    A29. A30, A31 and A32 follow the proposals; A33 records a pending approval; A34, A05, A35, A36 and A26 review,
    account, evaluate and store; A01 closes the run. A closing Judge pass covers the claims made after the gate.
 
-A05's limits are enforced here: before a wave starts, specialists over the specialist limit, model roles without
+Dependencies gate (role table): an agent whose selected prerequisite did not complete (FAILED after recovery,
+NEEDS_EVIDENCE, POLICY_DENIED or SKIPPED, a budget skip included) is SKIPPED with ``DEPENDENCY_UNMET`` and the unmet
+prerequisites are named; a prerequisite that was never selected does not block.
+
+A05's limits are enforced here. Before a wave starts, specialists over the specialist limit, model roles without
 model calls or tokens left, and every non-closing role once the wall time is used are SKIPPED with
-``BUDGET_EXCEEDED``; an agent that finishes after its ``deadline_ms`` becomes FAILED with ``DEADLINE_EXCEEDED``. A06
-decides on every FAILED agent and the runtime retries the ones it marks ``retry_once_same_input`` once with the same
-task (POLICY_DENIED and NEEDS_EVIDENCE are not failures and are never retried). Latencies are measured on the
-injected ``clock``; results, events and the record are deterministic for a fixed clock, model, ``now`` and ``run_id``.
-Nothing here executes a proposal or simulates a human decision, and model text never becomes evidence.
+``BUDGET_EXCEEDED``, so no new wave is scheduled after the wall limit. Each agent runs in its own daemon thread and is
+waited for at most its ``deadline_ms`` (the agent deadline, capped by the run time left), measured in real time: an
+agent still running then is FAILED with ``DEADLINE_EXCEEDED``, its late result and events are discarded and it is
+listed in ``abandoned`` (a Python thread cannot be killed; a daemon thread never blocks process exit). This bounds
+tool calls and injected retrievers too. Model calls are bounded before that by their own timeout, which is the time
+left of the task's deadline (at most 30 s). The case intake and rule tools are bounded by their input limits. An agent
+whose injected-clock latency exceeds its deadline is also FAILED with ``DEADLINE_EXCEEDED``. A06 decides on every
+FAILED agent and the runtime retries the ones it marks ``retry_once_same_input`` once with the same task, if the
+time, model-call and token budgets still allow it (POLICY_DENIED and NEEDS_EVIDENCE are not failures and are never
+retried). Latencies are measured on the injected ``clock``; results, events and the record are deterministic for a
+fixed clock, model, ``now`` and ``run_id``. Nothing here executes a proposal or simulates a human decision, and model
+text never becomes evidence.
 """
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import re
-from threading import Lock
-from time import monotonic
+from threading import Event, Lock, Thread
+from time import monotonic, perf_counter
 from typing import Any
 from uuid import uuid4
 
@@ -39,8 +49,7 @@ from .contracts import validate_result, validate_run, validate_task
 from .events import EventLog
 from .executors import resolve
 from .executors.governance import USAGE_KEYS
-from .executors.orchestration import (BUDGET_EXCEEDED, LIMITS, MAX_WAVE, REASONING_DEPENDS, SPECIALISTS, route,
-                                      triage)
+from .executors.orchestration import BUDGET_EXCEEDED, LIMITS, REASONING_DEPENDS, SPECIALISTS, triage
 from .executors._base import Run
 from .executors.reasoning import judge
 from .executors.remediation import accepted_findings
@@ -50,15 +59,17 @@ from .registry import ROLES, role
 
 RECORD_VERSION, POLICY_VERSION, MAX_TOOL_CALLS = "1", "1", 8
 NOT_SELECTED, INTAKE_REJECTED = "NOT_SELECTED", "INTAKE_REJECTED"
-DEADLINE_EXCEEDED, EXECUTOR_ERROR, DEPENDENCY_FAILED = "DEADLINE_EXCEEDED", "EXECUTOR_ERROR", "DEPENDENCY_FAILED"
+DEADLINE_EXCEEDED, EXECUTOR_ERROR, DEPENDENCY_UNMET = "DEADLINE_EXCEEDED", "EXECUTOR_ERROR", "DEPENDENCY_UNMET"
 AGENT_IDS = tuple(spec.agent_id for spec in ROLES)
 ALWAYS = ("A01", "A02", "A03", "A04", "A05", "A26", "A27", "A34", "A35", "A36")
 # Closing controls make no model call and run even after a budget stop, so the run is closed and accounted honestly.
 CLOSING = frozenset({"A01", "A05", "A26", "A27", "A33", "A34", "A35", "A36"})
 MODEL_ROLES = frozenset(spec.agent_id for spec in ROLES if "local_llm" in spec.allowed_tools)
 LLM_ONLY = frozenset(spec.agent_id for spec in ROLES if spec.kind == "llm")
-DEPENDS = {**{a: ("A10",) for a in SPECIALISTS if a != "A10"}, **REASONING_DEPENDS, "A04": ("A03",),
-           "A29": ("A27",), "A30": ("A29",), "A31": ("A30",), "A32": ("A30",), "A33": ("A29", "A30")}
+# Prerequisites per role (role table): specialists read the profile (A10); A24/A25 follow A11/A20; A23 compares with
+# A24/A25 and A28 ranks A24; the remediation chain follows the Judge. A33 reads every proposal and has none.
+DEPENDS = {**{a: ("A10",) for a in SPECIALISTS if a != "A10"}, "A24": ("A11", "A20"), "A25": ("A11", "A20"),
+           **REASONING_DEPENDS, "A04": ("A03",), "A29": ("A27",), "A30": ("A29",), "A31": ("A30",), "A32": ("A30",)}
 _RUN_ID = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,55}")
 
 
@@ -130,8 +141,9 @@ class _Hooks:
 
     def __init__(self, run, mcp, reason):
         self._run, self._mcp, self._reason = run, mcp, reason
-        self._buffers, self._lock = {}, Lock()
+        self._buffers, self._lock, self._abandoned = {}, Lock(), set()
         self.intake = []
+        self.discarded = 0  # events of abandoned agents, which arrive after their deadline
 
     def begin(self, agent):
         with self._lock:
@@ -143,9 +155,18 @@ class _Hooks:
         for item in pending:
             self._run.log.publish(item)
 
+    def abandon(self, agent):
+        """Publish what the agent did before its deadline; drop anything it does afterwards."""
+        self.flush(agent)
+        with self._lock:
+            self._abandoned.add(agent)
+
     def event(self, agent_id, kind, data):
         pending = self._run.log.stamp(agent_id, kind, data)
         with self._lock:
+            if agent_id in self._abandoned:
+                self.discarded += 1
+                return
             buffer = self._buffers.get(agent_id)
             if buffer is not None:
                 buffer.append(pending)
@@ -215,7 +236,7 @@ class _Run:
         self.selection = {}
         self.wave_of, self.recovery, self.exceeded, self.gate = {}, [], [], []
         self.judge_transport = dict(plan["judge"])
-        self.pool = self.pki = None
+        self.pki, self.unmet, self.abandoned = None, {}, []
         self.specialists = set()  # specialists admitted so far (counted at admission, before a wave starts)
 
     # -- helpers ----------------------------------------------------------------------------------------------------
@@ -238,11 +259,17 @@ class _Run:
         self.selection[agent] = {"selected": True, "reason": reason}
         self.emit(agent, "agent_selected", {"reason": reason})
 
-    def skip(self, agent, reason, code=NOT_SELECTED, selected=False):
+    def skip(self, agent, reason, code=NOT_SELECTED, selected=False, unmet=()):
         if not selected:
             self.selection[agent] = {"selected": False, "reason": reason}
+        self.unmet[agent] = list(unmet)
         self.results[agent] = _typed(agent, self.task_id(agent), "SKIPPED", code)
-        self.emit(agent, "agent_skipped", {"reason": reason, "error_code": code})
+        self.emit(agent, "agent_skipped", {"reason": reason, "error_code": code, "unmet": list(unmet)})
+
+    def unmet_prerequisites(self, agent):
+        """Selected prerequisites of ``agent`` whose final result is not COMPLETED."""
+        return [d for d in DEPENDS.get(agent, ()) if self.selection.get(d, {}).get("selected")
+                and self.results[d]["status"] != "COMPLETED"]
 
     def used(self):
         results = list(self.results.values())
@@ -299,7 +326,8 @@ class _Run:
             if (result["task_id"] != task["task_id"] or result["agent_id"] != "A27"
                     or any(not ctx.evidence.has(ref) for ref in result["evidence_refs"])):
                 raise InputRejected("Judge result does not match its task")
-        except Exception:  # setup, TLS or contract failure: the Judge runs in process and the record says why
+        except (ValueError, OSError):  # PKI, TLS, A2A or contract failure (TransportError, ProtocolError, SSLError
+            # and InputRejected are among them); any other error is an executor error, not a transport failure
             self.judge_transport = {"mode": transports.IN_PROCESS, "reason": "a2a_exchange_failed"}
             return resolve("A27")(task, ctx)
         self.judge_transport.update(self.pki.fingerprints(), tls="TLSv1.3", address="127.0.0.1")
@@ -319,35 +347,53 @@ class _Run:
         if not runnable:
             return
         ctx = replace(self.ctx, prior=dict(self.results))
-        futures = []
+        workers = []
         for agent, task in runnable:
             self.tasks[agent] = task
             self.attempts[agent] = self.attempts.get(agent, 0) + 1
             self.hooks.begin(agent)
             self.emit(agent, "agent_started", {"wave": number, "stage": stage, "attempt": self.attempts[agent],
-                                               "depends_on": [d for d in DEPENDS.get(agent, ()) if d in self.results],
-                                               "transport": self._planned_transport(agent),
+                                               "depends_on": [d for d in DEPENDS.get(agent, ())
+                                                              if self.selection.get(d, {}).get("selected")],
                                                "budget": task["budget"]})
-            futures.append((agent, task, self.pool.submit(self._execute, agent, task, ctx)))
-        for agent, task, future in futures:
-            result = future.result()
+            workers.append((agent, task, self._spawn(agent, task, ctx)))
+        for agent, task, (box, done, began) in workers:
+            remaining = task["budget"]["deadline_ms"] / 1000 - (perf_counter() - began)
+            abandoned = not done.wait(max(0.0, remaining))
+            if abandoned:  # still running at its deadline: its late result and events are discarded
+                self.hooks.abandon(agent)
+                self.abandoned.append(agent)
+                result = _typed(agent, task["task_id"], "FAILED", DEADLINE_EXCEEDED)
+            else:
+                result = box["result"]
+                self.hooks.flush(agent)
             if retry:
                 result = self._merge_attempts(self.results[agent], result)
             self.results[agent] = result
-            self.hooks.flush(agent)
-            self.emit(agent, "agent_finished", self._finished(agent, result))
+            self.emit(agent, "agent_finished", self._finished(agent, result, abandoned=abandoned))
 
-    def _planned_transport(self, agent):
-        if agent == "A27":
-            return self.judge_transport["mode"]
-        return self.plan["tools"]["mode"] if role(agent).allowed_tools else transports.IN_PROCESS
+    def _spawn(self, agent, task, ctx):
+        """Run one agent in a daemon thread; return (result box, done event, real start time)."""
+        box, done = {}, Event()
 
-    def _finished(self, agent, result):
+        def work():
+            box["result"] = self._execute(agent, task, ctx)  # _execute never raises
+            done.set()
+
+        Thread(target=work, name="agent-" + agent, daemon=True).start()
+        return box, done, perf_counter()
+
+    def _finished(self, agent, result, *, abandoned=False, runtime=False):
         data = {"status": result["status"], "error_code": result["error_code"], "transport": result["transport"],
                 "claims": len(result["claims"]), "evidence_refs": len(result["evidence_refs"]),
-                "proposals": len(result["proposed_actions"]), "usage": result["usage"], "attempt": self.attempts[agent]}
+                "proposals": len(result["proposed_actions"]), "usage": result["usage"],
+                "attempt": self.attempts.get(agent, 0)}
         if agent == "A27" and result["transport"] == transports.A2A_MTLS:
             data["certificates"] = self.pki.fingerprints()
+        if abandoned:
+            data["abandoned"] = True
+        if runtime:  # an outcome the runtime recorded without running the agent's executor
+            data["runtime"] = True
         return data
 
     @staticmethod
@@ -356,10 +402,13 @@ class _Run:
         return validate_result({**second, "usage": usage})
 
     def admit(self, agent, closing):
-        """The task for ``agent`` within the run budget, or None after recording a BUDGET_EXCEEDED skip."""
+        """The task for ``agent`` within the run budget and with its prerequisites met, or None after a skip."""
         if not closing and self.elapsed_ms() >= self.limits["elapsed_ms"]:
             self.stop("elapsed_ms")
             return self.skip(agent, "time_limit", BUDGET_EXCEEDED, selected=True)
+        unmet = self.unmet_prerequisites(agent)
+        if unmet:
+            return self.skip(agent, "dependency_unmet", DEPENDENCY_UNMET, selected=True, unmet=unmet)
         if agent in SPECIALISTS:
             if len(self.specialists) >= self.limits["specialists"]:
                 self.stop("specialists")
@@ -396,10 +445,11 @@ class _Run:
             self.run_wave("retry", list(retry), retry=retry)
 
     def within_budget(self, task):
-        """A retry repeats the same task, so it must still fit the remaining time and model budget."""
-        used = self.used()
+        """A retry repeats the same task, so it must still fit the remaining time, model-call and token budget."""
+        used, calls = self.used(), task["budget"]["max_llm_calls"]
         return (used["elapsed_ms"] < self.limits["elapsed_ms"]
-                and used["llm_calls"] + task["budget"]["max_llm_calls"] <= self.limits["llm_calls"])
+                and used["llm_calls"] + calls <= self.limits["llm_calls"]
+                and (calls == 0 or used["tokens"] < self.limits["tokens"]))
 
     def stage(self, stage, agents, *, closing=False):
         self.run_wave(stage, agents, closing=closing)
@@ -416,20 +466,24 @@ class _Run:
 
     # -- the run ----------------------------------------------------------------------------------------------------
     def execute(self):
-        with ExitStack() as stack, ThreadPoolExecutor(max_workers=MAX_WAVE) as pool:
-            self.stack, self.pool = stack, pool
-            self.emit("A01", "run_started", {"run_id": self.run_id, "tenant_id": self.case.tenant_id,
-                                             "case_id": self.case.case_id, "transport": self.plan,
-                                             "limits": self.limits})
-            self.select("A01", "always")
+        self.emit("A01", "run_started", {"run_id": self.run_id, "tenant_id": self.case.tenant_id,
+                                         "case_id": self.case.case_id, "transport_plan": self.plan,
+                                         "limits": self.limits})
+        self.select("A01", "always")
+        with ExitStack() as stack:
+            self.stack = stack
             try:
                 intake = triage(self.ctx)
             except InputRejected:
-                return self.rejected()
-            self.investigate(intake)
-            self.remediate()
-            self.close()
-            return self.record(intake)
+                intake = None
+                self.rejected()
+            else:
+                self.investigate(intake)
+                self.remediate()
+                self.close()
+        if self.pki is not None:  # the run's certificate directory must be gone; a failure is reported, not hidden
+            self.judge_transport["certificates_removed"] = not self.pki.root.exists()
+        return self.record(intake)
 
     def investigate(self, intake):
         for agent in ("A02", "A03"):
@@ -440,7 +494,7 @@ class _Run:
             for agent in SPECIALISTS + ("A23", "A24", "A25", "A28"):
                 self.skip(agent, "router_unavailable")
             self.select("A04", "always")
-            self.skip("A04", "router_unavailable", DEPENDENCY_FAILED, selected=True)
+            self.skip("A04", "dependency_unmet", DEPENDENCY_UNMET, selected=True, unmet=["A03"])
             return
         for item in routing["selected"]:
             self.select(item["agent"], item["reason"])
@@ -456,7 +510,7 @@ class _Run:
         if plan is None:
             for agent in sorted(item["agent"] for item in routing["selected"]) + (["A28"] if self.selection["A28"][
                     "selected"] else []):
-                self.skip(agent, "scheduler_unavailable", DEPENDENCY_FAILED, selected=True)
+                self.skip(agent, "dependency_unmet", DEPENDENCY_UNMET, selected=True, unmet=["A04"])
             return
         for item in plan["stages"]:
             self.stage(item["stage"], item["agents"])
@@ -473,14 +527,15 @@ class _Run:
         else:
             self.select("A29", "accepted_findings")
             self.stage("remediation", ["A29"])
-        if self.results["A29"]["status"] != "COMPLETED":
+        # Selection follows the role table; whether a selected step may run is the dependency gate in admit().
+        if not self.selection["A29"]["selected"]:
             self.skip("A30", "no_remediation_options")
         elif not triage(self.ctx)["order_extract"]:
             self.skip("A30", "not_order_extract")
         else:
             self.select("A30", "options_for_order_extract")
             self.stage("remediation", ["A30"])
-        if self.results["A30"]["status"] != "COMPLETED":
+        if not self.selection["A30"]["selected"]:
             for agent in ("A31", "A32"):
                 self.skip(agent, "no_patch_proposal")
             return
@@ -519,14 +574,10 @@ class _Run:
     def rejected(self):
         for agent in AGENT_IDS[1:]:
             self.skip(agent, "intake_rejected", INTAKE_REJECTED)
-        self.attempts["A01"] = 1
         self.wave_of["A01"] = 1
         self.waves_run.append({"wave": 1, "stage": "close", "agents": ["A01"]})
-        self.emit("A01", "agent_started", {"wave": 1, "stage": "close", "attempt": 1, "depends_on": [],
-                                           "transport": transports.IN_PROCESS, "budget": None})
         self.results["A01"] = _typed("A01", self.task_id("A01"), "FAILED", "INPUT_REJECTED")
-        self.emit("A01", "agent_finished", self._finished("A01", self.results["A01"]))
-        return self.record(None)
+        self.emit("A01", "agent_finished", self._finished("A01", self.results["A01"], runtime=True))
 
     # -- the record -------------------------------------------------------------------------------------------------
     def closing_verdicts(self):
@@ -565,7 +616,8 @@ class _Run:
             "intake": None if intake is None else {**intake, "tool_calls": self.hooks.intake},
             "plan": self.evidence_of("A02", "investigation_plan"),
             "selection": [{"agent_id": a, **self.selection.get(a, {"selected": False, "reason": "intake_rejected"}),
-                           "error_code": self.results[a]["error_code"] if statuses[a] == "SKIPPED" else None}
+                           "error_code": self.results[a]["error_code"] if statuses[a] == "SKIPPED" else None,
+                           "unmet": self.unmet.get(a, [])}
                           for a in AGENT_IDS],
             "waves": self.waves_run,
             "agents": [{"agent_id": a, "name": role(a).name, "layer": role(a).layer, "kind": role(a).kind,
@@ -587,6 +639,7 @@ class _Run:
                            "agents": {a: self.results[a]["transport"] for a in AGENT_IDS}},
             "budget": {"limits": self.limits, "used": used, "exceeded": list(self.exceeded)},
             "recovery": self.recovery,
+            "abandoned": self.abandoned,
             "evidence": sorted(({**ref, "kind": self.ctx.evidence.kind(ref)} for ref in self.ctx.evidence.refs()),
                                key=lambda ref: ref["id"]),
         }
