@@ -13,7 +13,8 @@ from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
-from agent_runs import Busy, RunManager, knowledge_retriever, roles as agent_roles
+from agent_runs import Busy, RunManager, RunStore, knowledge_retriever, roles as agent_roles
+from agent_summary import model_status, summarize as summarize_agent_runs
 from schema_store import SchemaStore
 from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
@@ -76,7 +77,8 @@ class Workbench:
         self.knowledge = self.kb.knowledge
         self.schemas = SchemaStore(self.root)
         self.baselines = BaselineStore(self.root)
-        self.agents = RunManager(baselines=self.baselines, retriever=knowledge_retriever(self.kb))
+        self.agents = RunManager(baselines=self.baselines, retriever=knowledge_retriever(self.kb), store=RunStore(self.root))
+        self.model_status = model_status
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -288,7 +290,10 @@ def make_server(workbench, token, port=0, catalog=None):
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
                       '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
-            if self.path in assets:
+            page = self.path.split('?', 1)[0]
+            if page != self.path and page in pages:  # a page link with a query, e.g. /flow?run=<id>
+                self.respond(200, Path(__file__).with_name('index.html').read_bytes(), 'text/html; charset=utf-8')
+            elif self.path in assets:
                 name, mime = assets[self.path]
                 self.respond(200, Path(__file__).with_name(name).read_bytes(), mime)
             elif self.path == '/api/capabilities' and self.authorized():
@@ -315,6 +320,10 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(workbench.snapshot()).encode())
             elif self.path == '/api/agents/roles' and self.authorized():
                 self.respond(200, json.dumps(agent_roles()).encode())
+            elif self.path == '/api/agents/summary' and self.authorized():
+                self.respond(200, json.dumps(summarize_agent_runs(workbench.agents.records())).encode())
+            elif self.path == '/api/agents/model' and self.authorized():
+                self.respond(200, json.dumps(workbench.model_status()).encode())
             elif self.path == '/api/agents/runs' and self.authorized():
                 self.respond(200, json.dumps(workbench.agents.summaries()).encode())
             elif self.path.startswith('/api/agents/runs/') and self.authorized():
@@ -548,9 +557,11 @@ def make_server(workbench, token, port=0, catalog=None):
                         result = {'decisions': workbench.agents.decide(request.get('run_id'), request.get('item'),
                                                                        request.get('decision'))}
                         self.respond(200, json.dumps(result).encode()); return
-                    second = request.get('second_csv_b64')
+                    second, payload = request.get('second_csv_b64'), from_base64(request.get('csv_b64'))
+                    if request.get('mapping') is not None:  # the same explicit column mapping as the inspection
+                        payload = apply_mapping(payload, request['mapping'])
                     run_id = workbench.agents.start(
-                        from_base64(request.get('csv_b64')), baseline=request.get('baseline'),
+                        payload, baseline=request.get('baseline'),
                         as_of=request.get('as_of'), second=None if second is None else from_base64(second),
                         name=request.get('name'))
                     self.respond(202, json.dumps({'run_id': run_id}).encode())

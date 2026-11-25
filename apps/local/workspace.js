@@ -85,12 +85,22 @@ function comparePanel(){
 const startFolder=()=>folderReady()&&begin('/api/source/inspect',folderChoice(),JSON_HEADERS);
 const startSample=fault=>begin(`/api/sample/${fault}`);
 const startExample=scenario=>begin(scenario==='suite'?'/api/run':`/api/run/${scenario}`);
+// The deterministic inspection runs as before, and the same bytes (with the same confirmed mapping, the selected
+// baseline and "as of") start a 36-agent investigation whose live flow opens next.
+const confirmedMapping=()=>Object.fromEntries(Object.entries(mappingOn).filter(([,on])=>on).map(([source,on])=>[source,on]));
+function agentBaseline(){
+ const name=(blList?.baselines||[]).some(b=>b.name===blChoice)?blChoice:'';
+ return {baseline:name||undefined,asOf:name&&blAsOf?blAsOfForRequest(blEntry(name)):undefined};
+}
 async function startFile(){
  if(!selectedFile||!requireSession())return;
- const headers={'Content-Type':'text/csv','X-Source-Name':selectedFile.name.replace(/[^\x20-\x7e]/g,'_').slice(0,80)};
- const mapping=Object.fromEntries(Object.entries(mappingOn).filter(([,on])=>on).map(([source,on])=>[source,on]));
+ const file=selectedFile,headers={'Content-Type':'text/csv','X-Source-Name':file.name.replace(/[^\x20-\x7e]/g,'_').slice(0,80)};
+ const mapping=confirmedMapping();
  if(Object.keys(mapping).length)headers['X-Column-Mapping']=JSON.stringify(mapping);
- await begin('/api/inspect',await selectedFile.arrayBuffer(),headers);
+ let note=t('flow.inspect.started');
+ try{await request('/api/inspect','POST',await file.arrayBuffer(),headers);refresh();}
+ catch(error){note=t('flow.inspect.failed',{reason:error.message});}
+ await investigateWithAgents(file,{mapping,...agentBaseline(),note});
 }
 async function discover(){
  if(!selectedFile||!requireSession())return;
@@ -285,6 +295,7 @@ function renderSources(){
    h('div',{class:'button-row'},h('button',{type:'button',class:'secondary',disabled:!selectedFile||selectedFile.size>1000000,onclick:discover},t('file.validate')),
     typeof profileButton==='function'?profileButton():null,
     h('button',{type:'button',class:'primary',disabled:!selectedFile||selectedFile.size>1000000||state?.status==='RUNNING',onclick:startFile},chosen?t('file.inspect.mapped',{n:chosen}):t('file.inspect'))),
+   h('p',{class:'hint',text:t('file.agents.x')}),
    selectedFile&&selectedFile.size>1000000?h('p',{class:'hint bad',text:t('err.size')}):null,
    discoveryPanel(),typeof profilePanel==='function'?profilePanel():null,typeof baselinePanel==='function'?baselinePanel():null,h('p',{class:'panel-note',text:t('file.privacy')}));
  }

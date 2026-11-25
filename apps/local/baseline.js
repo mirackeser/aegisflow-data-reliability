@@ -387,6 +387,8 @@ function blCompareForm(){
  if(!blChoice&&names.length)blChoice=names[0].name;
  const tooBig=selectedFile&&selectedFile.size>BL_MAX_BYTES,entry=blEntry(blChoice),naive=entry?.time_aware===false;
  const compareButton=h('button',{type:'submit',class:'primary',disabled:blBusy||!selectedFile||!blChoice||tooBig},t(blBusy?'bl.busy':'bl.compare'));
+ const agentsButton=h('button',{type:'button',id:'bl-agents',class:'secondary','aria-describedby':'bl-agents-x',disabled:blBusy||!selectedFile||!blChoice||tooBig,
+  onclick:()=>investigateWithAgents(selectedFile,{baseline:blChoice,asOf:blAsOf?blAsOfForRequest(blEntry(blChoice)):undefined,mapping:confirmedMapping()})},t('bl.agents'));
  return h('form',{class:'bl-form','aria-labelledby':'bl-compare-title',novalidate:true,onsubmit:e=>{e.preventDefault();compareBaseline();}},
   h('h4',{id:'bl-compare-title',text:t('bl.compare.title')}),
   h('div',{class:'bl-field'},h('label',{for:'bl-choice',text:t('bl.choice')}),
@@ -401,7 +403,7 @@ function blCompareForm(){
    h('small',{id:'bl-asof-hint',text:t(blAsOfHint(entry))})),
   tooBig?h('p',{class:'hint bad',text:t('err.size')}):null,
   blCompareError?h('p',{class:'hint bad',role:'alert',text:blCompareError}):null,
-  h('div',{class:'button-row'},compareButton));
+  h('div',{class:'button-row'},compareButton,agentsButton),h('small',{id:'bl-agents-x',class:'hint',text:t('bl.agents.x')}));
 }
 function baselinePanel(){
  if(!connected){blList=null;blLoadFailed=false;return null;}

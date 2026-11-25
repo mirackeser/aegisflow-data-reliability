@@ -249,6 +249,7 @@ async function streamFlow(runId){
 }
 function viewFlowRun(runId){
  flowAbort?.abort();flowAbort=null;
+ if(route==='/flow'&&typeof history!=='undefined')history.replaceState({},'',runId?'/flow?run='+encodeURIComponent(runId):'/flow');
  flowRunId=runId||null;flowState=flowInitial();flowDetail=null;flowEnd=null;flowError='';flowOpen=null;flowSeenEdges.clear();flowAnnounced=0;
  if(flowRunId)streamFlow(flowRunId);
  flowSchedule();
@@ -276,6 +277,24 @@ async function startFlowRun(){
  }catch(error){flowError=error.status===404?t('bl.err.notfound'):error.message;}
  flowBusy=false;flowSchedule();
  document.getElementById('flow-start')?.focus();
+}
+// Start an agent run on ``file`` from another page (Data sources, baseline panel) and open its live flow.
+async function investigateWithAgents(file,options={}){
+ if(!file||!requireSession())return null;
+ if(file.size>FLOW_MAX_BYTES){setNotice(t('err.size'),true);return null;}
+ try{
+  const body={csv_b64:await blBase64(file),name:file.name};
+  if(options.mapping&&Object.keys(options.mapping).length)body.mapping=options.mapping;
+  if(options.baseline){body.baseline=options.baseline;if(options.asOf)body.as_of=options.asOf;}
+  const started=await request('/api/agents/run','POST',JSON.stringify(body),JSON_HEADERS);
+  openFlowRun(started.run_id);
+  if(options.note)setNotice(options.note);
+  return started.run_id;
+ }catch(error){setNotice(t('flow.err.start',{reason:error.message}),true);return null;}
+}
+function openFlowRun(runId){
+ viewFlowRun(runId);loadFlowRuns(true);navigate('/flow');
+ history.replaceState({},'','/flow?run='+encodeURIComponent(runId));
 }
 async function decideFlow(item,decision){
  if(!flowDetail||!requireSession())return;
@@ -328,7 +347,7 @@ function flowControls(){
   c.asOfLabel=h('label',{for:'flow-asof'});c.asOf=h('input',{id:'flow-asof',type:'datetime-local',step:'1','aria-describedby':'flow-asof-x'});c.asOfHint=h('small',{id:'flow-asof-x'});
   c.asOf.oninput=e=>{flowAsOf=e.target.value;};
   c.start=h('button',{id:'flow-start',type:'submit',class:'primary'});
-  c.error=h('p',{class:'hint bad',role:'alert'});
+  c.error=h('p',{class:'hint bad',role:'alert'});c.store=h('p',{class:'hint'});
   c.runLabel=h('label',{for:'flow-run'});c.run=h('select',{id:'flow-run'});c.run.onchange=e=>viewFlowRun(e.target.value);
   c.runSig=null;c.baseSig=null;
   const field=(...kids)=>h('div',{class:'fl-field'},...kids);
@@ -337,7 +356,7 @@ function flowControls(){
    h('form',{class:'fl-form',novalidate:true,onsubmit:e=>{e.preventDefault();startFlowRun();}},
     field(c.fileLabel,c.file,c.fileState),field(c.secondLabel,c.second,c.secondHint),field(c.baselineLabel,c.baseline,c.baselineHint),
     field(c.asOfLabel,c.asOf,c.asOfHint),h('div',{class:'fl-field fl-submit'},c.start)),
-   c.error,h('div',{class:'fl-field fl-runpick'},c.runLabel,c.run));
+   c.error,h('div',{class:'fl-field fl-runpick'},c.runLabel,c.run),c.store);
  }
  const c=flowCtl,file=flowFile(),running=!!flowRuns?.active||flowState.status==='running';
  c.title.textContent=t('flow.run.title');c.intro.textContent=t('flow.run.intro');
@@ -359,6 +378,8 @@ function flowControls(){
    text:`${when(r.started_at)} · ${r.input?.name||r.input?.sha256?.slice(0,8)||r.run_id} · ${r.state==='running'?t('flow.status.running'):r.state==='error'?t('flow.status.error'):flowLabel('runstatus',r.status)}`})));
  }
  c.run.value=flowRunId||'';c.run.disabled=!runs.length;
+ const store=flowRuns?.rejected_on_load?'flow.store.rejected':flowRuns?.store_error?'flow.store.error':flowRuns?.retained?'flow.store.kept':null;
+ c.store.textContent=store?t(store):'';c.store.hidden=!store;c.store.classList.toggle('bad',store==='flow.store.rejected'||store==='flow.store.error');
  return c.section;
 }
 
@@ -637,7 +658,10 @@ function renderFlow(){
  const root=$('screen-flow');
  if(!connected){flowAbort?.abort();flowAbort=null;flowOpen=null;root.replaceChildren(h('section',{class:'panel'},empty('flow.connect.t','flow.connect.x')),flowExplainer());flowCtl=null;flowDyn=null;flowOwnFile=null;flowSecond=null;return;}
  loadFlowRoles();loadFlowRuns();loadBaselines();
- if(!flowRunId&&!flowAbort&&flowRuns?.active)viewFlowRun(flowRuns.active);
+ if(!flowRunId&&!flowAbort){
+  const linked=typeof location!=='undefined'?new URLSearchParams(location.search).get('run'):null;
+  if(linked)viewFlowRun(linked);else if(flowRuns?.active)viewFlowRun(flowRuns.active);
+ }
  flowPaint(root);
 }
 function flowHappened(){
