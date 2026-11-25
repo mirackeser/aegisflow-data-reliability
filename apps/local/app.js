@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents','/flow':'flow'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -78,12 +78,12 @@ function nextStep(run){
  return {text:t('next.pass'),href:'/history'};
 }
 function renderBrief(screen,run){
- const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
+ const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:screen==='flow'?{text:t('next.flow'),href:null}:nextStep(run);
  const cell=(label,body)=>h('div',{},h('b',{text:t(label)}),body);
  $('page-brief').replaceChildren(
   cell('brief.purpose',h('span',{text:t(`brief.${screen}.purpose`)})),
   cell('brief.can',h('span',{text:t(`brief.${screen}.can`)})),
-  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run)})),
+  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):screen==='flow'?flowHappened():happened(run)})),
   cell('brief.next',next.href?link(next.href,next.text,'text-link'):h('span',{text:next.text})));
 }
 
@@ -443,7 +443,7 @@ function render(){
  document.title=`${t(`page.${screen}.title`)} · AegisFlow`;
  $('page-actions').replaceChildren(...(screen==='overview'||screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents})[screen]();
+ ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents,flow:renderFlow})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

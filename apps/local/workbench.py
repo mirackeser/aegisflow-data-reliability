@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+from agent_runs import Busy, RunManager, knowledge_retriever, roles as agent_roles
 from schema_store import SchemaStore
 from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
@@ -43,18 +45,38 @@ from aegisflow_dr.coordination.judge import review
 
 # JSON bodies carry base64 file bytes (4/3 of the 1 MB CSV limit each, plus the JSON around them).
 BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'investigate': 1400000, 'remove': 2048}
+# An agent run carries up to two 1 MB files as base64 (2 x 1,333,336 bytes) plus the baseline name and as-of time.
+AGENT_RUN_BODY_LIMIT = 2900000
+
+
+def write_private(path, text):
+    """Write ``text`` to ``path`` readable by the owner only, even when the file already existed with wider rights."""
+    descriptor = os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+    with os.fdopen(descriptor, 'w') as stream:
+        os.fchmod(stream.fileno(), 0o600)  # O_CREAT's mode applies only to a new file
+        stream.write(text)
+
+
+def secure_state_directory(root):
+    """Owner-only rights on the state directory and every regular file directly in it, on every start."""
+    os.chmod(root, 0o700)
+    for path in Path(root).iterdir():
+        if path.is_file() and not path.is_symlink():
+            os.chmod(path, 0o600)
 
 
 class Workbench:
     def __init__(self, directory, bindir):
         self.root = Path(directory)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        secure_state_directory(self.root)
         self.bindir = bindir
         self.lock = Lock()
         self.kb = KnowledgeBase(self.root, REFERENCE_DOCUMENTS)
         self.knowledge = self.kb.knowledge
         self.schemas = SchemaStore(self.root)
         self.baselines = BaselineStore(self.root)
+        self.agents = RunManager(baselines=self.baselines, retriever=knowledge_retriever(self.kb))
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -70,6 +92,7 @@ class Workbench:
         temporary = self.root / 'state.next'
         descriptor = os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
             json.dump(self.state, stream)
             stream.flush()
             os.fsync(stream.fileno())
@@ -260,10 +283,10 @@ def make_server(workbench, token, port=0, catalog=None):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents')
+            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if self.path in assets:
                 name, mime = assets[self.path]
@@ -290,8 +313,60 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(listing).encode())
             elif self.path == '/api/state' and self.authorized():
                 self.respond(200, json.dumps(workbench.snapshot()).encode())
+            elif self.path == '/api/agents/roles' and self.authorized():
+                self.respond(200, json.dumps(agent_roles()).encode())
+            elif self.path == '/api/agents/runs' and self.authorized():
+                self.respond(200, json.dumps(workbench.agents.summaries()).encode())
+            elif self.path.startswith('/api/agents/runs/') and self.authorized():
+                try:
+                    detail = workbench.agents.detail(self.path.removeprefix('/api/agents/runs/'))
+                except KeyError:
+                    self.respond(404, b'{"error": "NOT_FOUND"}'); return
+                self.respond(200, json.dumps(detail).encode())
+            elif self.path.startswith('/api/agents/stream?') and self.authorized():
+                self.agent_stream()
             else:
                 self.respond(403, b'{}')
+
+        def agent_stream(self):
+            """Server-Sent Events of one run: ``id:`` is the live seq; resumes after ``Last-Event-ID``; ends after the run."""
+            try:
+                query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=2)
+            except ValueError:
+                query = {}
+            last = self.headers.get('Last-Event-ID', '0') or '0'
+            if (set(query) != {'run'} or len(query['run']) != 1 or not last.isascii() or not last.isdecimal()
+                    or len(last) > 6):
+                self.respond(400, b'{}'); return
+            run_id, after = query['run'][0], int(last)
+            if not workbench.agents.exists(run_id):
+                self.respond(404, b'{"error": "NOT_FOUND"}'); return
+            self.send_response(200)
+            for name, value in (('Content-Type', 'text/event-stream; charset=utf-8'), ('Cache-Control', 'no-store'),
+                                ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'no-referrer'),
+                                ('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")):
+                self.send_header(name, value)
+            self.end_headers()
+            try:
+                while True:
+                    try:
+                        events, done, error = workbench.agents.wait(run_id, after, workbench.agents.heartbeat_s)
+                    except KeyError:  # dropped from the bounded history while this reader waited
+                        events, done, error = [], True, 'RUN_UNAVAILABLE'
+                    frames = []
+                    for event in events:
+                        frames.append('id: %d\nevent: agent\ndata: %s\n\n' % (event['seq'], json.dumps(event)))
+                        after = event['seq']
+                    if done and not events:
+                        frames.append('event: end\ndata: %s\n\n' % json.dumps({'error': error}))
+                    elif not frames:
+                        frames.append(': heartbeat\n\n')
+                    self.wfile.write(''.join(frames).encode())
+                    self.wfile.flush()
+                    if done and not events:
+                        return
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+                return  # the reader went away; the run itself continues
 
         def read_body(self, mime, limit):
             """Return the bounded request body, or None after sending the refusal."""
@@ -461,6 +536,33 @@ def make_server(workbench, token, port=0, catalog=None):
                 except (KeyError, ValueError, TypeError):
                     self.respond(400, b'{}')
                 return
+            if self.path in ('/api/agents/run', '/api/agents/approval'):
+                body = self.read_body('application/json', AGENT_RUN_BODY_LIMIT if self.path.endswith('/run') else 1024)
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/approval'):
+                        result = {'decisions': workbench.agents.decide(request.get('run_id'), request.get('item'),
+                                                                       request.get('decision'))}
+                        self.respond(200, json.dumps(result).encode()); return
+                    second = request.get('second_csv_b64')
+                    run_id = workbench.agents.start(
+                        from_base64(request.get('csv_b64')), baseline=request.get('baseline'),
+                        as_of=request.get('as_of'), second=None if second is None else from_base64(second),
+                        name=request.get('name'))
+                    self.respond(202, json.dumps({'run_id': run_id}).encode())
+                except Busy:
+                    self.respond(409, b'{"error": "BUSY"}')
+                except KeyError:
+                    self.respond(404, b'{"error": "NOT_FOUND"}')
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
             if self.path == '/api/review':
                 body = self.read_body('application/json', 1024)
                 if body is None:
@@ -501,9 +603,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     workbench = Workbench(args.state_dir, args.postgres_bindir)
     token = secrets.token_urlsafe(32)
-    descriptor = os.open(Path(args.state_dir) / 'access-token', os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
-    with os.fdopen(descriptor, 'w') as stream:
-        stream.write(token)
+    write_private(Path(args.state_dir) / 'access-token', token)
     server = make_server(workbench, token, args.port, SourceCatalog(args.source_dir) if args.source_dir else None)
     print(f'Local workbench: http://127.0.0.1:{server.server_port}; access token is in the private state directory.', flush=True)
     server.serve_forever()

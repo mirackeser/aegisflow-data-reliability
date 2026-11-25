@@ -16,6 +16,7 @@
 <script src="/schemaregistry.js" defer></script>
 <script src="/profile.js" defer></script>
 <script src="/baseline.js" defer></script>
+<script src="/flow.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
 <body>
@@ -32,6 +33,7 @@
   <a class="route" href="/activity" data-i18n="nav.activity">Execution flow</a>
   <a class="route" href="/history" data-i18n="nav.history">Reports</a>
   <a class="route" href="/evidence" data-i18n="nav.evidence">Check accuracy</a>
+  <a class="route" href="/flow" data-i18n="nav.flow">Agent flow</a>
   <a class="route" href="/agents" data-i18n="nav.agents">Capability map</a>
  </nav>
  <div class="header-actions">
@@ -78,6 +80,7 @@
  <section class="screen" data-screen="activity" aria-labelledby="page-title"><div id="screen-activity"></div></section>
  <section class="screen" data-screen="knowledge" aria-labelledby="page-title"><div id="screen-knowledge"></div></section>
  <section class="screen" data-screen="evidence" aria-labelledby="page-title"><div id="screen-evidence"></div></section>
+ <section class="screen" data-screen="flow" aria-labelledby="page-title"><p id="flow-live" class="sr-only" role="status" aria-atomic="true"></p><div id="screen-flow"></div></section>
  <section class="screen" data-screen="agents" aria-labelledby="page-title"><div id="screen-agents"></div></section>
  <section class="screen" data-screen="history" aria-labelledby="page-title"><div id="screen-history"></div></section>
 
