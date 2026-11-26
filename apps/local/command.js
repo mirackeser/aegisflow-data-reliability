@@ -36,15 +36,34 @@ function ccClock(seconds){
 const ccRel=(t,liveStart)=>'T'+(t<liveStart?'':'+')+ccClock(t-liveStart);
 const ccSeverityMax=list=>list.reduce((a,b)=>CC_SEVERITIES.indexOf(b)>CC_SEVERITIES.indexOf(a)?b:a,'low');
 
+// The "focus" axis range: the baseline band widened by half its width on each side.
+function ccFocusRange(band){
+ const width=band.high-band.low>0?band.high-band.low:Math.max(Math.abs(band.mean)*0.01,1);
+ return {low:band.low-width/2,high:band.high+width/2};
+}
+const CC_SCALE_RATIO=3,CC_CLIP_SPACING=9;
 // Geometry of one sensor chart: the line (broken at gaps), the baseline band, detection markers and fault spans.
-function ccChartModel(state,sensor,size={}){
+// ``opts.focus`` clamps the y axis to the focus range: readings outside it are not drawn as line but marked by an
+// arrow glyph at the edge they leave through (thinned to one glyph per CC_CLIP_SPACING px). Without focus the axis
+// fits every reading; ``scale.changed`` says it had to grow far beyond the band (e.g. after a ×10 unit fault).
+function ccChartModel(state,sensor,size={},opts={}){
  const C={...CC_CHART,...size},span=state.settings.chart_readings;
  const points=state.series.t.map((t,i)=>({t,v:state.series[sensor][i]})).sort((a,b)=>a.t-b.t);
  const t1=points.length?points[points.length-1].t:0,t0=t1-span+1;
- const visible=points.filter(p=>p.t>=t0),band=state.baseline.bands[sensor],dom=ccDomain(visible.map(p=>p.v),band);
+ const visible=points.filter(p=>p.t>=t0),band=state.baseline.bands[sensor],range=ccFocusRange(band);
+ const outsideFocus=visible.some(p=>p.v<range.low||p.v>range.high),focus=!!opts.focus;
+ const dom=focus?ccDomain([],range):ccDomain(visible.map(p=>p.v),band);
  const x=t=>C.l+(t-t0)/Math.max(1,t1-t0)*(C.w-C.l-C.r),y=v=>C.t+(1-(v-dom.min)/(dom.max-dom.min))*(C.h-C.t-C.b);
- let path='',prev=null;
- for(const p of visible){path+=(prev===null||p.t-prev>CC_GAP_S?'M':'L')+x(p.t).toFixed(1)+' '+y(p.v).toFixed(1);prev=p.t;}
+ const out=v=>v<dom.min||v>dom.max;
+ let path='',prev=null;const clipped=[],last={up:-Infinity,down:-Infinity};let clippedCount=0;
+ for(const p of visible){
+  if(out(p.v)){
+   clippedCount++;const dir=p.v>dom.max?'up':'down',px=x(p.t);
+   if(px-last[dir]>=CC_CLIP_SPACING){clipped.push({t:p.t,x:px,dir});last[dir]=px;}
+   prev=null;continue;
+  }
+  path+=(prev===null||p.t-prev>CC_GAP_S?'M':'L')+x(p.t).toFixed(1)+' '+y(p.v).toFixed(1);prev=p.t;
+ }
  const groups=new Map();
  for(const d of state.detections||[]){
   const own=d.column===sensor,stream=!CC_SENSORS.includes(d.column);
@@ -61,11 +80,13 @@ function ccChartModel(state,sensor,size={}){
   if(to<from)continue;
   faults.push({id:f.id,fault:f.fault,x:x(from),w:Math.max(2,x(to)-x(from)),active:f.ended_t===null,oneShot:!!f.one_shot,stream:f.sensor===null});
  }
- const latest=visible.length?visible[visible.length-1]:null;
- return {width:C.w,height:C.h,plot:{l:C.l,r:C.w-C.r,t:C.t,b:C.h-C.b},t0,t1,path,count:visible.length,domain:dom,
+ const latest=visible.length?visible[visible.length-1]:null,top=C.t,bottom=C.h-C.b;
+ return {width:C.w,height:C.h,plot:{l:C.l,r:C.w-C.r,t:top,b:bottom},t0,t1,path,count:visible.length,domain:dom,focus,
+  scale:{changed:!focus&&outsideFocus&&dom.max-dom.min>=CC_SCALE_RATIO*(range.high-range.low),available:focus||outsideFocus,range},
+  clipped,clippedCount,
   band:{top:y(band.high),bottom:y(band.low),mean:y(band.mean),low:band.low,high:band.high},
   yTicks:dom.ticks.map(v=>({v,y:y(v)})),xTicks:[0,100,200,span-1].filter(a=>a<span).map(a=>({ago:a,x:x(t1-a)})),
-  markers:[...groups.values()].sort((a,b)=>a.t-b.t),faults,latest,dot:latest?{x:x(latest.t),y:y(latest.v)}:null,
+  markers:[...groups.values()].sort((a,b)=>a.t-b.t),faults,latest,dot:latest?{x:x(latest.t),y:Math.max(top,Math.min(bottom,y(latest.v))),clipped:out(latest.v)}:null,
   min:visible.length?Math.min(...visible.map(p=>p.v)):null,max:visible.length?Math.max(...visible.map(p=>p.v)):null,
   outside:latest?latest.v<band.low||latest.v>band.high:false};
 }
@@ -121,11 +142,27 @@ function ccFindingText(f){
  return {key:'cc.fd.other',params:{check:f.check}};
 }
 
-if(typeof module!=='undefined')module.exports={CC_SENSORS,CC_CHART,CC_CHART_NARROW,ccNiceStep,ccDomain,ccClock,ccRel,ccSeverityMax,ccChartModel,ccKpis,ccGuide,ccLayerBars,ccFindingText};
+// The page brief's two live answers from the current state: what happened (one or more sentences) and the next step.
+// ``error`` is the last poll failure, if any. Keys with raw parameters; ``state`` is running, paused or ready.
+function ccBrief(state,isConnected=true,error=''){
+ if(!isConnected)return {happened:[{key:'cc.brief.connect',params:{}}],next:{key:'cc.hint.connect',params:{}}};
+ if(!state)return {happened:[error?{key:'cc.brief.error',params:{reason:error}}:{key:'cc.brief.loading',params:{}}],next:{key:'cc.hint.loading',params:{}}};
+ const g=ccGuide(state,true),open=state.incidents.filter(i=>i.status==='open'),k=state.kpis;
+ const mode=state.status.running?'running':state.elapsed_s?'paused':'ready',base={state:mode,speed:state.status.speed,detections:k.detections,checks:k.checks};
+ const happened=[];
+ if(mode==='ready')happened.push({key:'cc.brief.ready',params:{every:state.settings.check_every,window:state.settings.window_seconds}});
+ else if(open.length)happened.push({key:'cc.brief.open',params:{...base,open:open.length,id:g.incident?.id||open[0].id}});
+ else happened.push({key:k.incidents?'cc.brief.closed':'cc.brief.clean',params:{...base,n:k.incidents}});
+ if(state.agents?.active)happened.push({key:'cc.brief.agents.active',params:{}});
+ else if(k.investigations)happened.push({key:'cc.brief.agents.runs',params:{n:k.investigations}});
+ return {happened,next:{key:'cc.hint.'+g.step,params:{every:state.settings.check_every,window:state.settings.window_seconds,id:g.incident?.id||''}}};
+}
+
+if(typeof module!=='undefined')module.exports={CC_SENSORS,CC_CHART,CC_CHART_NARROW,ccNiceStep,ccDomain,ccClock,ccRel,ccSeverityMax,ccChartModel,ccKpis,ccGuide,ccLayerBars,ccFindingText,ccBrief,ccFocusRange};
 
 // ---------- browser page ----------
 let ccState=null,ccTimer=null,ccInflight=false,ccBusy=false,ccError='',ccDom=null,ccTable=false,ccSeen=null,ccStarting=null;
-const ccOpenEvidence=new Set(),ccFresh=new Set(),ccSensorChoice={calibration_offset:'temp_c',unit_change:'pressure_kpa',stuck_sensor:'flow_lpm',noise_increase:'pressure_kpa'};
+const ccOpenEvidence=new Set(),ccFresh=new Set(),ccFocus=new Set(),ccSensorChoice={calibration_offset:'temp_c',unit_change:'pressure_kpa',stuck_sensor:'flow_lpm',noise_increase:'pressure_kpa'};
 const CC_POLL_MS=1000,CC_RETRY_MS=4000,CC_TABLE_ROWS=20;
 const ccNarrow=typeof matchMedia==='function'?matchMedia('(max-width: 760px)'):null;
 
@@ -214,9 +251,9 @@ const ccText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
 
 // ---------- chart ----------
 function ccChartSvg(sensor){
- const m=ccChartModel(ccState,sensor,ccNarrow?.matches?CC_CHART_NARROW:{}),unit=ccUnit(sensor),d=CC_DIGITS[sensor];
+ const m=ccChartModel(ccState,sensor,ccNarrow?.matches?CC_CHART_NARROW:{},{focus:ccFocus.has(sensor)}),unit=ccUnit(sensor),d=CC_DIGITS[sensor];
  const svg=svgEl('svg',{viewBox:`0 0 ${m.width} ${m.height}`,class:'cc-chart',role:'img','aria-label':t('cc.chart.label',{sensor:ccSensorName(sensor),unit,n:N(m.count),
-  value:m.latest?ccNum(m.latest.v,d):'—',min:ccNum(m.min,d),max:ccNum(m.max,d),low:ccNum(m.band.low,d),high:ccNum(m.band.high,d),markers:N(m.markers.length),faults:N(m.faults.length)})});
+  value:m.latest?ccNum(m.latest.v,d):'—',min:ccNum(m.min,d),max:ccNum(m.max,d),low:ccNum(m.band.low,d),high:ccNum(m.band.high,d),markers:N(m.markers.length),faults:N(m.faults.length)})+(m.focus&&m.clippedCount?' '+t('cc.focus.clipped',{n:N(m.clippedCount)}):m.scale.changed?' '+t('cc.scale.changed.label'):'')});
  const pat='cc-hatch-'+sensor;
  svg.append(svgEl('defs',{},svgEl('pattern',{id:pat,width:'6',height:'6',patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'},svgEl('line',{x1:'0',y1:'0',x2:'0',y2:'6',class:'cc-hatch-line'}))));
  const P=m.plot;
@@ -230,9 +267,10 @@ function ccChartSvg(sensor){
  for(const edge of [m.band.top,m.band.bottom])if(edge>=P.t&&edge<=P.b)svg.append(svgEl('line',{x1:P.l,x2:P.r,y1:edge,y2:edge,class:'cc-band-edge'}));
  if(m.band.mean>=P.t&&m.band.mean<=P.b)svg.append(svgEl('line',{x1:P.l,x2:P.r,y1:m.band.mean,y2:m.band.mean,class:'cc-band-mean'}));
  for(const f of m.faults){
+  svg.append(svgEl('rect',{x:f.x,y:P.t,width:f.w,height:P.b-P.t,class:'cc-fault-fill'+(f.active?' active':'')}));
   const r=svgEl('rect',{x:f.x,y:P.t,width:f.w,height:P.b-P.t,class:'cc-fault-span'+(f.active?' active':''),fill:`url(#${pat})`});
   r.append(svgEl('title',{},document.createTextNode(t('cc.injected',{fault:t('cc.fault.'+f.fault)}))));
-  svg.append(r);
+  svg.append(r,svgEl('line',{x1:f.x,x2:f.x,y1:P.t,y2:P.b,class:'cc-fault-edge'}));
   if(f.w>=40||f.active)svg.append(svgText(t('cc.injected.short'),{x:Math.min(f.x+4,P.r-4),y:P.b-6,class:'cc-fault-label','text-anchor':f.x+4>P.r-60?'end':'start'}));
  }
  svg.append(svgEl('path',{d:m.path,class:'cc-line'}));
@@ -240,12 +278,19 @@ function ccChartSvg(sensor){
   const g=svgEl('g',{class:`cc-marker ${mk.severity}`+(mk.stream?' stream':'')});
   const label=mk.checks.map(ccCheckName).join(' + ');
   g.append(svgEl('title',{},document.createTextNode(`${label} · ${mk.incidents.join(', ')} · ${ccAt(mk.t)}`)),
-   svgEl('line',{x1:mk.x,x2:mk.x,y1:P.t,y2:P.b,class:'cc-marker-line'}),svgEl('path',{d:`M${mk.x-5} ${P.t-9}h10l-5 8z`,class:'cc-marker-head'}));
+   svgEl('line',{x1:mk.x,x2:mk.x,y1:P.t,y2:P.b,class:'cc-marker-halo'}),svgEl('line',{x1:mk.x,x2:mk.x,y1:P.t,y2:P.b,class:'cc-marker-line'}),
+   svgEl('path',{d:`M${mk.x-6} ${P.t-11}h12l-6 10z`,class:'cc-marker-head'}));
   const right=mk.x>P.r-110,short=ccCheckName(mk.checks[0])+(mk.checks.length>1?' +'+(mk.checks.length-1):'');
   g.append(svgText(short,{x:right?mk.x-8:mk.x+8,y:P.t+10+(i%2)*12,class:'cc-marker-label','text-anchor':right?'end':'start'}));
   svg.append(g);
  });
- if(m.dot)svg.append(svgEl('circle',{cx:m.dot.x,cy:m.dot.y,r:3.6,class:'cc-dot'+(m.outside?' out':'')}));
+ for(const c of m.clipped){
+  const y0=c.dir==='up'?P.t+1:P.b-1,s=c.dir==='up'?1:-1;
+  svg.append(svgEl('path',{d:`M${c.x.toFixed(1)} ${y0} l-4 ${7*s} h8 z`,class:'cc-clip'}));
+ }
+ if(m.scale.changed)svg.append(svgText(t('cc.scale.flag'),{x:P.l+6,y:P.t+11,class:'cc-scale-flag'}));
+ else if(m.focus)svg.append(svgText(t('cc.focus.flag'),{x:P.l+6,y:P.t+11,class:'cc-scale-flag focus'}));
+ if(m.dot)svg.append(svgEl('circle',{cx:m.dot.x,cy:m.dot.y,r:3.6,class:'cc-dot'+(m.outside?' out':'')+(m.dot.clipped?' clipped':'')}));
  return {svg,model:m};
 }
 
@@ -276,7 +321,11 @@ function ccBuild(root){
  d.tableBtn=btn('cc-table-toggle','secondary cc-small',()=>{ccTable=!ccTable;ccPaint();});d.tableBtn.setAttribute('aria-controls','cc-table');
  d.rows=CC_SENSORS.map(s=>{
   const r={sensor:s,name:h('span',{class:'cc-sname'}),value:h('strong',{class:'cc-value'}),unit:h('span',{class:'cc-unit'}),state:h('span',{class:'cc-band-state'}),band:h('small'),chart:h('div',{class:'cc-chart-wrap'})};
-  r.node=h('div',{class:'cc-sensor'},h('div',{class:'cc-readout'},r.name,h('div',{class:'cc-value-line'},r.value,r.unit),r.state,r.band),r.chart);
+  r.scaleNote=h('span',{class:'cc-scale-note',id:'cc-scale-'+s});
+  r.focusBtn=btn('cc-focus-'+s,'secondary cc-small',()=>{if(ccFocus.has(s))ccFocus.delete(s);else ccFocus.add(s);ccPaint();});
+  r.focusBtn.setAttribute('aria-describedby','cc-scale-'+s);
+  r.scale=h('div',{class:'cc-scale'},r.scaleNote,r.focusBtn);
+  r.node=h('div',{class:'cc-sensor'},h('div',{class:'cc-readout'},r.name,h('div',{class:'cc-value-line'},r.value,r.unit),r.state,r.band),h('div',{class:'cc-chart-col'},r.chart,r.scale));
   return r;});
  d.legend=h('ul',{class:'cc-legend'});d.sensorsNote=h('p',{class:'panel-note'});d.table=h('div',{id:'cc-table',class:'table-wrap cc-table'});
  d.sensors=h('section',{class:'panel cc-sensors','aria-labelledby':'cc-sensors-title'},
@@ -370,11 +419,19 @@ function ccUpdateSensors(d,s){
   ccText(r.band,t('cc.band.x',{low:ccNum(band.low,dg),high:ccNum(band.high,dg),unit:ccUnit(sensor)}));
   r.node.classList.toggle('alert',model.outside);
   r.chart.replaceChildren(svg);
+  r.scale.hidden=!model.scale.available;
+  if(model.scale.available){
+   const f=v=>ccNum(v,model.domain.step<1?(model.domain.step<0.1?2:1):0);
+   ccText(r.scaleNote,model.focus?t('cc.focus.note',{n:N(model.clippedCount),low:f(model.domain.min),high:f(model.domain.max),unit:ccUnit(sensor)})
+    :t('cc.scale.note',{low:f(model.domain.min),high:f(model.domain.max),unit:ccUnit(sensor)}));
+   r.scaleNote.className='cc-scale-note'+(model.scale.changed?' changed':'');
+   ccText(r.focusBtn,t('cc.focus'));r.focusBtn.setAttribute('aria-pressed',String(model.focus));
+  }
  }
  if(!d.legend.ccLang||d.legend.ccLang!==language){
   d.legend.ccLang=language;
   const item=(cls,key)=>h('li',{},h('span',{class:'cc-key '+cls,'aria-hidden':'true'}),t(key));
-  d.legend.replaceChildren(item('line','cc.legend.line'),item('band','cc.legend.band'),item('marker','cc.legend.marker'),item('fault','cc.legend.fault'));
+  d.legend.replaceChildren(item('line','cc.legend.line'),item('band','cc.legend.band'),item('marker','cc.legend.marker'),item('fault','cc.legend.fault'),item('clip','cc.legend.clip'));
  }
  ccText(d.sensorsNote,t('cc.sensors.note',{records:N(s.baseline.records),every:s.settings.check_every,window:s.settings.window_seconds}));
  d.table.hidden=!ccTable;
@@ -490,6 +547,7 @@ function ccUpdateAgents(d,s){
 function ccPaint(){
  const root=typeof document!=='undefined'?$('screen-overview'):null;
  if(!root||route!=='/overview')return;
+ if(typeof refreshBrief==='function')refreshBrief();
  if(!connected){ccDom=null;root.replaceChildren(h('section',{class:'panel'},empty('cc.connect.t','cc.connect.x')));return;}
  if(!ccState){ccDom=null;root.replaceChildren(h('section',{class:'panel'},ccError?h('p',{class:'hint bad',text:ccError}):empty('cc.loading.t','cc.loading.x')));return;}
  const active=document.activeElement,activeId=active&&root.contains(active)?active.id:null;
@@ -504,13 +562,10 @@ function commandRender(){
  ccPaint();
  if(connected&&!ccTimer&&!ccInflight)ccSchedule(0);
 }
-function commandHappened(){
- if(!connected||!ccState)return t('cc.hint.connect');
- const s=ccState;
- return t('cc.happened',{state:t(s.status.running?'cc.state.running':s.elapsed_s?'cc.state.paused':'cc.state.ready'),speed:s.status.speed,
-  open:N(s.kpis.active_incidents),detections:N(s.kpis.detections),checks:N(s.kpis.checks)});
+function commandBrief(){
+ const b=ccBrief(ccState,connected,ccError),fmt=p=>Object.fromEntries(Object.entries(p).map(([k,v])=>[k,k==='state'?t('cc.state.'+v):typeof v==='number'?N(v):v]));
+ return {happened:b.happened.map(x=>t(x.key,fmt(x.params))).join(' '),next:t(b.next.key,fmt(b.next.params))};
 }
-const commandNext=()=>ccHint(ccGuide(ccState,connected),ccState);
 if(typeof document!=='undefined'){
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')ccStop();else if(ccWanted())ccSchedule(0);});
  ccNarrow?.addEventListener?.('change',()=>{if(route==='/overview')ccPaint();});

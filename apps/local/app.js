@@ -77,15 +77,27 @@ function nextStep(run){
  if(a&&a.status==='FAIL')return {text:t('next.reinspect'),href:'/sources'};
  return {text:t('next.pass'),href:'/history'};
 }
+// The four brief answers. "What happened" and "What next" are recomputed from the current state on every paint of
+// the live pages (Command Center, Agent flow), so they never lag behind what the page shows.
+function briefTexts(screen,run){
+ if(screen==='overview'){const b=commandBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
+ if(screen==='flow'){const b=flowBriefNow();return {happened:b.happened,next:{text:b.next,href:null}};}
+ const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
+ return {happened:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run),next};
+}
+let briefSig='';
 function renderBrief(screen,run){
- const next=screen==='overview'?{text:commandNext(),href:null}:screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:screen==='flow'?{text:t('next.flow'),href:null}:nextStep(run);
+ const b=briefTexts(screen,run),sig=JSON.stringify([language,screen,b]);
+ if(sig===briefSig&&$('page-brief').childElementCount)return;
+ briefSig=sig;
  const cell=(label,body)=>h('div',{},h('b',{text:t(label)}),body);
  $('page-brief').replaceChildren(
   cell('brief.purpose',h('span',{text:t(`brief.${screen}.purpose`)})),
   cell('brief.can',h('span',{text:t(`brief.${screen}.can`)})),
-  cell('brief.happened',h('span',{text:screen==='overview'?commandHappened():screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):screen==='flow'?flowHappened():happened(run)})),
-  cell('brief.next',next.href?link(next.href,next.text,'text-link'):h('span',{text:next.text})));
+  cell('brief.happened',h('span',{id:'brief-happened',text:b.happened})),
+  cell('brief.next',b.next.href?link(b.next.href,b.next.text,'text-link'):h('span',{id:'brief-next',text:b.next.text})));
 }
+const refreshBrief=()=>renderBrief(PAGES[route]||'overview',currentRun());
 
 // ---------- shell ----------
 function renderShell(){

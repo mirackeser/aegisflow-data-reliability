@@ -123,6 +123,52 @@ assert.equal(C.ccFindingText(findings[8]).params.min,'—');
 assert.equal(C.ccFindingText(findings[10]).key,'cc.fd.freshness.empty');
 assert.equal(C.ccFindingText({check:'role_change'}).key,'cc.fd.other');
 
+// Scale change and focus on the baseline range: a x10 reading stretches the axis; focus clamps it to the band +- 50%
+// of its width, drops the off-axis readings from the line and marks them with thinned arrow glyphs.
+{
+ const r=C.ccFocusRange(band);assert.deepEqual(r,{low:94,high:106});
+ assert.deepEqual(C.ccFocusRange({mean:50,low:50,high:50}),{low:49.5,high:50.5},'a zero-width band still gets a range');
+ let m=C.ccChartModel(s,'pressure_kpa');
+ assert.equal(m.focus,false);assert.equal(m.scale.changed,true,'the x10 readings blow the axis up');assert.equal(m.scale.available,true);
+ assert.ok(m.domain.max>=1000);assert.deepEqual(m.clipped,[]);assert.equal(m.clippedCount,0);
+ const f=C.ccChartModel(s,'pressure_kpa',{},{focus:true});
+ assert.equal(f.focus,true);assert.equal(f.scale.changed,false);assert.equal(f.scale.available,true);
+ assert.ok(f.domain.min<=94&&f.domain.max>=106&&f.domain.max<120,'the focused axis hugs the band');
+ assert.equal(f.clippedCount,100,'every x10 reading is outside the focused axis');
+ assert.ok(f.clipped.length>0&&f.clipped.length<100&&f.clipped.every(c=>c.dir==='up'),'glyphs are thinned and point up');
+ for(let i=1;i<f.clipped.length;i++)assert.ok(f.clipped[i].x-f.clipped[i-1].x>=9);
+ assert.equal((f.path.match(/M/g)||[]).length,1,'the line stops where readings leave the axis');
+ assert.ok(f.band.bottom-f.band.top>(f.plot.b-f.plot.t)/4,'the band is readable again');
+ assert.equal(f.dot.clipped,true);assert.ok(f.dot.y>=f.plot.t&&f.dot.y<=f.plot.b,'the latest dot stays on the plot');
+ const low=state();low.series.pressure_kpa=low.series.pressure_kpa.map((v,i)=>i<200?100:10);
+ assert.ok(C.ccChartModel(low,'pressure_kpa',{},{focus:true}).clipped.every(c=>c.dir==='down'));
+ m=C.ccChartModel(s,'temp_c');assert.equal(m.scale.changed,false);assert.equal(m.scale.available,false,'no toggle when everything fits the band');
+ const near=state();near.series.pressure_kpa=near.series.pressure_kpa.map((v,i)=>i<200?100:108);
+ m=C.ccChartModel(near,'pressure_kpa');assert.equal(m.scale.available,true);assert.equal(m.scale.changed,false,'a modest excursion is not flagged as a scale change');
+}
+
+// Page brief: computed from the current state on every paint (never "open the session" once connected and running).
+{
+ const keys=b=>[b.happened.map(x=>x.key),b.next.key];
+ assert.deepEqual(keys(C.ccBrief(s,false)),[['cc.brief.connect'],'cc.hint.connect']);
+ assert.deepEqual(keys(C.ccBrief(null,true)),[['cc.brief.loading'],'cc.hint.loading']);
+ const err=C.ccBrief(null,true,'offline');assert.deepEqual(keys(err),[['cc.brief.error'],'cc.hint.loading']);assert.equal(err.happened[0].params.reason,'offline');
+ const ready=state({status:{running:false,speed:5},elapsed_s:0,faults:[]});
+ assert.deepEqual(keys(C.ccBrief(ready)),[['cc.brief.ready'],'cc.hint.start']);
+ const clean=C.ccBrief(state({faults:[],agents:{active:null}}));
+ assert.deepEqual(keys(clean),[['cc.brief.clean'],'cc.hint.inject']);assert.equal(clean.happened[0].params.state,'running');
+ const paused=C.ccBrief(state({status:{running:false,speed:1},faults:[],kpis:{...s.kpis,incidents:2,investigations:3},agents:{active:null}}));
+ assert.deepEqual(keys(paused),[['cc.brief.closed','cc.brief.agents.runs'],'cc.hint.resume']);assert.equal(paused.happened[0].params.state,'paused');
+ const inc={id:'INC-0007',status:'open',severity:'high',opened_t:5,run_id:null};
+ const open=C.ccBrief(state({incidents:[inc],kpis:{...s.kpis,active_incidents:1,incidents:1},agents:{active:null}}));
+ assert.deepEqual(keys(open),[['cc.brief.open'],'cc.hint.investigate']);assert.equal(open.happened[0].params.id,'INC-0007');assert.equal(open.next.params.id,'INC-0007');
+ const busy=C.ccBrief(state({incidents:[{...inc,run_id:'run-1'}],agents:{active:'run-1'}}));
+ assert.deepEqual(keys(busy),[['cc.brief.open','cc.brief.agents.active'],'cc.hint.review']);
+ for(const b of [C.ccBrief(s,false),C.ccBrief(null),err,C.ccBrief(ready),clean,paused,open,busy])
+  for(const part of [...b.happened,b.next]){assert.ok(STRINGS[part.key],part.key);for(const text of STRINGS[part.key])for(const name of placeholders(text))assert.ok(part.params[name]!==undefined,`${part.key}: {${name}}`);}
+ for(const x of ['running','paused','ready'])assert.ok(STRINGS['cc.state.'+x]);
+ for(const k of ['cc.scale.note','cc.focus.note','cc.focus','cc.scale.flag','cc.focus.flag','cc.legend.clip','cc.focus.clipped','cc.scale.changed.label'])assert.ok(STRINGS[k],k);
+}
 // Every dynamic key the page builds exists in both languages.
 const sim=fs.readFileSync(__dirname+'/../../src/aegisflow_dr/simulation.py','utf8');
 const tuple=name=>[...sim.match(new RegExp('^'+name+' = \\(([^)]*)\\)','m'))[1].matchAll(/"(\w+)"/g)].map(x=>x[1]);

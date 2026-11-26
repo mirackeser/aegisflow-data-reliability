@@ -137,50 +137,270 @@ function flowEventText(entry,label=(kind,value)=>String(value)){
 }
 const flowSorted=timeline=>[...timeline].sort((x,y)=>x.t_ms-y.t_ms||x.seq-y.seq);
 
-// Diagram geometry: five lanes side by side (wide) or stacked (narrow), plus a row for the local services.
+// Diagram geometry: five lanes side by side (wide) or stacked (narrow), plus a row for the local services. Besides the
+// boxes it returns the free vertical gutters between box columns (``channels``) and the free horizontal gaps between
+// box rows (``streets``): edges are routed only through those, so a line never runs across a box.
 const FLOW_NODE={w:154,h:64};
 function flowLayout(narrow=false){
- const w=FLOW_NODE.w,hgt=FLOW_NODE.h,gap=12,pad=12,head=30,pitch=hgt+gap,pos={},lanes=[];
+ const w=FLOW_NODE.w,hgt=FLOW_NODE.h,gap=14,pad=12,head=30,pitch=hgt+gap,pos={},lanes=[],streets=[];
+ let width,height,services;
  if(!narrow){
-  const cols={orchestration:1,specialists:2,reasoning:1,remediation:1,governance:1};
-  let x=0;const rows=8,height=head+pad+rows*pitch;
+  const cols={orchestration:1,specialists:2,reasoning:1,remediation:1,governance:1},colGap=24,laneGap=28,rows=8;
+  let x=0;const laneH=head+pad+rows*pitch;
   for(const [layer,lo,hi] of FLOW_LAYERS){
-   const c=cols[layer],per=Math.ceil((hi-lo+1)/c),laneW=c*w+(c-1)*gap+2*pad;
-   lanes.push({layer,x,y:0,w:laneW,h:height});
-   for(let n=lo;n<=hi;n++){const i=n-lo,col=Math.floor(i/per),row=i%per;pos[FLOW_IDS[n-1]]={x:x+pad+col*(w+gap),y:head+pad+row*pitch,w,h:hgt};}
-   x+=laneW+16;
+   const c=cols[layer],per=Math.ceil((hi-lo+1)/c),laneW=c*w+(c-1)*colGap+2*pad;
+   lanes.push({layer,x,y:0,w:laneW,h:laneH});
+   for(let n=lo;n<=hi;n++){const i=n-lo,col=Math.floor(i/per),row=i%per;pos[FLOW_IDS[n-1]]={x:x+pad+col*(w+colGap),y:head+pad+row*pitch,w,h:hgt};}
+   x+=laneW+laneGap;
   }
-  const width=x-16,sy=lanes[0].h+24;
+  width=x-laneGap;const sy=laneH+24;
+  for(let r=1;r<rows;r++)streets.push(head+pad+r*pitch-gap/2);
+  streets.push(laneH+12);
   FLOW_SERVICES.forEach((k,i)=>{pos[k]={x:pad+i*(width-2*pad-w)/2,y:sy+head,w,h:hgt-8};});
-  return {width,height:sy+head+hgt+8,lanes,pos,services:{y:sy,h:head+hgt}};
+  height=sy+head+hgt+8;services={y:sy,h:head+hgt};
+ }else{
+  width=2*w+20+2*pad;let y=0;
+  for(const [layer,lo,hi] of FLOW_LAYERS){
+   const rows=Math.ceil((hi-lo+1)/2),laneH=head+pad+rows*pitch;
+   lanes.push({layer,x:0,y,w:width,h:laneH});
+   for(let n=lo;n<=hi;n++){const i=n-lo;pos[FLOW_IDS[n-1]]={x:pad+(i%2)*(w+20),y:y+head+pad+Math.floor(i/2)*pitch,w,h:hgt};}
+   for(let r=1;r<rows;r++)streets.push(y+head+pad+r*pitch-gap/2);
+   y+=laneH+12;streets.push(y-6);
+  }
+  const sy=y;
+  FLOW_SERVICES.forEach((k,i)=>{pos[k]={x:pad+(i%2)*(w+20),y:sy+head+Math.floor(i/2)*(hgt+gap),w,h:hgt-8};});
+  streets.push(sy+head+hgt-8+(gap+8)/2);
+  height=sy+head+2*(hgt+gap);services={y:sy,h:head+2*(hgt+gap)};
  }
- const width=2*w+gap+2*pad;let y=0;
- for(const [layer,lo,hi] of FLOW_LAYERS){
-  const rows=Math.ceil((hi-lo+1)/2),laneH=head+pad+rows*pitch;
-  lanes.push({layer,x:0,y,w:width,h:laneH});
-  for(let n=lo;n<=hi;n++){const i=n-lo;pos[FLOW_IDS[n-1]]={x:pad+(i%2)*(w+gap),y:y+head+pad+Math.floor(i/2)*pitch,w,h:hgt};}
-  y+=laneH+12;
- }
- const sy=y;
- FLOW_SERVICES.forEach((k,i)=>{pos[k]={x:pad+(i%2)*(w+gap),y:sy+head+Math.floor(i/2)*(hgt+gap),w,h:hgt-8};});
- return {width,height:sy+head+2*(hgt+gap),lanes,pos,services:{y:sy,h:head+2*(hgt+gap)}};
+ // Vertical gutters: the gaps between the x-intervals of the agent columns, and the two margins.
+ const cols=[...new Set(FLOW_IDS.map(id=>pos[id].x))].sort((a,b)=>a-b),bounds=[0,...cols.flatMap(c=>[c,c+w]),width],channels=[];
+ for(let i=0;i<bounds.length;i+=2)channels.push({id:'c'+i/2,lo:bounds[i],hi:bounds[i+1],x:(bounds[i]+bounds[i+1])/2,w:bounds[i+1]-bounds[i]});
+ return {width,height,lanes,pos,services,streets:streets.sort((a,b)=>a-b),channels,gap};
 }
-// A curve between two boxes, leaving and entering on the sides that face each other.
-function flowEdgePath(a,b){
- const ax=a.x+a.w/2,ay=a.y+a.h/2,bx=b.x+b.w/2,by=b.y+b.h/2,dx=bx-ax,dy=by-ay;
- let x1,y1,x2,y2,c1,c2;
- if(Math.abs(dx)>=a.w*0.9){x1=dx>0?a.x+a.w:a.x;y1=ay;x2=dx>0?b.x:b.x+b.w;y2=by;const k=Math.max(24,Math.abs(x2-x1)/2)*Math.sign(dx);c1=[x1+k,y1];c2=[x2-k,y2];}
- else{x1=ax;y1=dy>0?a.y+a.h:a.y;x2=bx;y2=dy>0?b.y:b.y+b.h;const k=Math.max(18,Math.abs(y2-y1)/2)*Math.sign(dy||1);c1=[x1+(dx?0:28),y1+k];c2=[x2+(dx?0:28),y2-k];}
- return {d:`M${x1} ${y1} C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`,mid:[(x1+3*c1[0]+3*c2[0]+x2)/8,(y1+3*c1[1]+3*c2[1]+y2)/8]};
+// The gutter beside a box on one side.
+function flowChannel(L,box,side){
+ return side==='left'?L.channels.find(c=>Math.abs(c.hi-box.x)<0.5):L.channels.find(c=>Math.abs(c.lo-box.x-box.w)<0.5);
+}
+// The abstract route of one edge: exit side, gutters and street. Services are entered from the top.
+function flowLeg(L,edge){
+ const a=L.pos[edge.from],b=L.pos[edge.to];
+ if(!a||!b||!FLOW_IDS.includes(edge.from))return null;
+ const acx=a.x+a.w/2,acy=a.y+a.h/2,bcx=b.x+b.w/2,bcy=b.y+b.h/2;
+ if(FLOW_SERVICES.includes(edge.to)){
+  const side=bcx>=acx?'right':'left',street=Math.max(...L.streets.filter(s=>s<b.y));
+  return {a,b,service:true,sideA:side,ca:flowChannel(L,a,side),street};
+ }
+ const same=Math.abs(acx-bcx)<1,sideA=same||bcx>acx?'right':'left',sideB=same||bcx<acx?'right':'left';
+ const ca=flowChannel(L,a,sideA),cb=flowChannel(L,b,sideB);
+ if(ca.id===cb.id)return {a,b,sideA,sideB,ca,cb,street:null};
+ // A street between the two rows (nearest the target), or else the one nearest the source row.
+ const lo=Math.min(acy,bcy),hi=Math.max(acy,bcy),between=L.streets.filter(s=>s>lo&&s<hi),aim=between.length?bcy:acy;
+ const street=(between.length?between:L.streets).reduce((best,s)=>Math.abs(s-aim)<Math.abs(best-aim)?s:best);
+ return {a,b,sideA,sideB,ca,cb,street};
+}
+// Orthogonal routes for all edges. Edges that share a gutter are bundled: legs leaving the same agent share one track,
+// legs arriving at the same agent or service share one track, and distinct tracks run a few pixels apart.
+function flowRoutes(L,edges){
+ const legs=edges.map(e=>({e,leg:flowLeg(L,e)})).filter(x=>x.leg),use=new Map();
+ const claim=(lane,key)=>{const list=use.get(lane)||[];if(!list.includes(key))list.push(key);use.set(lane,list);};
+ for(const {e,leg} of legs){
+  claim(leg.ca.id,'f'+e.from);
+  if(leg.service)claim('s'+leg.street,'t'+e.to);
+  else if(leg.street!==null){claim(leg.cb.id,'t'+e.to);claim('s'+leg.street,'f'+e.from);}
+ }
+ const offset=(lane,key,room)=>{
+  const list=use.get(lane),n=list.length,i=list.indexOf(key),step=Math.min(4,Math.max(1.5,(room-6)/Math.max(1,n-1)));
+  const max=Math.max(0,room/2-3);return Math.max(-max,Math.min(max,(i-(n-1)/2)*step));
+ };
+ return legs.map(({e,leg})=>{
+  const {a,b}=leg,ay=a.y+a.h/2,ax=leg.sideA==='right'?a.x+a.w:a.x,xa=leg.ca.x+offset(leg.ca.id,'f'+e.from,leg.ca.w);
+  let points;
+  if(leg.service){
+   const sy=leg.street+offset('s'+leg.street,'t'+e.to,L.gap),bx=b.x+b.w/2;
+   points=[[ax,ay],[xa,ay],[xa,sy],[bx,sy],[bx,b.y]];
+  }else{
+   const by=b.y+b.h/2,bxe=leg.sideB==='right'?b.x+b.w:b.x;
+   if(leg.street===null)points=[[ax,ay],[xa,ay],[xa,by],[bxe,by]];
+   else{
+    const xb=leg.cb.x+offset(leg.cb.id,'t'+e.to,leg.cb.w),sy=leg.street+offset('s'+leg.street,'f'+e.from,L.gap);
+    points=[[ax,ay],[xa,ay],[xa,sy],[xb,sy],[xb,by],[bxe,by]];
+   }
+  }
+  points=flowSimplify(points);
+  return {key:e.key,from:e.from,to:e.to,points,d:flowRoundedPath(points,6)};
+ });
+}
+// Drop repeated and collinear points of an orthogonal polyline.
+function flowSimplify(points){
+ const out=[];
+ for(const p of points.map(([x,y])=>[+x.toFixed(2),+y.toFixed(2)])){
+  const last=out[out.length-1];if(last&&last[0]===p[0]&&last[1]===p[1])continue;
+  const prev=out[out.length-2];
+  if(prev&&((prev[0]===last[0]&&last[0]===p[0])||(prev[1]===last[1]&&last[1]===p[1])))out.pop();
+  out.push(p);
+ }
+ return out;
+}
+// An orthogonal polyline as an SVG path whose corners are rounded with radius ``r`` (less on short segments).
+function flowRoundedPath(points,r=6){
+ if(!points.length)return '';
+ const f=v=>+v.toFixed(2);let d=`M${f(points[0][0])} ${f(points[0][1])}`;
+ for(let i=1;i<points.length-1;i++){
+  const [px,py]=points[i-1],[x,y]=points[i],[nx,ny]=points[i+1];
+  const lin=Math.hypot(x-px,y-py),lout=Math.hypot(nx-x,ny-y),k=Math.min(r,lin/2,lout/2);
+  d+=` L${f(x-(x-px)/lin*k)} ${f(y-(y-py)/lin*k)} Q${f(x)} ${f(y)} ${f(x+(nx-x)/lout*k)} ${f(y+(ny-y)/lout*k)}`;
+ }
+ const last=points[points.length-1];
+ return d+` L${f(last[0])} ${f(last[1])}`;
+}
+// Greedy label placement: each label takes the first candidate spot (along each segment at 1/2, 0.3 and 0.7;
+// horizontal and long segments first)
+// whose box overlaps neither an obstacle (a node) nor an already placed label; a label with no free spot is left out.
+function flowPlaceLabels(labels,obstacles){
+ const placed=[],out=[],hit=(p,q)=>p.x<q.x+q.w&&q.x<p.x+p.w&&p.y<q.y+q.h&&q.y<p.y+p.h;
+ for(const label of labels){
+  const segs=[];
+  for(let i=1;i<label.points.length;i++){const [x1,y1]=label.points[i-1],[x2,y2]=label.points[i];segs.push({h:y1===y2,len:Math.hypot(x2-x1,y2-y1),x1,y1,x2,y2});}
+  segs.sort((p,q)=>(q.h-p.h)||(q.len-p.len));
+  const spots=segs.flatMap(g=>[0.5,0.3,0.7].map(f=>({...g,x:g.x1+(g.x2-g.x1)*f,y:g.y1+(g.y2-g.y1)*f})));
+  for(const s of spots){
+   if(s.len<(s.h?label.w:label.h)+8)continue;
+   const box={x:s.x-label.w/2,y:s.y-label.h/2,w:label.w,h:label.h};
+   if(obstacles.some(o=>hit(box,o))||placed.some(o=>hit(box,o)))continue;
+   placed.push(box);out.push({key:label.key,x:s.x,y:s.y});break;
+  }
+ }
+ return out;
 }
 
-if(typeof module!=='undefined')module.exports={FLOW_IDS,FLOW_LAYERS,FLOW_TYPES,FLOW_STATES,FLOW_SERVICES,FLOW_EDGE_TRANSPORT,flowLayer,flowInitial,reduceFlow,reduceAll,parseSse,flowEventText,flowSorted,flowLayout,flowEdgePath};
+// ---------- replay of a finished run's recorded events at readable speed ----------
+const FLOW_REPLAY_SPEEDS=[0.25,0.5,1],FLOW_REPLAY_GAP_MS=60;
+// The recorded events in run-clock order with their replay times: the run's own relative timing divided by ``speed``,
+// and at least ``gap``/``speed`` ms after the previous event so a burst of same-millisecond events stays visible.
+// Events are renumbered 1..n in that order so the reducer applies each exactly once.
+function flowReplayPlan(events,speed,gap=FLOW_REPLAY_GAP_MS){
+ if(!(speed>0))throw new RangeError('speed');
+ const list=(events||[]).filter(e=>e&&typeof e==='object'&&Number.isFinite(e.t_ms)).sort((x,y)=>x.t_ms-y.t_ms||x.seq-y.seq);
+ const t0=list.length?list[0].t_ms:0;let prev=-Infinity;
+ return list.map((e,i)=>{const at=i?Math.max((e.t_ms-t0)/speed,prev+gap/speed):0;prev=at;return {at,event:{...e,seq:i+1}};});
+}
+// Index of the first planned event not yet due ``elapsed`` ms into the replay, starting at ``from``.
+function flowReplayDue(plan,elapsed,from=0){let i=from;while(i<plan.length&&plan[i].at<=elapsed)i++;return i;}
+
+// ---------- one live stream per run ----------
+// At most one subscription is open: opening the same run again returns the open one (no abort, no duplicate
+// request); opening another run aborts the previous one first. ``start(controller)`` runs the subscription and the
+// entry is dropped when it settles.
+function flowStreamRegistry(){
+ const live=new Map();
+ return {
+  has:id=>live.has(id),
+  get size(){return live.size;},
+  open(id,start){
+   if(live.has(id))return live.get(id);
+   for(const [key,c] of live){c.abort();live.delete(key);}
+   const control=new AbortController();live.set(id,control);
+   Promise.resolve().then(()=>start(control)).catch(()=>{}).finally(()=>{if(live.get(id)===control)live.delete(id);});
+   return control;
+  },
+  close(){for(const c of live.values())c.abort();live.clear();},
+ };
+}
+
+// ---------- the page brief: what happened and what next, from the current state ----------
+// ``c``: {connected, runId, runs (retained count), status, count, running, done, error, record, pending, total,
+// replay:{speed,shown,total}|null, ms}. Returns string keys with parameters; ``label`` words status and duration.
+function flowBrief(c,label=(kind,value)=>String(value)){
+ const out=(hk,hp,nk,np={})=>({happened:{key:hk,params:hp},next:{key:nk,params:np}});
+ if(!c.connected)return out('flow.brief.connect',{},'flow.next.connect');
+ if(!c.runId)return out(c.runs?'flow.brief.none.runs':'flow.brief.none',{n:c.runs||0},'flow.next.start');
+ if(c.error)return out('flow.brief.error',{id:c.runId},'flow.next.retry');
+ if(c.replay)return out('flow.brief.replay',{speed:c.replay.speed,shown:c.replay.shown,total:c.replay.total},'flow.next.replay');
+ if(c.status==='idle'||c.status==='running'){
+  if(!c.count)return out('flow.brief.waiting',{id:c.runId},'flow.next.watch');
+  return out('flow.brief.running',{n:c.count,running:c.running||0,done:c.done||0},'flow.next.watch');
+ }
+ const happened=['flow.brief.finished',{status:label('runstatus',c.status),n:c.count,ms:label('ms',c.ms??0)}];
+ if(!c.record)return out(...happened,'flow.next.record');
+ if(c.pending>0)return out(...happened,'flow.next.approve',{n:c.pending});
+ if(c.total>0)return out(...happened,'flow.next.decided',{n:c.total});
+ return out(...happened,'flow.next.story');
+}
+
+// ---------- the run story: five plain sentences computed from a sealed record ----------
+const FLOW_MODEL_CLAIMS=['a23.suggested','a02.worded','a22.relevance','a23.compared','a29.options','a30.proposal'];
+const FLOW_MODEL_CODES=['MODEL_UNAVAILABLE','INVALID_OUTPUT','TIMEOUT','LLM_BUDGET_EXHAUSTED','TOKEN_BUDGET_EXCEEDED'];
+// ``detail``: {record, decisions, input}. Each item: {key, params (raw codes; lists stay arrays), agents (drawer links)}.
+function flowStory(detail){
+ const record=detail?.record;if(!record)return [];
+ const result=id=>(record.agents||[]).find(a=>a.agent_id===id)?.result||null;
+ const ran=id=>{const r=result(id);return !!r&&r.status!=='SKIPPED';};
+ const verdicts=record.judge?.verdicts||[],story=[];
+ // 1. the signal that started it
+ const name=detail.input?.name||null,incident=name?.match(/\bINC-\d+\b/)?.[0]||null;
+ const signals=(record.intake?.signals||[]).map(s=>({check:s.check,column:s.column??null}));
+ if(record.status==='input_rejected')story.push({key:'flow.story.rejected',params:{},agents:['A01']});
+ else if(incident)story.push({key:signals.length?'flow.story.signal.incident':'flow.story.signal.incident.none',params:{incident,signals},agents:['A01','A02']});
+ else story.push({key:signals.length?'flow.story.signal.file':'flow.story.signal.file.none',params:{name:name||record.case_id,signals},agents:['A01','A02']});
+ // 2. the specialists that ran and what they found
+ const specialists=FLOW_IDS.filter(id=>flowIsSpecialist(id)&&ran(id));
+ if(!specialists.length)story.push({key:'flow.story.specialists.none',params:{},agents:[]});
+ else{
+  const claims=specialists.reduce((n,id)=>n+result(id).claims.length,0);
+  const accepted=verdicts.filter(v=>specialists.includes(v.agent)&&v.verdict==='accepted'&&v.claim!==null).length;
+  const needs=specialists.filter(id=>result(id).status!=='COMPLETED');
+  story.push({key:needs.length?'flow.story.specialists.gaps':'flow.story.specialists',params:{n:specialists.length,agents:specialists,accepted,claims,needs},agents:specialists});
+  const found=[],by=[];
+  for(const id of specialists)for(const c of result(id).claims){
+   const p=c.params||{};let item=null;
+   if(p.check&&p.column&&c.text_key.endsWith('.finding'))item={check:p.check,column:p.column};
+   else if(p.shifted===true&&p.column)item={check:'distribution_shift',column:p.column};
+   else if(c.text_key==='a11.volume'&&p.changed===true)item={check:'volume_change',column:null};
+   else if(c.text_key==='a11.freshness'&&p.stale===true)item={check:'freshness',column:null};
+   if(item&&!found.some(f=>f.check===item.check&&f.column===item.column)){found.push(item);if(!by.includes(id))by.push(id);}
+  }
+  story.push(found.length?{key:'flow.story.found',params:{found},agents:by}:{key:'flow.story.found.none',params:{},agents:specialists});
+ }
+ // 3. what the model suggested and what the Judge did with it
+ const modelClaims=[];
+ for(const a of record.agents||[])(a.result?.claims||[]).forEach((c,i)=>{if(FLOW_MODEL_CLAIMS.includes(c.text_key))modelClaims.push({agent:a.agent_id,claim:c,verdict:verdicts.find(v=>v.agent===a.agent_id&&v.claim===i)||null});});
+ const a23=modelClaims.find(m=>m.claim.text_key==='a23.suggested');
+ if(a23)story.push(a23.verdict?.verdict==='rejected'?{key:'flow.story.model.rejected',params:{mechanisms:a23.claim.params?.mechanisms||[],reason:a23.verdict.reason},agents:['A23','A27']}
+  :{key:'flow.story.model.advisory',params:{mechanisms:a23.claim.params?.mechanisms||[]},agents:['A23','A27']});
+ else if(modelClaims.length){
+  const agents=[...new Set(modelClaims.map(m=>m.agent))];
+  story.push({key:'flow.story.model.other',params:{n:modelClaims.length,agents,advisory:modelClaims.filter(m=>m.verdict?.verdict==='advisory').length,rejected:modelClaims.filter(m=>m.verdict?.verdict==='rejected').length},agents:[...agents,'A27']});
+ }else{
+  const silent=['A02','A22','A23','A29','A30'].filter(id=>FLOW_MODEL_CODES.includes(result(id)?.error_code));
+  story.push(silent.length?{key:'flow.story.model.unavailable',params:{agents:silent},agents:silent}:{key:'flow.story.model.none',params:{},agents:[]});
+ }
+ // 4. which candidate explanation survived the probes
+ const hyps=ran('A24')?result('A24').claims.filter(c=>c.text_key==='a24.hypothesis').map(c=>c.params):[];
+ if(!hyps.length)story.push({key:'flow.story.candidates.none',params:{},agents:['A24']});
+ else{
+  const pick=status=>hyps.filter(x=>x.status===status).map(x=>({mechanism:x.mechanism,column:x.column??null}));
+  const supported=pick('supported'),open=pick('open'),refuted=pick('refuted').length,agents=['A24','A25','A28'].filter(ran);
+  if(supported.length)story.push({key:'flow.story.candidates.supported',params:{survivors:supported,refuted,open:open.length},agents});
+  else if(open.length)story.push({key:'flow.story.candidates.open',params:{survivors:open,refuted},agents});
+  else story.push({key:'flow.story.candidates.refuted',params:{n:refuted},agents});
+ }
+ // 5. what awaits a human decision
+ const items=record.approvals?.[0]?.items||[],decided=items.filter((_,i)=>detail.decisions?.[String(i)]?.decision).length;
+ if(!items.length)story.push({key:'flow.story.approval.none',params:{},agents:['A33']});
+ else story.push(decided<items.length?{key:'flow.story.approval.pending',params:{pending:items.length-decided,n:items.length},agents:['A33']}
+  :{key:'flow.story.approval.decided',params:{n:items.length},agents:['A33']});
+ return story;
+}
+
+if(typeof module!=='undefined')module.exports={FLOW_IDS,FLOW_LAYERS,FLOW_TYPES,FLOW_STATES,FLOW_SERVICES,FLOW_EDGE_TRANSPORT,FLOW_REPLAY_SPEEDS,FLOW_REPLAY_GAP_MS,
+ flowLayer,flowInitial,reduceFlow,reduceAll,parseSse,flowEventText,flowSorted,flowLayout,flowChannel,flowRoutes,flowSimplify,flowRoundedPath,flowPlaceLabels,
+ flowReplayPlan,flowReplayDue,flowStreamRegistry,flowBrief,flowStory};
 
 // ---------- browser page ----------
-let flowRoles=null,flowRolesLoading=false,flowRuns=null,flowRunsLoading=false,flowRunId=null,flowState=flowInitial(),flowDetail=null,flowAbort=null,
+let flowRoles=null,flowRolesLoading=false,flowRuns=null,flowRunsLoading=false,flowRunId=null,flowState=flowInitial(),flowDetail=null,flowReplay=null,flowPointed=null,
  flowEnd=null,flowBusy=false,flowError='',flowOpen=null,flowOpener=null,flowFocus='A01',flowAll=false,flowFrame=0,flowAnnounced=0,flowCtl=null,flowDyn=null,
  flowBaseline='',flowAsOf='',flowOwnFile=null,flowSecond=null;
-const flowOpenDetails=new Set(),flowSeenEdges=new Set();
+const flowOpenDetails=new Set(),flowSeenEdges=new Set(),flowStreams=flowStreamRegistry();
 const FLOW_MAX_BYTES=1000000,FLOW_TIMELINE_ROWS=300;
 const flowNarrowQuery=typeof matchMedia==='function'?matchMedia('(max-width: 900px)'):null;
 
@@ -216,12 +436,12 @@ async function loadFlowDetail(runId){
  flowSchedule();
 }
 // Fetch-based SSE: the session token travels in the Authorization header, never in the URL. A dropped connection
-// resumes with Last-Event-ID; the reducer ignores anything it already applied.
-async function streamFlow(runId){
- flowAbort?.abort();
- const control=new AbortController();flowAbort=control;
+// resumes with Last-Event-ID; the reducer ignores anything it already applied. ``control`` belongs to the stream
+// registry, which keeps exactly one subscription per run id and never aborts it on a re-render.
+async function streamFlow(runId,control){
  let tries=0,ended=false;
- while(!ended&&!control.signal.aborted&&tries<6){
+ const current=()=>!control.signal.aborted&&flowRunId===runId;
+ while(!ended&&current()&&tries<6){
   try{
    const headers={Authorization:'Bearer '+token};
    if(flowState.lastSeq)headers['Last-Event-ID']=String(flowState.lastSeq);
@@ -240,18 +460,50 @@ async function streamFlow(runId){
     flowSchedule();
    }
   }catch{if(control.signal.aborted)return;}
-  if(!ended&&!control.signal.aborted){tries++;await new Promise(r=>setTimeout(r,Math.min(5000,400*2**tries)));}
+  if(!ended&&current()){tries++;await new Promise(r=>setTimeout(r,Math.min(5000,400*2**tries)));}
  }
- if(control.signal.aborted||flowAbort!==control)return;
- flowAbort=null;
+ if(!current())return;
  if(ended)await loadFlowDetail(runId);else if(!flowError)flowError=t('flow.err.stream');
  loadFlowRuns(true);flowSchedule();
 }
+// A finished run is drawn from its sealed record (its events, in recorded order); a run that is still going, or whose
+// state is not known yet, is followed live over the stream.
+async function loadFlowSealed(runId){
+ let detail=null;
+ try{detail=await request('/api/agents/runs/'+runId);}
+ catch(error){if(flowRunId===runId){flowError=error.status===404?t('flow.err.gone'):error.message;flowSchedule();}return;}
+ if(flowRunId!==runId)return;
+ if(detail.state!=='finished'||!detail.record){flowStreams.open(runId,control=>streamFlow(runId,control));return;}
+ flowDetail=detail;flowEnd={error:null};
+ if(!flowState.count)flowState=reduceAll(detail.record.events||[]);
+ flowSchedule();
+}
+// A run known to be running is subscribed to at once; otherwise its detail decides (sealed record if finished,
+// the live stream if it is still going or ended without a record).
+function flowFollow(runId){
+ const summary=(flowRuns?.runs||[]).find(r=>r.run_id===runId);
+ if(summary?.state==='running')flowStreams.open(runId,control=>streamFlow(runId,control));
+ else loadFlowSealed(runId);
+}
+function flowSyncUrl(){
+ if(route==='/flow'&&typeof history!=='undefined'){
+  const want=flowRunId?'/flow?run='+encodeURIComponent(flowRunId):'/flow';
+  if(location.pathname+location.search!==want)history.replaceState({},'',want);
+ }
+}
+// Show ``runId``. Selecting the run already shown keeps its subscription and state (a re-render or a second link to
+// the same run never aborts the live stream); another run closes the old subscription first.
 function viewFlowRun(runId){
- flowAbort?.abort();flowAbort=null;
- if(route==='/flow'&&typeof history!=='undefined')history.replaceState({},'',runId?'/flow?run='+encodeURIComponent(runId):'/flow');
- flowRunId=runId||null;flowState=flowInitial();flowDetail=null;flowEnd=null;flowError='';flowOpen=null;flowSeenEdges.clear();flowAnnounced=0;
- if(flowRunId)streamFlow(flowRunId);
+ runId=runId||null;
+ if(runId&&runId===flowRunId){
+  flowSyncUrl();
+  if(!flowStreams.has(runId)&&!flowDetail&&!flowEnd&&!flowError)flowFollow(runId);
+  flowSchedule();return;
+ }
+ flowStreams.close();flowReplayStop(false);
+ flowRunId=runId;flowState=flowInitial();flowDetail=null;flowEnd=null;flowError='';flowOpen=null;flowSeenEdges.clear();flowAnnounced=0;
+ flowSyncUrl();
+ if(flowRunId)flowFollow(flowRunId);
  flowSchedule();
 }
 function flowFile(){return flowOwnFile||selectedFile||null;}
@@ -293,8 +545,7 @@ async function investigateWithAgents(file,options={}){
  }catch(error){setNotice(t('flow.err.start',{reason:error.message}),true);return null;}
 }
 function openFlowRun(runId){
- viewFlowRun(runId);loadFlowRuns(true);navigate('/flow');
- history.replaceState({},'','/flow?run='+encodeURIComponent(runId));
+ viewFlowRun(runId);loadFlowRuns(true);navigate('/flow');flowSyncUrl();
 }
 async function decideFlow(item,decision){
  if(!flowDetail||!requireSession())return;
@@ -434,30 +685,50 @@ function closeFlowAgent(){
  const back=flowOpener;flowOpen=null;flowPaint($('screen-flow'));
  (document.getElementById(back)||document.getElementById('fn-'+flowFocus))?.focus();
 }
+// The agent whose links are emphasised: the one under the pointer or keyboard focus, else the one whose drawer is open.
+const flowActive=()=>flowPointed||flowOpen||null;
+// Emphasise the active agent's links (others drop to 15%) and label their transports where a label fits. Runs on
+// hover and focus without rebuilding the diagram.
+function flowHighlight(svg){
+ if(!svg?.flowGeo)return;
+ const id=flowActive(),{routes,obstacles,edges}=svg.flowGeo,linked=new Set();
+ svg.classList.toggle('has-active',!!id);
+ svg.querySelectorAll('.fe').forEach(p=>{const on=!!id&&(p.dataset.from===id||p.dataset.to===id);p.classList.toggle('hl',on);if(on)linked.add(p.dataset.from===id?p.dataset.to:p.dataset.from);});
+ svg.querySelectorAll('.fn,.fs').forEach(g=>{g.classList.toggle('linked',linked.has(g.dataset.id));g.classList.toggle('active',!!id&&g.dataset.id===id);});
+ const layer=svg.querySelector('.fl-labels');layer.replaceChildren();
+ if(!id)return;
+ const labels=routes.filter(r=>(r.from===id||r.to===id)&&edges[r.key].transport!=='in_process').map(r=>{const text=flowLabel('transport',edges[r.key].transport);return {key:r.key,text,points:r.points,w:text.length*5.6+10,h:12};});
+ for(const spot of flowPlaceLabels(labels,obstacles)){
+  const label=labels.find(l=>l.key===spot.key);
+  layer.append(svgEl('rect',{x:spot.x-label.w/2,y:spot.y-label.h/2,width:label.w,height:label.h,rx:4,class:'fe-label-bg'}),svgText(label.text,{x:spot.x,y:spot.y+3.3,class:'fe-label','text-anchor':'middle'}));
+ }
+}
+function flowPoint(svg,id){if(flowPointed===id)return;flowPointed=id;flowHighlight(svg);}
 function flowSvg(){
  const narrow=!!flowNarrowQuery?.matches,L=flowLayout(narrow),st=flowState;
  const svg=svgEl('svg',{id:'flow-svg',viewBox:`0 0 ${L.width} ${L.height}`,class:'fl-svg'+(narrow?' narrow':''),role:'group','aria-label':t('flow.diagram.label'),'aria-describedby':'flow-legend'});
  svg.addEventListener('keydown',flowKeys);
- svg.append(svgEl('defs',{},...['dep','tool','a2a','llm','verdict'].map(k=>svgEl('marker',{id:'fa-'+k,viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'6',markerHeight:'6',orient:'auto-start-reverse'},svgEl('path',{d:'M0 0 10 5 0 10z',class:'fa fa-'+k})))));
- for(const lane of L.lanes){
-  svg.append(svgEl('rect',{x:lane.x,y:lane.y,width:lane.w,height:lane.h,rx:12,class:'fl-lane'}),
-   svgText(t('flow.layer.'+lane.layer),{x:lane.x+12,y:lane.y+20,class:'fl-lane-title'}));
- }
- svg.append(svgEl('rect',{x:0,y:L.services.y,width:L.width,height:L.services.h,rx:12,class:'fl-lane services'}),svgText(t('flow.layer.services'),{x:12,y:L.services.y+20,class:'fl-lane-title'}));
- const edges=svgEl('g',{class:'fl-edges','aria-hidden':'true'});
+ svg.addEventListener('mouseleave',()=>flowPoint(svg,null));
+ svg.append(svgEl('defs',{},...['dep','tool','a2a','llm','verdict'].map(k=>svgEl('marker',{id:'fa-'+k,viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'5.5',markerHeight:'5.5',orient:'auto-start-reverse'},svgEl('path',{d:'M0 0 10 5 0 10z',class:'fa fa-'+k})))));
+ for(const lane of L.lanes)svg.append(svgEl('rect',{x:lane.x,y:lane.y,width:lane.w,height:lane.h,rx:12,class:'fl-lane'}));
+ svg.append(svgEl('rect',{x:0,y:L.services.y,width:L.width,height:L.services.h,rx:12,class:'fl-lane services'}));
+ // Edges run in the gutters, under the lane titles and the boxes.
+ const edges=svgEl('g',{class:'fl-edges','aria-hidden':'true'}),byKey={};
  const marker={dependency:'dep',mcp:'tool',rag:'tool',a2a:'a2a',llm:'llm',verdict:'verdict'};
- for(const e of st.edges){
-  const a=L.pos[e.from],b=L.pos[e.to];if(!a||!b)continue;
-  const p=flowEdgePath(a,b),fresh=!flowSeenEdges.has(e.key);
-  const path=svgEl('path',{d:p.d,class:`fe ${e.kind} t-${e.transport}`+(fresh?' fresh':''),'marker-end':`url(#fa-${marker[e.kind]})`});
+ for(const e of st.edges)byKey[e.key]=e;
+ const routes=flowRoutes(L,st.edges);
+ for(const r of routes){
+  const e=byKey[r.key],fresh=!flowSeenEdges.has(e.key);
+  const path=svgEl('path',{d:r.d,class:`fe ${e.kind} t-${e.transport}`+(fresh?' fresh':''),'data-from':e.from,'data-to':e.to,'marker-end':`url(#fa-${marker[e.kind]})`});
   path.append(svgEl('title',{},document.createTextNode(t('flow.edge.title',{from:e.from,to:e.to,kind:t('flow.edge.'+e.kind),transport:flowLabel('transport',e.transport),n:e.count}))));
   edges.append(path);
-  if(e.transport!=='in_process')edges.append(svgText(flowLabel('transport',e.transport),{x:p.mid[0],y:p.mid[1]-3,class:'fe-label','text-anchor':'middle'}));
  }
  svg.append(edges);
+ for(const lane of L.lanes)svg.append(svgText(t('flow.layer.'+lane.layer),{x:lane.x+12,y:lane.y+20,class:'fl-lane-title'}));
+ svg.append(svgText(t('flow.layer.services'),{x:12,y:L.services.y+20,class:'fl-lane-title'}));
  for(const k of FLOW_SERVICES){
   const p=L.pos[k],used=st.edges.some(e=>e.to===k);
-  svg.append(svgEl('g',{class:'fs'+(used?' used':'')},svgEl('rect',{x:p.x,y:p.y,width:p.w,height:p.h,rx:9}),
+  svg.append(svgEl('g',{class:'fs'+(used?' used':''),'data-id':k},svgEl('rect',{x:p.x,y:p.y,width:p.w,height:p.h,rx:9}),
    svgText(t('flow.svc.'+k),{x:p.x+10,y:p.y+22,class:'fs-title'}),svgText(t('flow.svc.'+k+'.x'),{x:p.x+10,y:p.y+40,class:'fs-meta'})));
  }
  if(!FLOW_IDS.includes(flowFocus))flowFocus='A01';
@@ -465,7 +736,9 @@ function flowSvg(){
   const p=L.pos[id],n=st.nodes[id],kind=flowRole(id)?.kind;
   const g=svgEl('g',{id:'fn-'+id,class:`fn ${n.state}`+(flowOpen===id?' open':''),'data-id':id,role:'button',tabindex:id===flowFocus?'0':'-1','aria-label':flowNodeLabel(id),'aria-haspopup':'dialog'});
   g.addEventListener('click',()=>{flowFocus=id;openFlowAgent(id);});
-  g.addEventListener('focus',()=>{if(flowFocus!==id){flowFocus=id;svg.querySelectorAll('.fn').forEach(x=>x.setAttribute('tabindex',x.dataset.id===id?'0':'-1'));}});
+  g.addEventListener('focus',()=>{if(flowFocus!==id){flowFocus=id;svg.querySelectorAll('.fn').forEach(x=>x.setAttribute('tabindex',x.dataset.id===id?'0':'-1'));}flowPoint(svg,id);});
+  g.addEventListener('blur',()=>flowPoint(svg,null));
+  g.addEventListener('mouseenter',()=>flowPoint(svg,id));
   const icon=svgEl('g',{class:'fl-icon '+n.state,transform:`translate(${p.x+8} ${p.y+42}) scale(.8)`});flowIconShapes(icon,n.state);
   g.append(...[svgEl('rect',{x:p.x,y:p.y,width:p.w,height:p.h,rx:9,class:'fn-box'}),svgEl('rect',{x:p.x,y:p.y+8,width:3,height:p.h-16,rx:1.5,class:'fn-bar'}),
    svgText(id,{x:p.x+10,y:p.y+17,class:'fn-id'}),kind?svgText(t('flow.kind.'+kind),{x:p.x+p.w-8,y:p.y+17,class:'fn-kind','text-anchor':'end'}):null,
@@ -473,7 +746,11 @@ function flowSvg(){
    svgText(t('flow.state.'+n.state)+(n.wave?' · '+t('flow.wave.short',{n:n.wave}):''),{x:p.x+24,y:p.y+53,class:'fn-state'})].filter(Boolean));
   svg.append(g);
  }
+ svg.append(svgEl('g',{class:'fl-labels','aria-hidden':'true'}));
  for(const e of st.edges)flowSeenEdges.add(e.key);
+ // Labels may graze a box edge by up to 3 px (the gaps between rows are only 14 px tall), never cover its text.
+ svg.flowGeo={routes,edges:byKey,obstacles:[...FLOW_IDS,...FLOW_SERVICES].map(id=>{const b=L.pos[id];return {x:b.x+3,y:b.y+3,w:b.w-6,h:b.h-6};})};
+ flowHighlight(svg);
  return svg;
 }
 function flowLegend(){
@@ -502,8 +779,89 @@ function flowTable(){
 }
 function flowDiagramPanel(){
  return h('section',{class:'panel fl-diagram','aria-labelledby':'flow-diagram-title'},
-  h('div',{class:'panel-heading'},h('h2',{id:'flow-diagram-title',text:t('flow.diagram')}),chip(flowRunId?t('flow.badge.events'):t('flow.badge.idle'),flowRunId?'ok':'muted')),
-  h('p',{class:'hint',text:t('flow.diagram.x')}),h('div',{class:'fl-svg-wrap'},flowSvg()),flowLegend(),flowTable());
+  h('div',{class:'panel-heading'},h('h2',{id:'flow-diagram-title',text:t('flow.diagram')}),flowReplay?chip(t('flow.badge.replay'),'info'):chip(flowRunId?t('flow.badge.events'):t('flow.badge.idle'),flowRunId?'ok':'muted')),
+  h('p',{class:'hint',text:t('flow.diagram.x')}),flowReplayPanel(),h('div',{class:'fl-svg-wrap'},flowSvg()),flowLegend(),flowTable());
+}
+
+// ---------- replay at readable speed (recorded events only) ----------
+const flowNow=()=>typeof performance!=='undefined'?performance.now():Date.now();
+function startFlowReplay(speed){
+ const events=flowDetail?.record?.events;
+ if(!events?.length||flowStreams.has(flowRunId))return;
+ flowReplayStop(false);
+ flowReplay={speed,plan:flowReplayPlan(events,speed),index:0,started:flowNow(),timer:0};
+ flowState=flowInitial();flowSeenEdges.clear();flowAnnounced=0;
+ const live=document.getElementById('flow-live');if(live)live.textContent=t('flow.replay.started',{speed:N(speed)});
+ flowReplayTick();
+}
+function flowReplayTick(){
+ const r=flowReplay;if(!r)return;
+ const elapsed=flowNow()-r.started,next=flowReplayDue(r.plan,elapsed,r.index);
+ for(let i=r.index;i<next;i++)flowState=reduceFlow(flowState,r.plan[i].event);
+ r.index=next;
+ if(next>=r.plan.length){
+  flowReplay=null;
+  const live=document.getElementById('flow-live');if(live)live.textContent=t('flow.replay.done');
+ }else r.timer=setTimeout(flowReplayTick,Math.max(0,r.plan[next].at-elapsed));
+ flowSchedule();
+}
+// Stop a replay; with ``restore`` the diagram returns to the complete recorded run.
+function flowReplayStop(restore=true){
+ if(!flowReplay)return;
+ clearTimeout(flowReplay.timer);flowReplay=null;
+ if(restore&&flowDetail?.record){flowState=reduceAll(flowDetail.record.events||[]);flowSeenEdges.clear();}
+ flowSchedule();
+}
+function flowReplayPanel(){
+ const record=flowDetail?.record,r=flowReplay;
+ if(!record||!record.events?.length)return null;
+ const speeds=FLOW_REPLAY_SPEEDS.map(s=>h('button',{type:'button',id:'flow-replay-'+String(s).replace('.','-'),class:'secondary fl-speed','aria-pressed':String(r?.speed===s),
+  'aria-label':t('flow.replay.speed.label',{speed:N(s)}),onclick:()=>startFlowReplay(s)},t('flow.replay.speed',{speed:N(s)})));
+ const total=r?r.plan.length:record.events.length,shown=r?r.index:total;
+ const bar=h('div',{class:'fl-replay-fill'});bar.style.width=(total?shown/total*100:0).toFixed(1)+'%';
+ return h('div',{class:'fl-replay'+(r?' on':''),role:'group','aria-labelledby':'flow-replay-title'},
+  h('div',{class:'fl-replay-head'},h('strong',{id:'flow-replay-title',text:t('flow.replay')}),
+   r?chip(t('flow.replay.badge',{speed:N(r.speed)}),'info'):null),
+  h('div',{class:'fl-replay-row'},h('div',{class:'cc-speeds fl-speeds'},speeds),
+   r?h('button',{type:'button',id:'flow-replay-stop',class:'secondary',onclick:()=>flowReplayStop(true)},t('flow.replay.stop')):null,
+   h('div',{class:'fl-replay-track','aria-hidden':'true'},bar),
+   h('small',{class:'fl-replay-n',text:r?t('flow.replay.progress',{shown:N(shown),total:N(total)}):t('flow.replay.recorded',{n:N(total),ms:msText(record.duration_ms??flowState.used.elapsed_ms)})})),
+  h('p',{class:'hint',text:t('flow.replay.x',{gap:msText(FLOW_REPLAY_GAP_MS)})}));
+}
+
+// ---------- run story (finished runs, from the sealed record) ----------
+const flowCheckLabel=c=>tt('pf.check.'+c,tt('bl.check.'+c,tt('cc.check.'+c,String(c).replace(/_/g,' '))));
+const flowList=items=>items.length<2?items.join(''):items.slice(0,-1).join(', ')+' '+t('flow.story.and')+' '+items[items.length-1];
+// A code label in the middle of a sentence: lower-case unless it starts with an acronym ("PSI distribution shift").
+const flowMid=text=>/^\p{Lu}\p{Ll}/u.test(text)?text[0].toLocaleLowerCase(language==='tr'?'tr':'en')+text.slice(1):text;
+// "level shift and isolated jump on pressure_kpa, freshness": items grouped by column, in first-seen order.
+function flowGrouped(items,word){
+ const groups=[];
+ for(const x of items){const g=groups.find(y=>y.column===x.column);if(g)g.what.push(word(x));else groups.push({column:x.column,what:[word(x)]});}
+ return groups.map(g=>g.column?t('flow.story.on',{what:flowList(g.what),column:g.column}):flowList(g.what)).join('; ');
+}
+function flowStoryParams(item){
+ const p={...item.params},check=x=>flowMid(flowCheckLabel(x.check)),mech=m=>flowMid(tt('hy.mech.'+m,String(m).replace(/_/g,' ')));
+ if(p.signals)p.signals=flowGrouped(p.signals,check);
+ if(p.found)p.found=flowGrouped(p.found,check);
+ if(p.survivors)p.survivors=flowGrouped(p.survivors,x=>mech(x.mechanism));
+ if(p.mechanisms)p.mechanisms=p.mechanisms.length?flowList(p.mechanisms.map(mech)):t('flow.story.nothing');
+ for(const k of ['agents','needs'])if(Array.isArray(p[k]))p[k]=flowList(p[k]);
+ if(p.reason)p.reason=tt('flow.jr.'+p.reason,String(p.reason).replace(/_/g,' '));
+ for(const k of ['n','accepted','claims','refuted','open','pending','advisory','rejected'])if(typeof p[k]==='number')p[k]=N(p[k]);
+ return p;
+}
+function flowStoryPanel(){
+ if(!flowDetail?.record)return null;
+ const items=flowStory(flowDetail);
+ return h('section',{class:'panel fl-story','aria-labelledby':'flow-story-title'},
+  h('div',{class:'panel-heading'},h('h2',{id:'flow-story-title',text:t('flow.story')}),chip(t('flow.story.chip'),'ok')),
+  h('ol',{class:'fl-story-list'},items.map((item,i)=>h('li',{class:'fl-story-item'},
+   h('span',{class:'fl-story-n','aria-hidden':'true',text:String(i+1)}),
+   h('div',{},h('p',{text:t(item.key,flowStoryParams(item))}),
+    item.agents.length?h('div',{class:'fl-story-links'},item.agents.map(id=>h('button',{type:'button',class:'fl-link fl-chiplink',id:`fs-${i}-${id}`,
+     'aria-label':t('flow.how.open',{id,name:flowName(id)}),onclick:()=>openFlowAgent(id,`fs-${i}-${id}`)},`${id} · ${flowName(id)}`))):null)))),
+  h('p',{class:'panel-note',text:t('flow.story.note')}));
 }
 
 // ---------- live timeline ----------
@@ -640,7 +998,7 @@ function flowAnnounce(){
  if(!live||!m||m.seq===flowAnnounced)return;
  flowAnnounced=m.seq;
  const params={...m.params};if(params.stage)params.stage=flowLabel('stage',params.stage);if(params.status)params.status=flowLabel('runstatus',params.status);if(params.pass)params.pass=flowLabel('pass',params.pass);
- live.textContent=t(m.key,params);
+ live.textContent=(flowReplay?t('flow.replay.prefix')+' ':'')+t(m.key,params);
 }
 function flowPaint(root){
  if(!root||!connected)return;
@@ -649,25 +1007,32 @@ function flowPaint(root){
  const controls=flowControls();
  if(!flowDyn)flowDyn=h('div',{class:'fl-dyn'});
  if(root.firstChild!==controls||root.lastChild!==flowDyn)root.replaceChildren(controls,flowDyn);
- flowDyn.replaceChildren(flowHeader(),flowDiagramPanel(),h('div',{class:'fl-grid'},flowTimelinePanel(),flowResultsPanel()),flowExplainer(),flowDrawer()||'');
+ flowDyn.replaceChildren(flowHeader(),flowStoryPanel()||'',flowDiagramPanel(),h('div',{class:'fl-grid'},flowTimelinePanel(),flowResultsPanel()),flowExplainer(),flowDrawer()||'');
  for(const [id,top] of Object.entries(scroll)){const n=document.getElementById(id);if(n)n.scrollTop=top;}
  if(activeId&&document.activeElement!==document.getElementById(activeId))document.getElementById(activeId)?.focus({preventScroll:true});
  flowAnnounce();
+ if(typeof refreshBrief==='function'&&route==='/flow')refreshBrief();
 }
 function renderFlow(){
  const root=$('screen-flow');
- if(!connected){flowAbort?.abort();flowAbort=null;flowOpen=null;root.replaceChildren(h('section',{class:'panel'},empty('flow.connect.t','flow.connect.x')),flowExplainer());flowCtl=null;flowDyn=null;flowOwnFile=null;flowSecond=null;return;}
+ if(!connected){flowStreams.close();flowReplayStop(false);flowOpen=null;root.replaceChildren(h('section',{class:'panel'},empty('flow.connect.t','flow.connect.x')),flowExplainer());flowCtl=null;flowDyn=null;flowOwnFile=null;flowSecond=null;return;}
  loadFlowRoles();loadFlowRuns();loadBaselines();
- if(!flowRunId&&!flowAbort){
+ if(!flowRunId&&!flowStreams.size){
   const linked=typeof location!=='undefined'?new URLSearchParams(location.search).get('run'):null;
   if(linked)viewFlowRun(linked);else if(flowRuns?.active)viewFlowRun(flowRuns.active);
  }
  flowPaint(root);
 }
-function flowHappened(){
- if(!connected)return t('flow.happened.connect');
- if(!flowRunId)return t('flow.happened.none');
- return t('flow.happened',{status:t('flow.status.'+flowStatus()[0]),n:N(flowState.count)});
+// The page brief's two live answers, recomputed from the current state on every paint.
+function flowBriefNow(){
+ const record=flowDetail?.record,items=record?.approvals?.[0]?.items||[],decided=items.filter((_,i)=>flowDetail?.decisions?.[String(i)]?.decision).length;
+ const nodes=Object.values(flowState.nodes);
+ const b=flowBrief({connected,runId:flowRunId,runs:flowRuns?.runs?.length||0,status:flowState.status,count:flowState.count,
+  running:nodes.filter(n=>n.state==='running').length,done:nodes.filter(n=>n.finished).length,error:!!flowEnd?.error||(!!flowError&&!flowState.count),record:!!record,
+  pending:items.length-decided,total:items.length,ms:flowState.used.elapsed_ms,
+  replay:flowReplay?{speed:N(flowReplay.speed),shown:N(flowReplay.index),total:N(flowReplay.plan.length)}:null},flowLabel);
+ const num=p=>Object.fromEntries(Object.entries(p).map(([k,v])=>[k,typeof v==='number'?N(v):v]));
+ return {happened:t(b.happened.key,num(b.happened.params)),next:t(b.next.key,num(b.next.params))};
 }
 if(typeof document!=='undefined'){
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&flowOpen&&route==='/flow'){e.preventDefault();closeFlowAgent();}});
