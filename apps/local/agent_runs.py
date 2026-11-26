@@ -29,6 +29,7 @@ from aegisflow_dr.agents.events import MAX_EVENTS
 from aegisflow_dr.agents.llm import LocalModel
 from aegisflow_dr.agents.registry import ROLES
 from aegisflow_dr.agents.runtime import Budget, Case, run_case, verify_record
+from aegisflow_dr.baseline import load_baseline
 from aegisflow_dr.pipeline import InputRejected
 
 HISTORY = 50
@@ -173,8 +174,12 @@ class RunManager:
             self._runs[run.run_id] = run
 
     # -- starting a run -------------------------------------------------------------------------------------------
-    def start(self, payload, *, baseline=None, as_of=None, second=None, name=None):
-        """Start a run of ``payload`` and return its id; Busy while another runs, KeyError for an unknown baseline."""
+    def start(self, payload, *, baseline=None, as_of=None, second=None, name=None, baseline_record=None, baseline_label=None):
+        """Start a run of ``payload`` and return its id; Busy while another runs, KeyError for an unknown baseline.
+
+        A caller that holds a baseline record itself (the simulated plant) passes it as ``baseline_record`` with a
+        display ``baseline_label`` instead of a saved baseline's name; the record is verified before use.
+        """
         payload = _file(payload, "file", True)
         second = _file(second, "second file", False)
         if as_of is not None and (type(as_of) is not str or not 1 <= len(as_of) <= MAX_AS_OF_CHARS
@@ -185,6 +190,8 @@ class RunManager:
             if type(baseline) is not str or self._baselines is None:
                 raise InputRejected("The baseline must be the name of a saved baseline")
             record = self._baselines.get(baseline)  # KeyError when it does not exist
+        elif baseline_record is not None:
+            record, baseline = load_baseline(baseline_record), _name(baseline_label)
         meta = {"name": _name(name), "sha256": sha256(payload).hexdigest(), "bytes": len(payload),
                 "baseline": baseline, "as_of": as_of,
                 "second_sha256": sha256(second).hexdigest() if second is not None else None}

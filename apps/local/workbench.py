@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from agent_runs import Busy, RunManager, RunStore, knowledge_retriever, roles as agent_roles
 from agent_summary import model_status, summarize as summarize_agent_runs
+from plant import PlantController
 from schema_store import SchemaStore
 from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
@@ -48,6 +50,9 @@ from aegisflow_dr.coordination.judge import review
 BASELINE_BODY_LIMITS = {'save': 7200000, 'compare': 1400000, 'investigate': 1400000, 'remove': 2048}
 # An agent run carries up to two 1 MB files as base64 (2 x 1,333,336 bytes) plus the baseline name and as-of time.
 AGENT_RUN_BODY_LIMIT = 2900000
+# Simulated plant controls are small JSON objects.
+PLANT_BODY_LIMIT = 256
+PLANT_INVESTIGATE = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})/investigate')
 
 
 def write_private(path, text):
@@ -79,6 +84,7 @@ class Workbench:
         self.baselines = BaselineStore(self.root)
         self.agents = RunManager(baselines=self.baselines, retriever=knowledge_retriever(self.kb), store=RunStore(self.root))
         self.model_status = model_status
+        self.plant = PlantController(lambda: self.agents, model_status=lambda: self.model_status())
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -288,7 +294,7 @@ def make_server(workbench, token, port=0, catalog=None):
             pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             page = self.path.split('?', 1)[0]
             if page != self.path and page in pages:  # a page link with a query, e.g. /flow?run=<id>
@@ -318,6 +324,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(listing).encode())
             elif self.path == '/api/state' and self.authorized():
                 self.respond(200, json.dumps(workbench.snapshot()).encode())
+            elif self.path == '/api/plant/state' and self.authorized():
+                self.respond(200, json.dumps(workbench.plant.state()).encode())
             elif self.path == '/api/agents/roles' and self.authorized():
                 self.respond(200, json.dumps(agent_roles()).encode())
             elif self.path == '/api/agents/summary' and self.authorized():
@@ -565,6 +573,33 @@ def make_server(workbench, token, port=0, catalog=None):
                         as_of=request.get('as_of'), second=None if second is None else from_base64(second),
                         name=request.get('name'))
                     self.respond(202, json.dumps({'run_id': run_id}).encode())
+                except Busy:
+                    self.respond(409, b'{"error": "BUSY"}')
+                except KeyError:
+                    self.respond(404, b'{"error": "NOT_FOUND"}')
+                except InputRejected as error:
+                    self.respond(422, json.dumps({'error': 'INPUT_REJECTED', 'message': str(error)}).encode())
+                except (ValueError, TypeError):
+                    self.respond(400, b'{}')
+                return
+            if self.path in ('/api/plant/control', '/api/plant/inject', '/api/plant/clear') or PLANT_INVESTIGATE.fullmatch(self.path):
+                body = self.read_body('application/json', PLANT_BODY_LIMIT)
+                if body is None:
+                    return
+                try:
+                    request = json.loads(body)
+                    if type(request) is not dict:
+                        raise ValueError('Object required')
+                    if self.path.endswith('/control'):
+                        result = workbench.plant.control(request.get('action'), request.get('speed'))
+                    elif self.path.endswith('/inject'):
+                        result = workbench.plant.inject(request.get('fault'), request.get('sensor'))
+                    elif self.path.endswith('/clear'):
+                        result = workbench.plant.clear(request.get('fault_id'))
+                    else:
+                        run_id = workbench.plant.investigate(PLANT_INVESTIGATE.fullmatch(self.path).group(1))
+                        self.respond(202, json.dumps({'run_id': run_id}).encode()); return
+                    self.respond(200, json.dumps(result).encode())
                 except Busy:
                     self.respond(409, b'{"error": "BUSY"}')
                 except KeyError:
