@@ -11,7 +11,7 @@ This record distinguishes delivered capabilities from the original target archit
 3. Real source/staging/mart execution in memory, packaged SQL, count/amount reconciliation and declared dataset lineage.
 4. Host-owned tool grants, strict requests, input/call/deadline budgets and sanitized tool outcomes.
 5. Local SQLite incident/evidence persistence, retained run artifacts, integrity/replay/version checks, idempotency and explicit recovery/migration.
-6. Closed coordination contracts, capability routing and bounded DAG. A26 retained-read and A27 deterministic verification are executable capability slices; the other specialist roles remain planned.
+6. Closed coordination contracts, capability routing and bounded DAG. A26 retained-read and A27 deterministic verification are executable capability slices. All 36 catalog roles are contract-bound executors in the agent runtime (increment 64), most wrapping deterministic modules, five with an optional, advisory local model.
 7. Local durable review queue: leases, fenced commits, bounded retries/backoff, cancellation and crash recovery.
 8. TLS 1.3 certificate validation, server/client leaf pins, exact resource grants and pinned-IP read-only HTTPS transport. Production issuer operations remain gated.
 9. Official A2A 1.0 stateless review profile tested through the SDK over real temporary mTLS; no deployed general task server.
@@ -304,3 +304,61 @@ The Data sources page gained "List candidate explanations" (EN/TR). It shows the
 - Clean batches produced no observations (12/12), so false support was never tested.
 
 What this does not show: the catalog and the injections were written by the same authors, so the modelled results measure internal consistency, not diagnosis. Misattribution is measured on two hand-picked changes only. The intervals cover only group-to-group variation of fixed, large injections. The probes assume one mechanism per column at a time. Replanning added nothing measurable on this corpus (at most 3 of 6 probes were ever needed). No model, no live agent, no root cause. Capability map: A24 Counter-Hypothesis, A25 Active Probe Planner and A28 Ranking & Uncertainty are now partial (anchored to `hypotheses.investigate`); A23 stays unavailable. The counts are 9 implemented, 10 partial, 1 unavailable, 1 disabled and 15 planned. 1191 package tests at 100% branch coverage, 103 local tests and the browser-script checks pass. Planned and executed with subagent-driven development: three implementation tasks, a review for each, a whole-branch review and one fix wave.
+
+## Increment 64 — agent runtime for all 36 catalog roles, with a live Agent flow page
+
+`aegisflow_dr.agents` registers all 36 roles of `docs/agent-catalog.json` as contract-bound executors. Tasks and results are validated against `agent-task-v1` and `agent-result-v1`, and a whole run against `agent-run-v1`. An agent reports only one of five outcomes: completed, needs evidence, policy denied, skipped or failed. Most executors wrap the existing deterministic modules. A02, A22, A23, A29 and A30 can call an optional local model through `agents/llm.py`: Ollama on a literal loopback address only, temperature 0, a fixed seed, thinking off and JSON-schema output. Prompts receive a safe context (A34) without raw cell values. Model output is stored as advisory evidence, and the Judge (A27) never accepts it as a finding.
+
+Each case is routed to at most 8 specialists. They run in dependency waves of up to 4, with budgets of 12 model calls, 40,000 tokens and 90 s. Unmet dependencies, deadlines and abandoned threads are handled explicitly, and the run record is sealed with a digest. Tools run in-process or through the local MCP profile, and the Judge review travels over A2A with mutual TLS from an ephemeral CA.
+
+The workbench retains up to 50 run records, written with mode 0600. It streams events by Server-Sent Events, with the session token sent in a header, never in the URL. The bilingual Agent flow page shows the 36 agents by layer, edges labelled with their transport, the timeline, budgets, a detail drawer per agent, a plain-language run summary and a replay at readable speed. The approved local model is `qwen3:4b` (2.5 GB, Apache-2.0, USD 0).
+
+`agents_eval.py` holds the evaluation harness, with expected role sets fixed before measuring. It replays recorded model responses, so CI needs no model. A recorder fix in this increment stops recording when the model stops answering. Previously the recorder wrote such runs as ordinary results: 203 of 420 recorded development and validation cases had been recorded against a stopped model, and they were removed and recorded again. The held-out live measurement is not run yet.
+
+## Increment 65 — Command Center with a live simulated plant
+
+The Overview became the Command Center. `simulation.py` is a seeded, deterministic plant with temperature (a 100 s wave), pressure and flow. Its baseline comes from a 600-reading commissioning period. Seven fault injectors are available: calibration offset, unit ×10, stuck sensor, noise ×3, sampling slowdown, ingestion pause and duplicate burst. A live monitor compares the latest 200 s window with the baseline and profiles it every 15 simulated seconds. It opens one incident per sensor or stream and closes it after two clean checks.
+
+The page shows:
+- live charts with the baseline band and detection markers;
+- the fault console and the incidents;
+- KPIs computed from the plant and the retained run records;
+- agent activity.
+
+"Investigate with agents" starts a run on the incident and opens the Agent flow. The plant is labelled as a simulation everywhere.
+
+## Increment 66 — accurate incident evidence, the Incident page and an end-to-end held-out measurement
+
+A measurement showed the weak point of increment 65. The window in which an incident is detected mixes readings from before and after the change, so the probe loop seldom found the injected mechanism there (unit ×10: never). Each incident now estimates its change onset from the readings alone, with `changepoint.py`:
+- a single change point in mean and variance;
+- for a seasonal sensor, each side also gets its own harmonic of the period learnt at commissioning;
+- for stream incidents, the change point is taken on the gaps between arrivals, and a pinned "data stopped" onset is used when data stops.
+
+The incident then collects the first full 200 s window after the onset and freezes it with its digest. Investigations run only on frozen evidence, and the API answers 409 while it is still collecting. Injected faults are shown beside the estimate as simulation ground truth, and a test proves the estimator never reads them.
+
+The new bilingual Incident page (`/incident?id=…`) shows:
+- a live lifecycle from detection to the human decision;
+- the sensor around the change, with the estimated onset, the injected start, the detection and the evidence window;
+- the findings;
+- candidate explanations with measured probe values and fixed thresholds;
+- the model's advisory suggestion and the Judge counts;
+- the evidence with a CSV download.
+
+The measured probe values come from the same deterministic call on the same frozen bytes as the agents' A24. They are shown only when that record's evidence reference matches the run's A24 evidence exactly.
+
+`plant_eval.py` measures the loop end to end: 15 scenarios, 20 plants per split, with development seeds 1–20, validation 21–40 and held-out 41–60. Two changes followed the first validation run and are reported as such: per-segment harmonics, and collection that continues after an incident closes. Held-out was scored once, after an independent review and its fixes (`docs/evaluation/plant.md`):
+- **The injected mechanism was the only supported candidate on the frozen evidence** in 13 of 15 scenarios at 90–100%. Investigating the detection window instead gave 0–45%.
+- **No scenario ever supported a wrong mechanism.**
+- **Change onset:** within ±5 s in 85–100% of cases for every fault except noise on temperature and the duplicate burst.
+- **False alarms:** 1 incident in 20 simulated fault-free hours.
+
+Limits reported rather than tuned away:
+- Noise on the seasonal temperature sensor is refuted by the fixed marginal spread probe.
+- A 30-row duplicate burst stays below the fixed 20% duplicate-share threshold.
+
+Everything is simulated, so these numbers measure internal consistency, not diagnosis on real sensors. There is no root cause and no production connection. The review also fixed:
+- a stream pause overriding sensor incidents' evidence;
+- a probe-cache race;
+- stale wording;
+- a gitleaks false positive on a claim-key comparison in `flow.js`, allowlisted by fingerprint;
+- stale README and agent-page claims that the roles were planned and no model calls existed.

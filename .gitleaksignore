@@ -1,0 +1,2 @@
+# False positive: generic-api-key matched a claim-key comparison (text_key==='a24.hypothesis') in UI code, not a secret.
+48e78776d049c79210eace8aaee56c0665b7235d:apps/local/flow.js:generic-api-key:378

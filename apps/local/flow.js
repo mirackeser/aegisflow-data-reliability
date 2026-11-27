@@ -375,7 +375,7 @@ function flowStory(detail){
   story.push(silent.length?{key:'flow.story.model.unavailable',params:{agents:silent},agents:silent}:{key:'flow.story.model.none',params:{},agents:[]});
  }
  // 4. which candidate explanation survived the probes
- const hyps=ran('A24')?result('A24').claims.filter(c=>c.text_key==='a24.hypothesis').map(c=>c.params):[];
+ const hypothesisClaim='a24.hypothesis',hyps=ran('A24')?result('A24').claims.filter(c=>c.text_key===hypothesisClaim).map(c=>c.params):[];
  if(!hyps.length)story.push({key:'flow.story.candidates.none',params:{},agents:['A24']});
  else{
   const pick=status=>hyps.filter(x=>x.status===status).map(x=>({mechanism:x.mechanism,column:x.column??null}));
