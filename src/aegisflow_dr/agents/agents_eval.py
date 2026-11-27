@@ -39,11 +39,11 @@ from ..baseline_eval import _rate, _show
 from ..check_evaluation import wilson
 from . import llm
 from .executors.orchestration import SPECIALISTS
-from .executors.reasoning import ADVISORY_CLAIMS
+from .executors.reasoning import ADVISORY_CLAIMS, _explains
 from .llm import INVALID_OUTPUT, MODEL_UNAVAILABLE, TIMEOUT, LocalModel
 from .prompts import PROMPT_VERSION
 from .registry import role
-from .runtime import AGENT_IDS, MODEL_ROLES, Case, canonical, run_case
+from .runtime import MODEL_ROLES, Case, canonical, run_case
 
 VERSION = "1"
 SPLITS = be.SPLITS
@@ -288,8 +288,15 @@ def run_one(group, name, record, current, as_of, model, clock):
                     transport="in_process", now=lambda: NOW, run_id=identifier)
 
 
+class ModelStopped(RuntimeError):
+    """The live model stopped answering during a recording."""
+
+
 def record_live(recording, splits, *, transport=None, scenarios=SCENARIOS, groups=GROUPS, checkpoint=None):
-    """Run every case of ``splits`` not yet in ``recording`` against the live model and record it (in place)."""
+    """Run every case of ``splits`` not yet in ``recording`` against the live model and record it (in place).
+
+    ModelStopped when a call finds the model unavailable; the cases recorded before it stay in ``recording``.
+    """
     check_recording(recording)
     live = transport or llm._urllib_transport
     done = {run["case_id"] for run in recording["runs"]}
@@ -302,6 +309,11 @@ def record_live(recording, splits, *, transport=None, scenarios=SCENARIOS, group
         started = perf_counter()
         result = run_one(group, name, record, current, as_of, model, monotonic)
         wall = max(0, round((perf_counter() - started) * 1000))
+        if any(call["error"] == MODEL_UNAVAILABLE for call in calls):
+            # A model that stops answering must not be recorded as the model's behaviour: stop, keep what is done, and
+            # leave this case unrecorded so the next --live run retries it.
+            raise ModelStopped("The local model stopped answering during %s; %d cases are recorded. Start the model "
+                               "and run --live again to continue." % (identifier, len(recording["runs"])))
         recording["calls"] += calls
         recording["runs"].append({"case_id": identifier, "split": split, "wall_ms": wall,
                                   "outcome_sha256": outcome(result)})
@@ -311,8 +323,14 @@ def record_live(recording, splits, *, transport=None, scenarios=SCENARIOS, group
 
 
 # -- Scoring -----------------------------------------------------------------------------------------------------------
+def catalog_order(observations):
+    """The catalog mechanisms that explain at least one of ``observations`` (as the Judge checks it), in catalog order."""
+    return [m for m in hypotheses.MECHANISMS if any(_explains(m, o) for o in observations)]
+
+
 def _empty_row():
-    return {"cases": 0, "exact": 0, "tp": 0, "fp": 0, "fn": 0, "extra": {}, "missed": {}, "a23_selected": 0,
+    return {"cases": 0, "exact": 0, "tp": 0, "fp": 0, "fn": 0, "extra": {}, "missed": {}, "a23_lengths": {},
+            "a23_echo": 0, "a23_repeated": 0, "a23_selected": 0,
             "a23_suggested": 0, "a23_top1": 0, "a23_any": 0, "a23_misattributed": 0, "loop_sole": 0, "loop_any": 0,
             "loop_misattributed": 0}
 
@@ -343,7 +361,7 @@ def _suggested(result):
     """A23's suggested mechanisms in the order the model listed them, or None when A23 did not complete."""
     if result["status"] != "COMPLETED":
         return None
-    return next(c["params"]["mechanisms"] for c in result["claims"] if c["text_key"] == "a23.suggested")
+    return next((c["params"]["mechanisms"] for c in result["claims"] if c["text_key"] == "a23.suggested"), None)
 
 
 def score_case(bucket, name, record, calls, investigation, recorded=None):
@@ -403,6 +421,11 @@ def score_case(bucket, name, record, calls, investigation, recorded=None):
     supported = {h["mechanism"] for h in investigation["hypotheses"] if h["status"] == "supported"}
     row["a23_selected"] += "A23" in selected
     row["a23_suggested"] += bool(mechanisms)
+    if mechanisms is not None:
+        _add(row["a23_lengths"], len(mechanisms))
+        row["a23_echo"] += bool(mechanisms) and mechanisms == catalog_order(record["intake"]["observations"])[
+            :len(mechanisms)]
+        row["a23_repeated"] += len(set(mechanisms)) < len(mechanisms)
     if truth is not None:
         row["a23_top1"] += bool(mechanisms) and mechanisms[0] == truth
         row["a23_any"] += truth in (mechanisms or ())
@@ -436,6 +459,7 @@ def _finalize_row(name, row):
     row["rates"] = {
         "exact": _rate(row["exact"], cases_), "precision": _rate(row["tp"], row["tp"] + row["fp"]),
         "recall": _rate(row["tp"], row["tp"] + row["fn"]), "a23_suggested": _rate(row["a23_suggested"], cases_),
+        "a23_echo": _rate(row["a23_echo"], row["a23_suggested"]),
         **{m: _rate(row[m], cases_) if modelled else None for m in ("a23_top1", "a23_any", "loop_sole", "loop_any")},
         **{m: None if modelled else _rate(row[m], cases_) for m in ("a23_misattributed", "loop_misattributed")}}
 
@@ -558,14 +582,20 @@ def render_markdown(report):
             "advisory*: the role's model-based claims the Judge labelled advisory, over those it labelled advisory or "
             "rejected (model output is never accepted as a finding). *A23 top-1*: the first mechanism A23 lists is the "
             "injected one; *A23 any*: the injected mechanism is among its at most three; both over every case of a "
-            "modelled scenario (no suggestion counts as no agreement). *Loop sole-supported*: the deterministic loop "
+            "modelled scenario (no suggestion counts as no agreement); *mechanisms listed* tallies how many mechanisms "
+            "each completed A23 suggestion named (a longer list makes *any* easier); *catalog-order echo*: among "
+            "non-empty suggestions, the list equals the first catalog mechanisms that explain any of the case's "
+            "observations, in catalog order (the model repeating the prompt's order rather than discriminating; this "
+            "column and the repeated-mechanism count were added after a development and validation report had been "
+            "rendered, and before held-out was scored). *Loop sole-supported*: the deterministic loop "
             "(`hypotheses.investigate`, as run by A24) supports exactly the injected mechanism and no other (mechanism "
             "level, columns ignored). For `clean` and the unmodelled scenarios, *misattributed* means a catalog "
             "mechanism other than `genuine_change` was suggested (A23) or supported (loop). Rates are `count/total = "
             "percent [95% Wilson interval]`; `n/a` means nothing to measure or the metric does not apply."]
     for split, bucket in report["splits"].items():
         out += ["", "## Split: %s (%d groups)" % (split, bucket["groups"]), "", "### Role selection", "",
-                "| Scenario | Cases | Exact set | Precision | Recall | Extra selected | Missed |", "|---|---|---|---|---|---|---|"]
+                "| Scenario | Cases | Exact set | Precision | Recall | Extra selected | Missed |",
+                "|---|---|---|---|---|---|---|"]
         for name, row in bucket["scenarios"].items():
             out.append("| %s | %d | %s | %s | %s | %s | %s |" % (
                 name, row["cases"], _show(row["rates"]["exact"]), _show(row["rates"]["precision"]),
@@ -587,17 +617,22 @@ def render_markdown(report):
                 agent, stats["calls"], _show(stats["rates"]["valid"]), stats["timeout"], stats["unavailable"],
                 _show(stats["rates"]["advisory"]), _tally(stats["reasons"]), _ms(stats["p50"]), _ms(stats["p95"])))
         a23 = bucket["a23_judge"]
-        out += ["", "A23 suggestions kept as advisory by the Judge: %s; rejected by reason: %s."
-                % (_show(a23["rate"]), _tally(a23["reasons"])),
+        rows = bucket["scenarios"].values()
+        out += ["", "A23 suggestions kept as advisory by the Judge: %s; rejected by reason: %s. Non-empty A23 "
+                "suggestions that name one mechanism more than once: %s."
+                % (_show(a23["rate"]), _tally(a23["reasons"]),
+                   _share(sum(r["a23_repeated"] for r in rows), sum(r["a23_suggested"] for r in rows))),
                 "", "### A23 suggestions and the deterministic loop", "",
-                "| Scenario | A23 selected | A23 suggestion | A23 top-1 | A23 any | Loop sole-supported | Loop supported "
-                "| A23 misattributed | Loop misattributed |", "|---|---|---|---|---|---|---|---|---|"]
+                "| Scenario | A23 selected | A23 suggestion | Mechanisms listed | Catalog-order echo | A23 top-1 | A23 any "
+                "| Loop sole-supported | Loop supported | A23 misattributed | Loop misattributed |",
+                "|---|---|---|---|---|---|---|---|---|---|---|"]
         for name, row in bucket["scenarios"].items():
             rates = row["rates"]
-            out.append("| %s | %d/%d | %s | %s |" % (name, row["a23_selected"], row["cases"], _show(rates["a23_suggested"]),
-                                                    " | ".join(_show(rates[m]) for m in (
-                                                        "a23_top1", "a23_any", "loop_sole", "loop_any",
-                                                        "a23_misattributed", "loop_misattributed"))))
+            out.append("| %s | %d/%d | %s | %s | %s | %s |" % (
+                name, row["a23_selected"], row["cases"], _show(rates["a23_suggested"]), _tally(row["a23_lengths"]),
+                _show(rates["a23_echo"]),
+                " | ".join(_show(rates[m]) for m in ("a23_top1", "a23_any", "loop_sole", "loop_any", "a23_misattributed",
+                                                     "loop_misattributed"))))
         runs = bucket["runs"]
         out += ["", "### Runs", "",
                 "Run statuses: %s. Budget limits reached: %s. Live wall time per run (%d recorded): p50 %s, p95 %s. "
@@ -653,7 +688,11 @@ def main(argv=(), *, transport=None, err=sys.stderr):
             save_recording(recording, path)
             print("%s %d ms" % (identifier, wall), file=err, flush=True)
 
-        record_live(recording, splits, transport=transport, checkpoint=checkpoint)
+        try:
+            record_live(recording, splits, transport=transport, checkpoint=checkpoint)
+        except ModelStopped as stopped:
+            save_recording(recording, path)
+            parser.exit(1, "%s\n" % stopped)
         save_recording(recording, path)
     elif not path.exists():
         parser.error("no recording at %s; make one with --live" % path)
