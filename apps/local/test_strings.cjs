@@ -13,7 +13,7 @@ for(const [key,value] of Object.entries(STRINGS)){
  assert.ok(!/[<>]/.test(value[0]+value[1]),`${key}: markup is not allowed in UI strings`);
  checked++;
 }
-const source=['app.js','workspace.js','knowledgebase.js','schemaregistry.js','profile.js','baseline.js','flow.js','command.js'].map(f=>fs.readFileSync(__dirname+'/'+f,'utf8')).join('\n');
+const source=['app.js','workspace.js','knowledgebase.js','schemaregistry.js','profile.js','baseline.js','flow.js','command.js','incident.js'].map(f=>fs.readFileSync(__dirname+'/'+f,'utf8')).join('\n');
 const used=new Set([...source.matchAll(/\bt{1,2}\('([A-Za-z0-9_.\-]+)'/g)].map(m=>m[1]));
 const missing=[...used].filter(key=>!(key in STRINGS)&&!key.endsWith('.'));
 assert.deepEqual(missing,[],'keys used by the UI but not defined');

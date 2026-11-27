@@ -88,6 +88,14 @@ assert.equal(g(state({faults:[{id:'F1',ended_t:5}],incidents:[{id:'INC-0001',sta
 const open={id:'INC-0001',status:'open',run_id:null};
 let guide=C.ccGuide(state({incidents:[open]}));
 assert.deepEqual([guide.step,guide.incident.id,guide.done.start,guide.done.inject,guide.done.investigate],['investigate','INC-0001',true,true,false]);
+// Evidence gates the investigate step: collecting first, ready incidents preferred, closed-without-evidence skipped.
+{
+ const col={...open,evidence:{state:'collecting',collected_s:63,needed_s:200}},rdy={...open,id:'INC-0009',evidence:{state:'ready'}};
+ assert.equal(C.ccGuide(state({incidents:[col]})).step,'collect');
+ assert.equal(C.ccGuide(state({incidents:[col,rdy]})).incident.id,'INC-0009');
+ const b=C.ccBrief(state({incidents:[col]}));
+ assert.equal(b.next.key,'cc.hint.collect');assert.deepEqual([b.next.params.collected,b.next.params.needed],[63,200]);
+}
 guide=C.ccGuide(state({incidents:[{...open,run_id:'run-x'}]}));
 assert.deepEqual([guide.step,guide.done.investigate],['review',true]);
 assert.equal(g(state({incidents:[{...open,run_id:'run-x'}],status:{running:false,speed:5}})),'resume');

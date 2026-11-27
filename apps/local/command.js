@@ -108,11 +108,13 @@ function ccGuide(state,isConnected=true){
  if(!isConnected||!state)return {step:'connect',done:{start:false,inject:false,investigate:false},incident:null};
  const rank=i=>CC_SEVERITIES.indexOf(i.severity);
  const open=state.incidents.filter(i=>i.status==='open').sort((a,b)=>rank(b)-rank(a)||b.opened_t-a.opened_t);
- const pending=open.find(i=>!i.run_id)||null,started=open.find(i=>i.run_id)||null;
+ // An open incident whose evidence is ready comes first (only closed incidents can lack evidence for good).
+ const evidence=i=>i.evidence?.state??'ready',waiting=open.filter(i=>!i.run_id);
+ const pending=waiting.find(i=>evidence(i)==='ready')||waiting[0]||null,started=open.find(i=>i.run_id)||null;
  const done={start:state.status.running||state.elapsed_s>0,inject:state.faults.length>0,investigate:state.incidents.some(i=>i.run_id)};
  const active=state.faults.some(f=>f.ended_t===null);
  let step;
- if(pending)step='investigate';
+ if(pending)step=evidence(pending)==='ready'?'investigate':'collect';
  else if(!state.status.running)step=state.elapsed_s>0?'resume':'start';
  else if(started)step='review';
  else if(active||(state.faults.length&&!state.incidents.length))step='wait';
@@ -155,10 +157,29 @@ function ccBrief(state,isConnected=true,error=''){
  else happened.push({key:k.incidents?'cc.brief.closed':'cc.brief.clean',params:{...base,n:k.incidents}});
  if(state.agents?.active)happened.push({key:'cc.brief.agents.active',params:{}});
  else if(k.investigations)happened.push({key:'cc.brief.agents.runs',params:{n:k.investigations}});
- return {happened,next:{key:'cc.hint.'+g.step,params:{every:state.settings.check_every,window:state.settings.window_seconds,id:g.incident?.id||''}}};
+ const ev=g.incident?.evidence;
+ return {happened,next:{key:'cc.hint.'+g.step,params:{every:state.settings.check_every,window:state.settings.window_seconds,id:g.incident?.id||'',
+  collected:ev?.collected_s??0,needed:ev?.needed_s??state.settings.window_seconds}}};
 }
 
-if(typeof module!=='undefined')module.exports={CC_SENSORS,CC_CHART,CC_CHART_NARROW,ccNiceStep,ccDomain,ccClock,ccRel,ccSeverityMax,ccChartModel,ccKpis,ccGuide,ccLayerBars,ccFindingText,ccBrief,ccFocusRange};
+// An incident's evidence for display: ``locating`` (no onset estimated yet), ``collecting`` (a full window after the
+// onset has not elapsed), ``ready`` (frozen; the agents can start) or ``unavailable`` (closed before it was complete),
+// with the seconds collected and needed.
+function ccEvidence(ev){
+ const needed=ev?.needed_s??0,collected=Math.max(0,Math.min(needed,ev?.collected_s??0)),raw=ev?.state;
+ const state=raw==='ready'||raw==='unavailable'?raw:ev?.onset_t===null||ev?.onset_t===undefined?'locating':'collecting';
+ return {state,collected,needed,ratio:needed?collected/needed:0,ready:state==='ready'};
+}
+// Why starting an investigation was refused: a string key and raw parameters, or key null to show the error message.
+function ccStartError(error){
+ const code=error?.body?.error;
+ if(code==='EVIDENCE_NOT_READY'){const e=ccEvidence(error.body.evidence);return {key:'cc.err.notready',params:{n:e.collected,needed:e.needed}};}
+ if(code==='BUSY')return {key:'cc.investigate.busy',params:{}};
+ if(error?.status===404)return {key:'cc.err.notfound',params:{}};
+ return {key:null,params:{}};
+}
+
+if(typeof module!=='undefined')module.exports={CC_SENSORS,CC_DIGITS,CC_GAP_S,CC_CHART,CC_CHART_NARROW,ccNiceStep,ccDomain,ccClock,ccRel,ccSeverityMax,ccChartModel,ccKpis,ccGuide,ccLayerBars,ccFindingText,ccBrief,ccFocusRange,ccEvidence,ccStartError};
 
 // ---------- browser page ----------
 let ccState=null,ccTimer=null,ccInflight=false,ccBusy=false,ccError='',ccDom=null,ccTable=false,ccSeen=null,ccStarting=null;
@@ -212,7 +233,7 @@ async function ccInvestigate(incident){
   ccStarting=null;openFlowRun(started.run_id);
   setNotice(t('cc.investigate.started',{id:incident.id}));
   return;
- }catch(error){setNotice(error.status===404?t('cc.err.evidence'):error.message,true);}
+ }catch(error){const x=ccStartError(error);setNotice(x.key?t(x.key,{n:N(x.params.n??0),needed:N(x.params.needed??0)}):error.message,true);}
  ccStarting=null;ccPaint();
 }
 function ccOpenRun(event,runId){
@@ -386,7 +407,7 @@ function ccUpdateStatus(d,s){
 function ccUpdateGuide(d,s){
  const g=ccGuide(s,connected);
  ccText(d.guideTitle,t('cc.guide'));d.guide.setAttribute('aria-label',t('cc.guide'));
- const current={start:['start','resume'],inject:['inject','wait'],investigate:['investigate','review']};
+ const current={start:['start','resume'],inject:['inject','wait'],investigate:['collect','investigate','review']};
  d.guideSteps.forEach((li,i)=>{
   const k=li.ccKey,state=current[k].includes(g.step)?'current':g.done[k]?'done':'todo';
   li.className='cc-step '+state;
@@ -396,7 +417,8 @@ function ccUpdateGuide(d,s){
  ccText(d.guideHint,ccHint(g,s));
 }
 function ccHint(g,s){
- const p={every:s?.settings?.check_every??15,window:s?.settings?.window_seconds??200,id:g.incident?.id||''};
+ const ev=g.incident?.evidence,window=s?.settings?.window_seconds??200;
+ const p={every:s?.settings?.check_every??15,window,id:g.incident?.id||'',collected:N(ev?.collected_s??0),needed:N(ev?.needed_s??window)};
  return t('cc.hint.'+g.step,p);
 }
 function ccUpdateKpis(d,s){
@@ -445,9 +467,11 @@ function ccUpdateSensors(d,s){
 function ccIncidentCard(){
  const c={};
  c.sev=h('span');c.title=h('strong',{class:'cc-inc-title'});c.status=h('span',{class:'chip'});c.meta=h('p',{class:'cc-inc-meta'});c.checks=h('ul',{class:'cc-checks'});
- c.go=h('button',{type:'button',class:'primary cc-go'});c.run=h('a',{class:'cc-run-link'});c.busy=h('small',{class:'hint'});
+ c.go=h('button',{type:'button',class:'primary cc-go'});c.run=h('a',{class:'cc-run-link'});c.busy=h('small',{class:'hint cc-go-why'});
+ c.open=h('a',{class:'cc-run-link cc-open-inc'});
+ c.evText=h('span',{class:'cc-evstate-text'});c.evBar=h('progress',{class:'cc-evbar',max:'1',value:'0'});c.ev=h('div',{class:'cc-evstate'},c.evText,c.evBar);
  c.sum=h('summary');c.evBody=h('div',{class:'cc-ev'});c.details=h('details',{class:'cc-evidence'},c.sum,c.evBody);
- c.node=h('li',{class:'cc-inc'},h('div',{class:'cc-inc-head'},c.sev,c.title,c.status),c.meta,c.checks,h('div',{class:'cc-inc-actions'},c.go,c.run),c.busy,c.details);
+ c.node=h('li',{class:'cc-inc'},h('div',{class:'cc-inc-head'},c.sev,c.title,c.status),c.meta,c.checks,c.ev,h('div',{class:'cc-inc-actions'},c.go,c.open,c.run),c.busy,c.details);
  c.node.ccC=c;return c.node;
 }
 function ccUpdateIncident(node,inc){
@@ -460,11 +484,18 @@ function ccUpdateIncident(node,inc){
   :t('cc.inc.closed',{at:ccAt(inc.closed_t),opened:ccAt(inc.opened_t)}));
  const sig=inc.checks.join('|')+language;
  if(c.checks.ccSig!==sig){c.checks.ccSig=sig;c.checks.replaceChildren(...inc.checks.map(k=>h('li',{},chip(ccCheckName(k),{high:'bad',medium:'warn',low:'muted'}[inc.findings.find(f=>f.check===k)?.severity]||'muted'))));}
- c.go.id='cc-inv-'+inc.id;c.go.onclick=()=>ccInvestigate(inc);
+ // Evidence: the agents start only on the frozen window after the estimated onset, never on the detection window.
+ const ev=ccEvidence(inc.evidence);
+ c.ev.className='cc-evstate '+ev.state;
+ ccText(c.evText,ev.state==='collecting'?t('cc.evs.collecting',{n:N(ev.collected),needed:N(ev.needed)}):t('cc.evs.'+ev.state));
+ c.evBar.hidden=ev.state!=='collecting';c.evBar.max=ev.needed||1;c.evBar.value=ev.collected;c.evBar.setAttribute('aria-label',t('inc.progress.label'));
+ c.go.id='cc-inv-'+inc.id;c.go.onclick=()=>ccInvestigate(inc);c.busy.id='cc-why-'+inc.id;c.go.setAttribute('aria-describedby',c.busy.id);
  ccText(c.go,t(ccStarting===inc.id?'cc.investigating':'cc.investigate'));
- const empty=!inc.window.records;
- c.go.disabled=!!active||!!ccStarting||empty;
- c.busy.hidden=!(active||empty);ccText(c.busy,empty?t('cc.err.evidence'):active?t('cc.investigate.busy'):'');
+ c.go.disabled=!!active||!!ccStarting||!ev.ready;
+ const why=!ev.ready?t('cc.go.why.'+ev.state):active?t('cc.investigate.busy'):'';
+ c.busy.hidden=!why;ccText(c.busy,why);
+ c.open.href='/incident?id='+encodeURIComponent(inc.id);c.open.id='cc-openinc-'+inc.id;c.open.onclick=e=>incOpenLink(e,inc.id);
+ ccText(c.open,t('cc.openinc'));c.open.setAttribute('aria-label',t('cc.openinc.label',{id:inc.id}));
  c.run.hidden=!inc.run_id;
  if(inc.run_id){c.run.href='/flow?run='+encodeURIComponent(inc.run_id);c.run.id='cc-run-'+inc.id;c.run.onclick=e=>ccOpenRun(e,inc.run_id);ccText(c.run,t('cc.viewrun'));}
  c.details.id='cc-ev-'+inc.id;
