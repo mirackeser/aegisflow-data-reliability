@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from aegisflow_dr import baseline as bl
+from aegisflow_dr import hypotheses
 from aegisflow_dr import simulation as sim
 from aegisflow_dr.pipeline import InputRejected
 
@@ -198,10 +199,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual((incident["severity"], incident["status"], incident["id"]), ("high", "open", "INC-0001"))
         p.advance(4 * sim.CHECK_EVERY)
         self.assertIn("distribution_shift", p.incidents[0]["checks"])
-        payload, as_of = p.evidence("INC-0001")
-        self.assertEqual(p.incidents[0]["window"]["sha256"], hashlib.sha256(payload).hexdigest())
-        self.assertEqual(as_of, p.incidents[0]["window"]["as_of"])
-        self.assertEqual(bl.compare(p.baseline, payload, as_of=as_of)["status"], "DRIFT")
+        self.assertEqual(bl.compare(p.baseline, p.export_window(sim.WINDOW_SECONDS))["status"], "DRIFT")
 
     def test_dedupe_while_finding_persists_and_close_after_two_clean_checks(self):
         p = plant()
@@ -230,8 +228,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual((incident["sensor"], incident["severity"]), ("stream", "medium"))
         self.assertEqual(incident["checks"], ["freshness", "volume_change"])
         self.assertEqual(p.last_check["records"], 0)
-        with self.assertRaises(KeyError):
-            p.evidence(incident["id"])
+        self.assertEqual(p.evidence(incident["id"])[0].count(b"\n"), 2)  # data stopped: the header and the last reading
         with self.assertRaises(KeyError):
             p.evidence("INC-0404")
         q = plant()
@@ -250,6 +247,196 @@ class MonitorTests(unittest.TestCase):
         last = int(p.incidents[-1]["id"][4:])
         self.assertEqual([i["id"] for i in p.incidents], ["INC-%04d" % (last - 1), "INC-%04d" % last])
         self.assertNotIn("INC-0001", p._evidence)
+
+
+class EvidenceTests(unittest.TestCase):
+    """The investigation evidence: the first full window after the onset estimated from the readings."""
+
+    def ready(self, p, incident_id, limit=3 * sim.WINDOW_SECONDS):
+        begin = p.now
+        while p.incident(incident_id)["evidence"]["state"] != sim.READY and p.now - begin < limit:
+            p.advance(sim.CHECK_EVERY)
+        return p.incident(incident_id)["evidence"]
+
+    def test_seasonality_is_learnt_at_commissioning(self):
+        season = plant().seasonality
+        self.assertAlmostEqual(season["temp_c"]["period"], sim.PERIOD, delta=0.5)
+        self.assertGreater(season["temp_c"]["r2"], 0.9)
+        self.assertEqual((season["pressure_kpa"]["period"], season["flow_lpm"]["period"]), (None, None))
+        self.assertEqual(plant().snapshot()["seasonality"], season)
+
+    def test_unit_change_evidence_is_collected_then_frozen_after_the_onset(self):
+        p = plant()
+        p.advance(120)
+        fault = p.inject("unit_change", "pressure_kpa")
+        until_incident(p, 60)
+        view = p.snapshot()["incidents"][0]
+        self.assertEqual(view["evidence"]["state"], sim.COLLECTING)
+        self.assertEqual((view["evidence"]["method"], view["evidence"]["onset_t"]), (sim.CHANGE_POINT, fault["started_t"]))
+        self.assertTrue(view["evidence"]["clear"])
+        self.assertEqual(view["evidence"]["collected_s"], p.now - fault["started_t"])
+        self.assertEqual(view["truth"], {"fault_id": fault["id"], "fault": "unit_change", "started_t": fault["started_t"],
+                                         "started_at": fault["started_at"], "onset_error_s": 0})
+        with self.assertRaises(sim.EvidenceNotReady) as caught:
+            p.evidence("INC-0001")
+        self.assertEqual(caught.exception.evidence["state"], sim.COLLECTING)
+        evidence = self.ready(p, "INC-0001")
+        self.assertEqual((evidence["first_t"], evidence["as_of_t"]),
+                         (fault["started_t"], fault["started_t"] + sim.WINDOW_SECONDS - 1))
+        payload, as_of = p.evidence("INC-0001")
+        self.assertEqual((evidence["sha256"], evidence["records"], as_of),
+                         (hashlib.sha256(payload).hexdigest(), sim.WINDOW_SECONDS, evidence["as_of"]))
+        rows = payload.decode().splitlines()[1:]
+        self.assertTrue(all(float(row.split(",")[2]) > 500 for row in rows))  # post-change readings only
+        record = hypotheses.investigate(p.baseline, payload, as_of=as_of)
+        self.assertEqual([h["mechanism"] for h in record["hypotheses"] if h["status"] == "supported"], ["unit_change"])
+        view = p.incident_view("INC-0001")
+        self.assertEqual(view["series"]["t"][0], fault["started_t"] - sim.WINDOW_SECONDS - sim.INCIDENT_LEAD + (
+            view["incident"]["opened_t"] - fault["started_t"]))
+        self.assertEqual(view["incident"]["evidence"]["sha256"], evidence["sha256"])
+        self.assertEqual((view["bands"], view["settings"]["clear_statistic"]), (p.bands(), 30.0))
+        p.advance(sim.WINDOW_SECONDS * 4)
+        self.assertEqual(len(p.incident_view("INC-0001")["series"]["t"]), sim.INCIDENT_READINGS)
+        with self.assertRaises(KeyError):
+            p.incident_view("INC-0404")
+        self.assertEqual(p.incident("INC-0001")["evidence"], evidence)  # frozen
+        self.assertEqual(p.snapshot()["incidents"][0]["evidence"]["collected_s"], sim.WINDOW_SECONDS)
+
+    def test_seasonal_sensor_offset_onset_is_found(self):
+        p = plant()
+        p.advance(150)
+        fault = p.inject("calibration_offset", "temp_c")
+        self.assertIsNotNone(until_incident(p, 2 * sim.WINDOW_SECONDS))
+        evidence = self.ready(p, "INC-0001")
+        self.assertLessEqual(abs(evidence["onset_t"] - fault["started_t"]), 5)
+        payload, as_of = p.evidence("INC-0001")
+        record = hypotheses.investigate(p.baseline, payload, as_of=as_of)
+        self.assertEqual([h["mechanism"] for h in record["hypotheses"] if h["status"] == "supported"], ["calibration_offset"])
+
+    def test_sampling_slowdown_onset_comes_from_arrival_gaps(self):
+        p = plant()
+        p.advance(90)
+        fault = p.inject("sampling_slowdown")
+        self.assertIsNotNone(until_incident(p, 3 * sim.WINDOW_SECONDS))
+        evidence = self.ready(p, p.incidents[0]["id"])
+        self.assertEqual(evidence["method"], sim.CHANGE_POINT)
+        self.assertLessEqual(abs(evidence["onset_t"] - fault["started_t"]), 3)
+
+    def test_data_stopped_evidence_holds_the_last_reading(self):
+        p = plant()
+        p.advance(60)
+        p.inject("ingestion_pause")
+        last = p.readings[-1]["t"]
+        until_incident(p, 60)
+        incident = p.incidents[0]
+        evidence = self.ready(p, incident["id"])
+        self.assertEqual((evidence["method"], evidence["onset_t"], evidence["first_t"], evidence["statistic"]),
+                         (sim.DATA_STOPPED, last + 1, last, None))
+        self.assertTrue(evidence["clear"])
+        payload, as_of = p.evidence(incident["id"])
+        record = hypotheses.investigate(p.baseline, payload, as_of=as_of)
+        self.assertEqual([h["mechanism"] for h in record["hypotheses"] if h["status"] == "supported"], ["source_outage"])
+
+    def test_no_onset_yet_and_closed_before_complete(self):
+        p = plant()
+        p.advance(60)
+        p.inject("unit_change", "flow_lpm")
+        with mock.patch.object(sim.changepoint, "change_point", return_value=None):
+            until_incident(p, 60)
+            view = p.snapshot()["incidents"][0]["evidence"]
+            self.assertEqual((view["state"], view["onset_t"], view["collected_s"]), (sim.COLLECTING, None, 0))
+            incident = p.incidents[0]
+            incident["status"] = "closed"
+            p.advance(sim.CHECK_EVERY)
+        self.assertEqual(p.incident(incident["id"])["evidence"]["state"], sim.UNAVAILABLE)
+        with self.assertRaises(sim.EvidenceNotReady) as caught:
+            p.evidence(incident["id"])
+        self.assertEqual(caught.exception.evidence["state"], sim.UNAVAILABLE)
+        current = p.incident(incident["id"])
+        p._collect(current)  # nothing changes once unavailable
+        self.assertEqual(current["evidence"]["state"], sim.UNAVAILABLE)
+
+    def test_collection_continues_after_the_incident_closes(self):
+        p = plant()
+        p.advance(60)
+        fault = p.inject("unit_change", "flow_lpm")
+        until_incident(p, 60)
+        incident = p.incidents[0]
+        incident["status"] = "closed"  # a flickering detection closed it
+        evidence = EvidenceTests.ready(self, p, incident["id"])
+        self.assertEqual((evidence["state"], evidence["onset_t"]), (sim.READY, fault["started_t"]))
+
+    def test_a_stream_pause_does_not_take_over_a_sensor_incident(self):
+        p = plant(3)
+        p.advance(100)
+        fault = p.inject("unit_change", "pressure_kpa")
+        until_incident(p, 60)
+        sensor = p.incidents[0]["id"]
+        p.inject("ingestion_pause")
+        p.advance(260)
+        evidence = p.incident(sensor)["evidence"]
+        self.assertEqual((evidence["method"], evidence["onset_t"]), (sim.CHANGE_POINT, fault["started_t"]))
+
+    def test_data_stopped_onset_is_kept_after_a_short_pause(self):
+        p = plant(5)
+        p.advance(100)
+        pause = p.inject("ingestion_pause")
+        last = p.readings[-1]["t"]
+        until_incident(p, 60)
+        stream = p.incidents[0]["id"]
+        p.advance(30)
+        p.clear(pause["id"])  # data resumes well before a full window
+        evidence = self.ready(p, stream)
+        self.assertEqual((evidence["method"], evidence["onset_t"], evidence["first_t"]), (sim.DATA_STOPPED, last + 1, last))
+        payload, as_of = p.evidence(stream)
+        supported = [h["mechanism"] for h in hypotheses.investigate(p.baseline, payload, as_of=as_of)["hypotheses"]
+                     if h["status"] == "supported"]
+        self.assertNotIn("delivery_delay", supported)
+
+    def test_an_onset_in_the_commissioning_period_is_no_onset(self):
+        p = plant()
+        p.inject("unit_change", "temp_c")  # right at the live start: commissioning is the clean side of the split
+        until_incident(p, 60)
+        incident = p.incidents[0]
+        self.assertEqual(p._onset(incident)[1], p.live_start)
+        found = {"index": 0, "statistic": 99.0, "clear": True}
+        with mock.patch.object(sim.changepoint, "change_point", return_value=found):
+            self.assertIsNone(p._onset(incident))  # index 0 is a commissioning reading
+
+    def test_the_estimate_never_reads_the_injected_faults(self):
+        class Untouchable(list):
+            def __iter__(self):
+                raise AssertionError("the estimator read the simulation ground truth")
+        p = plant()
+        p.advance(60)
+        p.inject("unit_change", "flow_lpm")
+        until_incident(p, 60)
+        faults, p.faults = p.faults, Untouchable(p.faults)
+        incident = p.incidents[0]
+        self.assertEqual(p._onset(incident)[0], sim.CHANGE_POINT)
+        p._collect(incident)
+        p.faults = faults
+
+    def test_incidents_opened_counts_dropped_incidents(self):
+        p = plant()
+        with mock.patch.object(sim, "MAX_INCIDENTS", 1):
+            for _ in range(3):
+                p.inject("duplicate_burst")
+                p.advance(4 * sim.WINDOW_SECONDS)
+        self.assertEqual((len(p.incidents), p.incidents_opened), (1, 3))
+
+    def test_ground_truth_needs_a_matching_recent_fault(self):
+        p = plant()
+        p.advance(30)
+        fault = p.inject("noise_increase", "flow_lpm")
+        p.clear(fault["id"])
+        p.advance(3 * sim.WINDOW_SECONDS)
+        incident = {"sensor": "flow_lpm", "opened_t": p.now}
+        self.assertIsNone(p._truth(incident))  # ended long before
+        self.assertIsNone(p._truth({"sensor": "stream", "opened_t": p.now}))
+        p.inject("stuck_sensor", "flow_lpm")
+        self.assertIsNone(p._truth({"sensor": "flow_lpm", "opened_t": p.now - 1}))  # started after the incident
+        self.assertEqual(p._truth({"sensor": "flow_lpm", "opened_t": p.now})["onset_error_s"], None)
 
 
 class PureTests(unittest.TestCase):

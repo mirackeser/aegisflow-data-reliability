@@ -18,6 +18,14 @@ Every number it reports is computed here or by the existing deterministic checks
 The window is time-based (not a fixed number of readings) so that volume and sampling changes are visible, and it is
 200 s long, not 120: ``baseline.compare`` evaluates a distribution only with at least ``baseline.MIN_VALUES`` (150)
 values, and 200 s covers exactly two temperature cycles, so a clean window has the same distribution as the baseline.
+
+**Evidence for investigations.** The window in which an incident is detected mixes readings from before and after the
+change, and investigating it gives wrong or empty candidate explanations. Each incident therefore estimates its
+change onset from the readings alone (``changepoint``: the sensor series, modelled with the harmonic period learnt at
+commissioning, or the arrival gaps for stream incidents; or the second after the last reading when data stopped) and
+collects the first full window after it. Once that window is complete it is frozen with its digest, and only frozen
+evidence can be investigated. The injected faults are simulation ground truth: they are shown beside the estimate in
+the snapshot and are never read by the estimate.
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -25,6 +33,7 @@ import math
 from random import Random
 
 from . import baseline as baseline_checks
+from . import changepoint
 from .pipeline import InputRejected
 from .profiling import profile_csv
 
@@ -35,7 +44,7 @@ PERIOD, TEMP_MEAN, TEMP_AMPLITUDE = 100, 20.0, 3.0
 NOISE_SD = {"temp_c": 0.5, "pressure_kpa": 1.0, "flow_lpm": 1.0}
 LEVEL = {"pressure_kpa": 100.0, "flow_lpm": 5.0}
 WINDOW_SECONDS, REFERENCE_WINDOWS, CHECK_EVERY, CLOSE_AFTER = 200, 3, 15, 2
-MAX_READINGS, CHART_READINGS = 1200, 300
+MAX_READINGS, CHART_READINGS, INCIDENT_READINGS, INCIDENT_LEAD = 1200, 300, 600, 60
 MAX_INCIDENTS, MAX_FAULTS, MAX_DETECTIONS, MAX_ACTIVE_FAULTS = 50, 30, 100, 4
 OFFSET_SD, UNIT_FACTOR, NOISE_FACTOR, SLOW_EVERY, DUPLICATE_BURST = 1.5, 10, 3, 2, 30
 SENSOR_FAULTS = ("calibration_offset", "unit_change", "stuck_sensor", "noise_increase")
@@ -47,6 +56,25 @@ HIGH = ("distribution_shift", "level_shift", "role_change", "column_missing", "c
 MEDIUM = ("sampling_interval_change", "volume_change", "freshness")
 SEVERITIES = ("low", "medium", "high")
 STREAM = "stream"
+# Evidence of an incident: collecting until a full window after the onset has elapsed, then ready (frozen). Collection
+# continues after the incident closes (a detection that flickers does not end the change); an incident that closed
+# before any onset could be estimated has no evidence.
+COLLECTING, READY, UNAVAILABLE = "collecting", "ready", "unavailable"
+CHANGE_POINT, DATA_STOPPED = "change_point", "data_stopped"
+
+
+def _no_evidence():
+    """The evidence of an incident whose onset could not be estimated yet."""
+    return {"state": COLLECTING, "method": None, "onset_t": None, "onset_at": None, "statistic": None, "clear": False,
+            "first_t": None, "as_of_t": None, "as_of": None, "needed_s": WINDOW_SECONDS, "records": None, "sha256": None}
+
+
+class EvidenceNotReady(Exception):
+    """An investigation was asked for before the incident's evidence window was complete."""
+
+    def __init__(self, evidence):
+        super().__init__("The incident's evidence window is not complete")
+        self.evidence = evidence
 
 
 def severity(check):
@@ -93,8 +121,8 @@ def findings_of(comparison, profile):
 def update_incidents(incidents, findings, *, t, at, window, next_id):
     """Apply one check's findings to the incidents; returns (incidents, new detections, next id). Inputs are unchanged.
 
-    ``window`` describes the checked window (digest, bounds, records, as_of); it becomes the evidence window of every
-    incident that has findings in it.
+    ``window`` describes the checked window (digest, bounds, records, as_of); it is recorded as the latest detection
+    window of every incident that has findings in it (the investigation evidence is collected separately).
     """
     incidents = [dict(item, findings=list(item["findings"])) for item in incidents]
     detections, groups = [], {}
@@ -147,6 +175,8 @@ class Plant:
         rows = self.readings[-commissioning:]
         self.references = [to_csv(rows[k * WINDOW_SECONDS:(k + 1) * WINDOW_SECONDS]) for k in range(REFERENCE_WINDOWS)]
         self.baseline = baseline_checks.build_baseline(self.references)
+        times = [r["t"] for r in rows]
+        self.seasonality = {s: changepoint.seasonal_period(times, [r[s] for r in rows]) for s in SENSORS}
         self.live_start = self.now
 
     def _stamp(self, t):
@@ -251,8 +281,7 @@ class Plant:
         self.incidents, detections, self._next_incident = update_incidents(
             self.incidents, findings, t=end, at=as_of, window=window, next_id=self._next_incident)
         for item in self.incidents:
-            if item["window"]["sha256"] == digest and item["status"] == "open":
-                self._evidence[item["id"]] = (payload, as_of)
+            self._collect(item)
         self.detections = (self.detections + detections)[-MAX_DETECTIONS:]
         self.detected += len(detections)
         self.checks += 1
@@ -263,12 +292,94 @@ class Plant:
             self._evidence.pop(key, None)
         return findings
 
+    # -- evidence -----------------------------------------------------------------------------------------------------
+    def _onset(self, incident):
+        """(method, onset_t, first_t, statistic) of the incident's change, estimated from the live readings only; None
+        when the analysed range is too short. ``first_t`` is where the evidence window starts.
+
+        For a stream incident whose data stopped (the last reading is older than the freshness limit), the onset is the
+        second after the last reading and the window starts at that reading, so it holds the last reading and the gap.
+        Commissioning readings may serve as the clean side of the split, but an onset among them is no onset: the
+        commissioning period is the baseline, not the incident.
+        """
+        sensor, last = incident["sensor"], self.readings[-1]["t"]
+        if sensor == STREAM and self.now - 1 - last > self.baseline["freshness_sla_seconds"]:
+            return DATA_STOPPED, last + 1, last, None
+        rows = [r for r in self.readings if r["t"] > incident["opened_t"] - 2 * WINDOW_SECONDS]
+        if sensor in SENSORS:
+            times = [r["t"] for r in rows]
+            found = changepoint.change_point([r[sensor] for r in rows], times=times,
+                                             period=self.seasonality[sensor]["period"])
+        else:
+            times = [r["t"] for r in rows[1:]]
+            found = changepoint.change_point([b["t"] - a["t"] for a, b in zip(rows, rows[1:])])
+        if found is None or times[found["index"]] < self.live_start:
+            return None
+        onset = times[found["index"]]
+        return CHANGE_POINT, onset, onset, found["statistic"]
+
+    def _collect(self, incident):
+        """Estimate the evidence window of an incident that has none frozen, and freeze it once a full window has
+        elapsed. An onset found because data stopped is kept: data that resumes later does not move it."""
+        evidence = incident.get("evidence")
+        if evidence is not None and evidence["state"] != COLLECTING:
+            return
+        if evidence is not None and evidence["method"] == DATA_STOPPED:
+            found = DATA_STOPPED, evidence["onset_t"], evidence["first_t"], None
+        else:
+            found = self._onset(incident)
+        if found is None:
+            # Without an onset there is no window to collect; a closed incident will not get one.
+            incident["evidence"] = dict(_no_evidence(), state=COLLECTING if incident["status"] == "open" else UNAVAILABLE)
+            return
+        method, onset, first, statistic = found
+        end = first + WINDOW_SECONDS - 1
+        incident["evidence"] = {
+            "state": COLLECTING, "method": method, "onset_t": onset, "onset_at": self._stamp(onset),
+            "statistic": statistic, "clear": method == DATA_STOPPED or statistic >= changepoint.CLEAR_STATISTIC,
+            "first_t": first, "as_of_t": end, "as_of": self._stamp(end), "needed_s": WINDOW_SECONDS,
+            "records": None, "sha256": None}
+        if self.now - 1 >= end:
+            rows = [r for r in self.readings if first <= r["t"] <= end]
+            payload = to_csv(rows)
+            incident["evidence"].update(state=READY, records=len(rows), sha256=hashlib.sha256(payload).hexdigest())
+            self._evidence[incident["id"]] = (payload, incident["evidence"]["as_of"])
+
     def evidence(self, incident_id):
-        """(CSV bytes, as_of) of the incident's evidence window; KeyError when unknown or empty."""
-        payload, as_of = self._evidence[incident_id]
-        if payload is None:
-            raise KeyError(incident_id)
-        return payload, as_of
+        """(CSV bytes, as_of) of the incident's frozen evidence window.
+
+        KeyError for an unknown incident; EvidenceNotReady (carrying the evidence state) while it is being collected, or
+        when the incident closed before any onset could be estimated.
+        """
+        incident = self.incident(incident_id)
+        if incident_id not in self._evidence:
+            raise EvidenceNotReady(self._evidence_view(incident))
+        return self._evidence[incident_id]
+
+    def _evidence_view(self, incident):
+        """The evidence state with the seconds collected so far."""
+        evidence = dict(incident.get("evidence") or _no_evidence())
+        first = evidence["first_t"]
+        evidence["collected_s"] = 0 if first is None else min(WINDOW_SECONDS, max(0, self.now - first))
+        return evidence
+
+    def _truth(self, incident):
+        """The injected fault this incident most likely reflects: simulation ground truth for display only."""
+        group = incident["sensor"]
+        faults = [f for f in self.faults if f["sensor"] == (group if group in SENSORS else None)
+                  and f["started_t"] <= incident["opened_t"]
+                  and (f["ended_t"] is None or f["ended_t"] >= incident["opened_t"] - WINDOW_SECONDS)]
+        if not faults:
+            return None
+        fault = max(faults, key=lambda f: f["started_t"])
+        onset = (incident.get("evidence") or {}).get("onset_t")
+        return {"fault_id": fault["id"], "fault": fault["fault"], "started_t": fault["started_t"],
+                "started_at": fault["started_at"], "onset_error_s": None if onset is None else onset - fault["started_t"]}
+
+    @property
+    def incidents_opened(self):
+        """Incidents opened since the last reset, including closed ones dropped from the bounded list."""
+        return self._next_incident - 1
 
     def incident(self, incident_id):
         found = next((i for i in self.incidents if i["id"] == incident_id), None)
@@ -289,6 +400,23 @@ class Plant:
                     "high": round(e["mean"] + 3 * e["sd"], 6)}
                 for s, e in ((s, self.baseline["numeric"][s]) for s in SENSORS)}
 
+    def _incident_view(self, incident):
+        return dict(incident, findings=[dict(f) for f in incident["findings"]], evidence=self._evidence_view(incident),
+                    truth=self._truth(incident))
+
+    def incident_view(self, incident_id):
+        """One incident with the readings around its change: from ``INCIDENT_LEAD`` s before the earlier of the
+        evidence start and the detection window, at most ``INCIDENT_READINGS`` readings. KeyError when unknown."""
+        incident = self._incident_view(self.incident(incident_id))
+        starts = [incident["opened_t"] - WINDOW_SECONDS, incident["evidence"]["first_t"]]
+        low = min(t for t in starts if t is not None) - INCIDENT_LEAD
+        rows = [r for r in self.readings if r["t"] >= low][:INCIDENT_READINGS]
+        return {"simulation": True, "incident": incident, "now_t": self.now, "live_start_t": self.live_start,
+                "units": dict(UNITS), "bands": self.bands(), "baseline_digest": self.baseline["digest"],
+                "seasonality": {s: dict(v) for s, v in self.seasonality.items()},
+                "series": {"t": [r["t"] for r in rows], **{s: [r[s] for r in rows] for s in SENSORS}},
+                "settings": {"window_seconds": WINDOW_SECONDS, "clear_statistic": changepoint.CLEAR_STATISTIC}}
+
     def snapshot(self):
         rows = self.readings[-CHART_READINGS:]
         return {
@@ -303,6 +431,7 @@ class Plant:
             "series": {"t": [r["t"] for r in rows], **{s: [r[s] for r in rows] for s in SENSORS}},
             "current": {"t": rows[-1]["t"], **{s: rows[-1][s] for s in SENSORS}},
             "faults": [dict(f) for f in reversed(self.faults)],
-            "incidents": [dict(i, findings=[dict(f) for f in i["findings"]]) for i in reversed(self.incidents)],
+            "seasonality": {s: dict(v) for s, v in self.seasonality.items()},
+            "incidents": [self._incident_view(i) for i in reversed(self.incidents)],
             "detections": [dict(d) for d in self.detections],
         }

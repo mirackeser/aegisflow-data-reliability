@@ -70,6 +70,11 @@ def _encode(kind, obj):
     return {"id": "%s:%s" % (kind, digest[:32]), "sha256": digest}, body
 
 
+def reference(kind, obj):
+    """The reference ``obj`` gets when stored under ``kind``: lets a caller check that a run holds this exact evidence."""
+    return _encode(kind, obj)[0]
+
+
 class EvidenceStore:
     """In-memory, digest-addressed, bounded and thread-safe store of JSON evidence for one run."""
 

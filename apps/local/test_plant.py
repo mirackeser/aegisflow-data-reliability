@@ -7,8 +7,11 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 import time
 import unittest
+from unittest import mock
 
 from agent_runs import RunManager
+from aegisflow_dr.agents.context import reference
+from aegisflow_dr.hypotheses import investigate
 from aegisflow_dr.pipeline import InputRejected
 from aegisflow_dr import simulation as sim
 from plant import DEFAULT_SPEED, MODEL_TTL_S, PlantController
@@ -68,11 +71,16 @@ class PlantHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return json.loads(body)
 
-    def open_incident(self):
+    def open_incident(self, ready=True):
+        """Inject unit x10 on pressure until an incident opens; with ``ready`` also until its evidence is frozen."""
         plant = self.workbench.plant.plant
         plant.inject('unit_change', 'pressure_kpa')
-        plant.advance(4 * sim.CHECK_EVERY)
-        return plant.incidents[0]['id']
+        plant.advance(2 * sim.CHECK_EVERY)
+        incident = plant.incidents[0]['id']
+        if ready:
+            plant.advance(sim.WINDOW_SECONDS)
+            self.assertEqual(plant.incident(incident)['evidence']['state'], sim.READY)
+        return incident
 
     def test_authorization_host_and_origin(self):
         self.assertEqual(self.call('/api/plant/state')[0], 403)
@@ -141,7 +149,7 @@ class PlantHttpTests(unittest.TestCase):
         state = self.state()
         self.assertEqual(set(state), {'simulation', 'seed', 'start', 'now_t', 'now', 'live_start_t', 'elapsed_s', 'emitted',
                                       'checks', 'detected', 'last_check', 'units', 'settings', 'baseline', 'series',
-                                      'current', 'faults', 'incidents', 'detections', 'status', 'kpis', 'model',
+                                      'current', 'faults', 'incidents', 'detections', 'status', 'kpis', 'model', 'seasonality',
                                       'catalog', 'agents'})
         self.assertTrue(state['simulation'])
         self.assertEqual(set(state['kpis']), {'active_incidents', 'incidents', 'detections', 'investigations',
@@ -159,7 +167,7 @@ class PlantHttpTests(unittest.TestCase):
         self.open_incident()
         incident = self.state()['incidents'][0]
         self.assertEqual(set(incident), {'id', 'sensor', 'status', 'opened_t', 'opened_at', 'closed_t', 'closed_at',
-                                         'clean_checks', 'findings', 'run_id', 'window', 'checks', 'severity'})
+                                         'clean_checks', 'findings', 'run_id', 'window', 'checks', 'severity', 'evidence', 'truth'})
         self.assertEqual(set(incident['window']), {'sha256', 'first_t', 'last_t', 'records', 'as_of'})
         self.assertEqual(self.state()['kpis']['active_incidents'], 1)
 
@@ -196,6 +204,56 @@ class PlantHttpTests(unittest.TestCase):
         finish(self.workbench.agents, run_id)
         self.workbench.agents.records = lambda: []  # the stand-in runner's record is not a full sealed record
         self.assertEqual(self.state()['agents']['recent'][0]['state'], 'finished')
+
+    def test_probe_loop_summaries_are_cached_and_bounded(self):
+        incident = self.open_incident(ready=False)
+        controller = self.workbench.plant
+        self.assertIsNone(controller.incident(incident)['investigation'])
+        controller.plant.advance(sim.WINDOW_SECONDS)
+        first = controller.incident(incident)['investigation']
+        with mock.patch('plant.investigate', side_effect=AssertionError('recomputed')):
+            self.assertIs(controller.incident(incident)['investigation'], first)
+        controller._investigations = {('stale', 'digest', 'as_of'): {}}
+        with mock.patch('plant.MAX_INVESTIGATIONS', 1):
+            self.assertEqual(controller.incident(incident)['investigation'], first)
+        self.assertNotIn(('stale', 'digest', 'as_of'), controller._investigations)
+        self.assertEqual(len(controller._investigations), 1)
+
+    def test_investigation_waits_for_complete_evidence(self):
+        incident = self.open_incident(ready=False)
+        status, body, _ = self.post('/api/plant/incidents/%s/investigate' % incident, {})
+        answer = json.loads(body)
+        self.assertEqual((status, answer['error'], answer['evidence']['state']), (409, 'EVIDENCE_NOT_READY', 'collecting'))
+        self.assertGreater(answer['evidence']['collected_s'], 0)
+        self.assertEqual(self.runner.calls, [])
+        status, body, _ = self.call('/api/plant/incidents/%s/evidence.csv' % incident, headers=self.auth)
+        self.assertEqual((status, json.loads(body)['error']), (409, 'EVIDENCE_NOT_READY'))
+
+    def test_incident_view_and_evidence_download(self):
+        incident = self.open_incident()
+        status, body, _ = self.call('/api/plant/incidents/%s' % incident, headers=self.auth)
+        view = json.loads(body)
+        self.assertEqual((status, view['incident']['id'], view['run']), (200, incident, None))
+        self.assertTrue(view['simulation'])
+        self.assertEqual(view['incident']['truth']['onset_error_s'], 0)
+        payload, as_of = self.workbench.plant.plant.evidence(incident)
+        record = investigate(self.workbench.plant.plant.baseline, payload, as_of=as_of)
+        self.assertEqual(view['investigation']['ref'], reference('investigation', record))
+        self.assertEqual((view['investigation']['probes'], view['investigation']['verdict']), (record['probes'], 'single_supported'))
+        self.assertEqual([h['mechanism'] for h in view['investigation']['hypotheses'] if h['status'] == 'supported'], ['unit_change'])
+        self.assertIsNone(view['runs_active'])
+        status, body, headers = self.call('/api/plant/incidents/%s/evidence.csv' % incident, headers=self.auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertEqual(headers['Content-Disposition'], 'attachment; filename="%s-evidence.csv"' % incident)
+        self.assertEqual(body, self.workbench.plant.plant.evidence(incident)[0])
+        self.post('/api/plant/incidents/%s/investigate' % incident, {})
+        view = json.loads(self.call('/api/plant/incidents/%s' % incident, headers=self.auth)[1])
+        self.assertEqual(view['run']['run_id'], view['incident']['run_id'])
+        for path in ('/api/plant/incidents/INC-0404', '/api/plant/incidents/INC-0404/evidence.csv'):
+            self.assertEqual(self.call(path, headers=self.auth)[0], 404)
+        for path in ('/api/plant/incidents/%s' % incident, '/api/plant/incidents/INC-1/evidence.csv'):
+            self.assertEqual(self.call(path)[0], 403)
 
     def test_investigation_survives_a_reset(self):
         incident = self.open_incident()

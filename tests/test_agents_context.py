@@ -4,7 +4,7 @@ import json
 import unittest
 
 from aegisflow_dr.advisory.context_cache import ContextCache
-from aegisflow_dr.agents.context import (AgentContext, EvidenceStore, PolicyDenied, ToolBudgetExceeded, ToolError,
+from aegisflow_dr.agents.context import (AgentContext, EvidenceStore, reference, PolicyDenied, ToolBudgetExceeded, ToolError,
                                          Usage)
 from aegisflow_dr.agents.llm import LocalModel
 from aegisflow_dr.pipeline import InputRejected, generate_orders
@@ -171,6 +171,14 @@ class Context(unittest.TestCase):
     def _reject():
         raise InputRejected("boom")
 
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_reference_matches_what_a_store_returns(self):
+        value = {"b": 1, "a": [1.5, "x"]}
+        self.assertEqual(reference("investigation", value), EvidenceStore().put("investigation", value))
+        with self.assertRaises(InputRejected):
+            reference("bad kind!", value)
 
 if __name__ == "__main__":
     unittest.main()

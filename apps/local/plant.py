@@ -9,14 +9,16 @@ from datetime import datetime, timedelta, timezone
 from threading import Event, Lock, Thread
 import time
 
+from aegisflow_dr.agents.context import reference
+from aegisflow_dr.hypotheses import investigate
 from aegisflow_dr.pipeline import InputRejected
-from aegisflow_dr.simulation import (FAULTS, REFERENCE_WINDOWS, SENSOR_FAULTS, SENSORS, STREAM_FAULTS, UNITS,
+from aegisflow_dr.simulation import (FAULTS, READY, REFERENCE_WINDOWS, SENSOR_FAULTS, SENSORS, STREAM_FAULTS, UNITS,
                                      WINDOW_SECONDS, Plant)
 from agent_summary import summarize
 
 SPEEDS = (1, 5, 20)
 DEFAULT_SPEED, SEED = 5, 7
-TICK_S, MAX_STEPS_PER_TICK, MODEL_TTL_S, RECENT_RUNS = 0.25, 120, 30.0, 5
+TICK_S, MAX_STEPS_PER_TICK, MODEL_TTL_S, RECENT_RUNS, MAX_INVESTIGATIONS = 0.25, 120, 30.0, 5, 20
 ACTIONS = ("start", "pause", "reset", "speed")
 BASELINE_LABEL = "simulated-plant"
 
@@ -36,6 +38,8 @@ class PlantController:
         self._model, self._model_at = None, None
         self._summary_key, self._summary = None, None
         self.launched = []  # agent runs started from plant incidents in this process, oldest first
+        self._investigations = {}  # (baseline digest, evidence digest, as_of) -> probe loop summary, oldest first
+        self._cache_lock = Lock()
         self._fresh()
 
     def _fresh(self):
@@ -101,7 +105,10 @@ class PlantController:
             return self.plant.clear(fault_id)
 
     def investigate(self, incident_id):
-        """Start an agent run on the incident's evidence window with the plant baseline; KeyError, Busy propagate."""
+        """Start an agent run on the incident's frozen evidence window with the plant baseline.
+
+        KeyError (unknown incident), EvidenceNotReady (evidence still being collected) and Busy propagate.
+        """
         with self.lock:
             plant = self.plant
             incident = plant.incident(incident_id)
@@ -116,6 +123,46 @@ class PlantController:
         return run_id
 
     # -- views --------------------------------------------------------------------------------------------------------
+    def incident(self, incident_id):
+        """One incident with its surrounding readings, the probe loop on its frozen evidence and, when it was
+        investigated, the run summary; KeyError."""
+        with self.lock:
+            self._advance()
+            plant = self.plant
+            view = plant.incident_view(incident_id)
+            evidence = plant.evidence(incident_id) if view["incident"]["evidence"]["state"] == READY else None
+        view["investigation"] = None if evidence is None else self._investigation(plant, view["incident"], evidence)
+        runs, run_id = self._agents().summaries(), view["incident"]["run_id"]
+        view["runs_active"] = runs["active"]
+        view["run"] = next((r for r in runs["runs"] if r["run_id"] == run_id), None)
+        return view
+
+    def _investigation(self, plant, incident, evidence):
+        """The deterministic probe loop on the frozen evidence: the same call, on the same bytes, as the agents' A24.
+
+        Its evidence reference lets the page check that a run's A24 evidence is exactly this record, and so show the
+        measured probe values the run record does not carry. Cached per input under its own small lock.
+        """
+        payload, as_of = evidence
+        key = (plant.baseline["digest"], incident["evidence"]["sha256"], as_of)  # the probe loop's whole input
+        with self._cache_lock:
+            cached = self._investigations.get(key)
+        if cached is not None:
+            return cached
+        record = investigate(plant.baseline, payload, as_of=as_of)  # deterministic and slow-ish: outside the locks
+        summary = {"ref": reference("investigation", record), "verdict": record["verdict"], "probes": record["probes"],
+                   "hypotheses": [{k: h[k] for k in ("id", "mechanism", "column", "status")} for h in record["hypotheses"]]}
+        with self._cache_lock:
+            self._investigations[key] = summary
+            while len(self._investigations) > MAX_INVESTIGATIONS:
+                self._investigations.pop(next(iter(self._investigations)))
+        return summary
+
+    def evidence_csv(self, incident_id):
+        """The frozen evidence window as CSV bytes; KeyError, EvidenceNotReady propagate."""
+        with self.lock:
+            return self.plant.evidence(incident_id)[0]
+
     def status(self):
         return {"running": self.running, "speed": self.speed, "speeds": list(SPEEDS)}
 

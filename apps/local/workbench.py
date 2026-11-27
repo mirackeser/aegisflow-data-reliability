@@ -29,6 +29,7 @@ from check_postgres_local import qualify
 from dataclasses import asdict
 from aegisflow_dr.analysis import analyze_csv, apply_mapping, discover_schema
 from aegisflow_dr.profiling import profile_csv
+from aegisflow_dr.simulation import EvidenceNotReady
 from functools import lru_cache
 
 from aegisflow_dr.capability_map import capability_map
@@ -53,6 +54,7 @@ AGENT_RUN_BODY_LIMIT = 2900000
 # Simulated plant controls are small JSON objects.
 PLANT_BODY_LIMIT = 256
 PLANT_INVESTIGATE = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})/investigate')
+PLANT_INCIDENT = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})(/evidence\.csv)?')
 
 
 def write_private(path, text):
@@ -291,10 +293,10 @@ def make_server(workbench, token, port=0, catalog=None):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow')
+            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow', '/incident')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'), '/incident.js': ('incident.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             page = self.path.split('?', 1)[0]
             if page != self.path and page in pages:  # a page link with a query, e.g. /flow?run=<id>
@@ -326,6 +328,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, json.dumps(workbench.snapshot()).encode())
             elif self.path == '/api/plant/state' and self.authorized():
                 self.respond(200, json.dumps(workbench.plant.state()).encode())
+            elif PLANT_INCIDENT.fullmatch(self.path) and self.authorized():
+                self.plant_incident(*PLANT_INCIDENT.fullmatch(self.path).groups())
             elif self.path == '/api/agents/roles' and self.authorized():
                 self.respond(200, json.dumps(agent_roles()).encode())
             elif self.path == '/api/agents/summary' and self.authorized():
@@ -344,6 +348,29 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.agent_stream()
             else:
                 self.respond(403, b'{}')
+
+        def plant_incident(self, incident_id, csv):
+            """One plant incident as JSON, or its frozen evidence window as a CSV download."""
+            try:
+                if csv:
+                    body = workbench.plant.evidence_csv(incident_id)
+                else:
+                    body = json.dumps(workbench.plant.incident(incident_id)).encode()
+            except KeyError:
+                self.respond(404, b'{"error": "NOT_FOUND"}'); return
+            except EvidenceNotReady as error:
+                self.respond(409, json.dumps({'error': 'EVIDENCE_NOT_READY', 'evidence': error.evidence}).encode()); return
+            if not csv:
+                self.respond(200, body); return
+            self.send_response(200)
+            for name, value in (('Content-Type', 'text/csv; charset=utf-8'), ('Content-Length', str(len(body))),
+                                ('Content-Disposition', f'attachment; filename="{incident_id}-evidence.csv"'),
+                                ('Cache-Control', 'no-store'), ('X-Content-Type-Options', 'nosniff'),
+                                ('Referrer-Policy', 'no-referrer'),
+                                ('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")):
+                self.send_header(name, value)
+            self.end_headers()
+            self.wfile.write(body)
 
         def agent_stream(self):
             """Server-Sent Events of one run: ``id:`` is the live seq; resumes after ``Last-Event-ID``; ends after the run."""
@@ -602,6 +629,8 @@ def make_server(workbench, token, port=0, catalog=None):
                     self.respond(200, json.dumps(result).encode())
                 except Busy:
                     self.respond(409, b'{"error": "BUSY"}')
+                except EvidenceNotReady as error:
+                    self.respond(409, json.dumps({'error': 'EVIDENCE_NOT_READY', 'evidence': error.evidence}).encode())
                 except KeyError:
                     self.respond(404, b'{"error": "NOT_FOUND"}')
                 except InputRejected as error:
