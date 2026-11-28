@@ -25,8 +25,12 @@ from ..baseline import CHECKS as BASELINE_CHECKS, ROLES, load_baseline
 from ..hypotheses import MECHANISMS, PROBES
 from ..pipeline import EXPECTED_COLUMNS, InputRejected
 from ..profiling import CHECKS as PROFILE_CHECKS, read_table
+from ..readings import WORDS as READING_WORDS
 
-PROMPT_VERSION = "2"  # 2: planner goals carry signal/observation ids; a29 forbids stating causes
+# 2: planner goals carry signal/observation ids; a29 forbids stating causes.
+# 3: A23 reads qualitative readings of each observation and the mechanisms' signatures, without the catalog list.
+PROMPT_VERSIONS = ("2", "3")
+PROMPT_VERSION = PROMPT_VERSIONS[-1]  # the version new runs use; earlier ones stay for replay
 DIAGNOSE_CHECKS = ("missing_column", "unexpected_column", "not_null", "unique", "amount_format", "nonempty_dataset")
 FREE_TEXT_KEYS = frozenset({"passage", "kb_source", "option_title", "option_rollback"})
 MIN_LEAK_CHARS, MAX_FREE_TEXT, MAX_CONTEXT_CHARS, MAX_DEPTH = 3, 400, 12_000, 6
@@ -42,7 +46,7 @@ VOCABULARY = frozenset(PROFILE_CHECKS + BASELINE_CHECKS + DIAGNOSE_CHECKS + MECH
     "drop", "increase", "profile", "baseline", "low", "medium", "high", "sql", "csv_cleaning", "PASS", "FAIL",
     "BLOCKED", "FINDINGS", "NO_FINDINGS", "DRIFT", "NO_DRIFT", "BREAKING", "COMPATIBLE", "IDENTICAL", "order_count",
     "amount_cents", "supported", "open", "refuted", "no_observations", "none_supported", "single_supported",
-    "multiple_supported") + REASON_CODES)
+    "multiple_supported") + REASON_CODES + READING_WORDS)
 _KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 _RUN_ID = re.compile(r"(?:obs|hyp|prb|sig)-[0-9]{1,4}|(?:g|c|f|opt)[0-9]{1,3}|A(?:0[1-9]|[12][0-9]|3[0-6])"
                      r"|a[0-9]{2}\.[a-z_]{1,40}")
@@ -145,7 +149,7 @@ class Template:
                 + _canonical(context))
 
 
-TEMPLATES = {
+_V2 = {
     "a02": Template("a02", "You reword investigation goals as short questions for a data engineer. Each goal has an id, "
                     "a check name, a column and the signal or observation ids it rests on. Return one question per "
                     "goal id with the ids it rests on, at most 160 characters, using only the given names. Do not "
@@ -163,6 +167,29 @@ TEMPLATES = {
                     "order extract. It is text for human review and is never executed. Refer to columns by name and "
                     "never include data values.", 512),
 }
+A23_V3 = Template("a23", (
+    "You propose up to three candidate mechanisms for the observations, ordered from the best fit to the worst. Each "
+    "observation has a check, a column and a reading. A candidate lists the observation ids it would explain. "
+    "Signatures:\n"
+    "unit_change: distribution_shift with mean scaled_power_of_ten; the spread is scaled by the same factor, so it reads "
+    "wider or narrower, and unit_change is still the best fit.\n"
+    "calibration_offset: distribution_shift with mean shifted_up or shifted_down and spread unchanged.\n"
+    "noise_increase: distribution_shift with spread wider and mean unchanged.\n"
+    "stuck_sensor: a flatline observation on a column; it is the best fit for that column's distribution_shift too, "
+    "whatever its reading.\n"
+    "sampling_config_change: sampling_interval_change, usually with volume_change.\n"
+    "partial_load: volume_change with rows drop and no freshness observation.\n"
+    "duplicate_delivery: volume_change with rows increase, duplicate_rows or timestamp_duplicate.\n"
+    "delivery_delay: freshness with data late and no volume_change.\n"
+    "source_outage: freshness with data late together with volume_change rows drop.\n"
+    "field_outage: empty_rate_change with more empty_values and empty_pattern contiguous.\n"
+    "intermittent_loss: empty_rate_change with more empty_values and empty_pattern scattered.\n"
+    "genuine_change: the measured process itself changed; propose it alone when a distribution_shift reading fits no "
+    "signature above (for example mean sign_reversed, or spread narrower without a flatline).\n"
+    "List only mechanisms whose signature the observations show, each at most once. Candidates are hypotheses for "
+    "fixed probes to test, never a determined cause."), 256)
+TEMPLATES_BY_VERSION = {"2": _V2, "3": {**_V2, "a23": A23_V3}}
+TEMPLATES = TEMPLATES_BY_VERSION[PROMPT_VERSION]
 
 
 def _strict(properties, required=None):
