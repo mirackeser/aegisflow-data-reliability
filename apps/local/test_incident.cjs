@@ -227,4 +227,143 @@ assert.ok(/simulation ground truth/.test(STRINGS['inc.chart.injected'][0])&&/sim
  assert.equal(I.incVerified(null,inv),false);assert.equal(I.incVerified(linked,null),false);
  assert.equal(I.incVerified({agents:[],evidence:[{...ref,sha256:'b'.repeat(64)}]},inv),false);
 }
-console.log('incident: stepper, evidence, chart, candidates, operations and brief verified.');
+
+// ---------- case file: human decision and evidence chain ----------
+const SHA=c=>c.repeat(64);
+const decision={incident_id:'INC-0001',evidence_sha256:SHA('c'),run_id:'run-abc',decision:'accepted',candidate:'calibration_offset',reviewer:'M. Keser',note:'',
+ decided_at:'2026-11-28T11:00:00Z',executed:false,sha256:SHA('e')};
+const investigation={ref:{id:'investigation:x',sha256:SHA('a')},verdict:'multiple_supported',probes:[],trace_sha256:SHA('f'),
+ hypotheses:[{id:'hyp-1',mechanism:'unit_change',column:'pressure_kpa',status:'refuted'},{id:'hyp-2',mechanism:'calibration_offset',column:'pressure_kpa',status:'supported'},
+  {id:'hyp-5',mechanism:'source_outage',column:null,status:'supported'},{id:'hyp-7',mechanism:'calibration_offset',column:'temp_c',status:'supported'},
+  {id:'hyp-4',mechanism:'genuine_change',column:'pressure_kpa',status:'open'}]};
+const decidedView=(extra={})=>view({status:'closed',evidence:ready},{run:finishedRun,investigation,decision,...extra});
+
+// Stepper: the human decision is done once a reviewer recorded one for the run shown; a decision on an earlier run is not.
+m=I.incSteps(decidedView(),{record});
+assert.deepEqual(states(m),['done','done','done','done','done','done']);
+assert.equal(m.current,-1,'every step is done');
+assert.deepEqual([m.steps[5].variant,m.steps[5].at,m.steps[5].params],['decided','2026-11-28T11:00:00Z',{decision:'accepted',candidate:'calibration_offset',reviewer:'M. Keser'}]);
+m=I.incSteps(decidedView({run:{...finishedRun,run_id:'run-new'}}),{record:{...record,run_id:'run-new'}});
+assert.equal(m.steps[5].state,'next','a decision on an earlier run does not decide the new one');
+m=I.incSteps(decidedView({run:{...finishedRun,run_id:'run-new',state:'running',status:null}}));
+assert.equal(m.steps[5].state,'pending');
+m=I.incSteps(decidedView({decision:{...decision,decision:'rejected',candidate:null}}),{record});
+assert.deepEqual(m.steps[5].params,{decision:'rejected',candidate:null,reviewer:'M. Keser'});
+assert.equal(I.incDecisionFor(decidedView({run:null})),decision,'without a run summary the latest decision on the evidence still applies');
+assert.equal(I.incDecisionFor(view()),null);
+b=I.incBrief({connected:true,id:'INC-0001',view:decidedView(),detail:{record}});
+assert.deepEqual([b.happened.key,b.happened.params.decision,b.next.key],['inc.brief.decided','accepted','inc.next.report']);
+for(const x of ['inc.brief.decided','inc.next.report','inc.step.human.decided'])assert.ok(STRINGS[x],x);
+
+// Chain banner: complete, waiting for the missing links, mismatch names the links, broken links, nothing yet.
+const lk=(kind,i)=>({kind,digest:SHA(String(i)),at:ISO,summary:{},prev:i?SHA(String(i-1)):null,link_sha256:SHA('9')});
+const caseFile=(statuses,extra={})=>({incident_id:'INC-0001',simulation:true,chain:I.INC_LINKS.filter((k,i)=>statuses[i]!=='missing').map(lk),
+ checks:I.INC_LINKS.map((kind,i)=>({kind,status:statuses[i],reason:statuses[i]==='mismatch'?'evidence_bytes':null})),
+ intact:true,complete:statuses.every(x=>x==='verified'),head:SHA('9'),decisions:[],content_sha256:SHA('8'),...extra});
+const V='verified',MM='mismatch',M='missing';
+assert.deepEqual(I.incChainBanner(caseFile([V,V,V,V,V])),{state:'complete',kinds:[]});
+assert.deepEqual(I.incChainBanner(caseFile([V,V,V,V,M])),{state:'waiting',kinds:['decision']});
+assert.deepEqual(I.incChainBanner(caseFile([V,V,V,M,M])),{state:'waiting',kinds:['agent_run','decision']});
+assert.deepEqual(I.incChainBanner(caseFile([V,MM,V,V,M])),{state:'mismatch',kinds:['evidence']},'a mismatch wins over missing links');
+assert.deepEqual(I.incChainBanner(caseFile([MM,V,V,MM,V],{complete:false})),{state:'mismatch',kinds:['baseline','agent_run']});
+assert.deepEqual(I.incChainBanner(caseFile([V,V,V,V,V],{intact:false,complete:false})),{state:'broken',kinds:[]});
+assert.deepEqual(I.incChainBanner(null),{state:'loading',kinds:[]});
+let links=I.incChainLinks(caseFile([V,MM,V,M,M]));
+assert.deepEqual(links.map(l=>[l.kind,l.index,l.status,!!l.link]),[['baseline',0,V,true],['evidence',1,MM,true],['probes',2,V,true],['agent_run',3,M,false],['decision',4,M,false]]);
+assert.equal(links[1].reason,'evidence_bytes');
+assert.deepEqual(I.incChainLinks(null),[]);
+assert.deepEqual(I.incChainLinks({chain:[],checks:[]}).map(l=>l.status),[M,M,M,M,M],'a link with no check is missing');
+// The links' recorded values, in the server's summary shapes (plant.case_file).
+assert.deepEqual(I.incLinkFacts('baseline',{records:600,references:3}).map(f=>[f.key,f.value,f.type]),[['records',600,'n'],['references',3,'n']]);
+assert.deepEqual(I.incLinkFacts('evidence',{first_t:1200,as_of_t:1399,records:200,method:'change_point',onset_t:1200,statistic:152.4}).map(f=>f.key),['window','records','method','onset','statistic']);
+assert.deepEqual(I.incLinkFacts('evidence',{first_t:1200,as_of_t:1399})[0].value,[1200,1399]);
+assert.deepEqual(I.incLinkFacts('probes',{verdict:'single_supported',supported:['calibration_offset'],ref:'investigation:x'}).map(f=>f.type),['verdict','mechs','code']);
+assert.deepEqual(I.incLinkFacts('agent_run',{run_id:'run-abc',status:'completed',completed:7,judge:{accepted:5,advisory:2,rejected:1},a24_matches_probes:true}).map(f=>[f.key,f.type]),
+ [['run','code'],['status','runstatus'],['completed','n'],['judge','judge'],['a24','bool']]);
+assert.deepEqual(I.incLinkFacts('decision',{decision:'accepted',candidate:'calibration_offset',reviewer:'M. Keser'}).map(f=>f.value),['accepted','calibration_offset','M. Keser']);
+assert.deepEqual(I.incLinkFacts('decision',null),[]);assert.deepEqual(I.incLinkFacts('other',{}),[]);
+for(const kind of I.INC_LINKS){
+ assert.ok(STRINGS['chain.kind.'+kind],kind);
+ for(const f of I.incLinkFacts(kind,{judge:{}}))assert.ok(STRINGS['chain.f.'+f.key],`chain.f.${f.key}`);
+}
+for(const reason of ['baseline_digest','evidence_bytes','probe_trace','run_trace_or_a24_evidence','decision_digest','unknown'])assert.ok(STRINGS['chain.reason.'+reason],reason);
+for(const st of ['verified','mismatch','missing'])assert.ok(STRINGS['chain.status.'+st]);
+for(const st of ['complete','waiting','mismatch','broken','loading'])assert.ok(STRINGS['chain.banner.'+st]&&STRINGS['rep.chain.'+st]&&STRINGS['rep.sum.chain.'+st],st);
+// The chain's link order and decisions mirror the engine (aegisflow_dr.casefile).
+{const casefile=fs.readFileSync(__dirname+'/../../src/aegisflow_dr/casefile.py','utf8'),tup=name=>[...casefile.match(new RegExp('^'+name+' = \\(([^)]*)\\)','m'))[1].matchAll(/"(\w+)"/g)].map(x=>x[1]);
+ assert.deepEqual(I.INC_LINKS,tup('LINKS'));assert.deepEqual(I.INC_DECISIONS,tup('DECISIONS'));
+ assert.match(casefile,/^MAX_REVIEWER, MAX_NOTE = 60, 500$/m);}
+
+// The case file is read again only when the evidence, the run, its state or the decision changed.
+const k0=I.incCaseKey(decidedView());
+assert.equal(I.incCaseKey(decidedView()),k0);
+assert.notEqual(I.incCaseKey(decidedView({decision:{...decision,sha256:SHA('d')}})),k0);
+assert.notEqual(I.incCaseKey(decidedView({run:{...finishedRun,state:'running'}})),k0);
+assert.notEqual(I.incCaseKey(view()),k0);
+
+// Decision form: what may be decided and with which candidate.
+let dm=I.incDecisionModel(decidedView({decision:null}),{record});
+assert.equal(dm.ready,true);assert.equal(dm.wait,null);
+assert.deepEqual(dm.candidates,[{mechanism:'calibration_offset',columns:['pressure_kpa','temp_c']},{mechanism:'source_outage',columns:[]}],'supported mechanisms only, once each');
+assert.deepEqual(dm.options.map(o=>[o.value,o.enabled,o.reason]),[['accepted',true,null],['rejected',true,null],['more_evidence',true,null]]);
+const none={...investigation,hypotheses:investigation.hypotheses.map(x=>({...x,status:x.status==='supported'?'open':x.status}))};
+dm=I.incDecisionModel(decidedView({decision:null,investigation:none}),{record});
+assert.deepEqual(dm.options.map(o=>[o.value,o.enabled,o.reason]),[['accepted',false,'none_supported'],['rejected',true,null],['more_evidence',true,null]],'nothing supported: accepting is disabled with the reason');
+assert.deepEqual(I.incDecisionModel(decidedView({decision:null,investigation:null}),{record}).candidates,[]);
+const wait=(v,d)=>I.incDecisionModel(v,d).wait;
+assert.equal(wait(view(),null),'evidence');
+assert.equal(wait(view({evidence:ready}),null),'run');
+assert.equal(wait(view({evidence:ready},{run:{...finishedRun,state:'running'}}),null),'running');
+assert.equal(wait(view({evidence:ready},{run:{...finishedRun,state:'error'}}),null),'failed');
+assert.equal(wait(view({evidence:ready},{run:finishedRun}),null),'record','a finished run is decided on only with its sealed record');
+dm=I.incDecisionModel(view(),null);
+assert.ok(dm.options.every(o=>!o.enabled),'nothing can be chosen before the run finished');
+for(const w of ['evidence','run','running','failed','record'])assert.ok(STRINGS['dec.wait.'+w],w);
+dm=I.incDecisionModel(decidedView(),{record});
+assert.equal(dm.current,decision);assert.equal(dm.other,null);
+dm=I.incDecisionModel(decidedView({run:{...finishedRun,run_id:'run-new'}}),{record});
+assert.equal(dm.current,null);assert.equal(dm.other,decision,'a decision on an earlier run is shown as such');
+
+// Client-side input check before sending (the server stays the judge).
+dm=I.incDecisionModel(decidedView({decision:null}),{record});
+let input=I.incDecisionInput({decision:'accepted',candidate:'calibration_offset',reviewer:'  M.   Keser ',note:' first\n\nline '},dm);
+assert.deepEqual(input,{ok:true,errors:{},body:{decision:'accepted',candidate:'calibration_offset',reviewer:'M. Keser',note:'first line'}});
+input=I.incDecisionInput({decision:'rejected',candidate:'calibration_offset',reviewer:'Ada',note:''},dm);
+assert.deepEqual(input.body,{decision:'rejected',candidate:null,reviewer:'Ada',note:''},'only an accepted decision names a candidate');
+assert.deepEqual(I.incDecisionInput({decision:'accepted',candidate:'unit_change',reviewer:'Ada'},dm).errors,{candidate:'choose'},'a refuted candidate cannot be accepted');
+assert.deepEqual(I.incDecisionInput({decision:'accepted',candidate:null,reviewer:'Ada'},dm).errors,{candidate:'choose'});
+assert.deepEqual(I.incDecisionInput({decision:null,reviewer:''},dm).errors,{decision:'choose',reviewer:'empty'});
+assert.deepEqual(I.incDecisionInput({decision:'more_evidence',reviewer:'x'.repeat(61)},dm).errors,{reviewer:'long'});
+assert.equal(I.incDecisionInput({decision:'more_evidence',reviewer:'ş'.repeat(60)},dm).ok,true,'60 characters, counted as characters');
+assert.deepEqual(I.incDecisionInput({decision:'more_evidence',reviewer:'A​da'},dm).errors,{reviewer:'printable'});
+assert.deepEqual(I.incDecisionInput({decision:'more_evidence',reviewer:'Ada',note:'n'.repeat(501)},dm).errors,{note:'long'});
+assert.deepEqual(I.incDecisionInput({decision:'more_evidence',reviewer:'Ada',note:'a\u0007b'},dm).errors,{note:'printable'});
+const off=I.incDecisionModel(decidedView({decision:null,investigation:none}),{record});
+assert.deepEqual(I.incDecisionInput({decision:'accepted',candidate:'calibration_offset',reviewer:'Ada'},off).errors,{decision:'choose',candidate:'choose'});
+assert.deepEqual(I.incDecisionInput({decision:'rejected',reviewer:'Ada'},I.incDecisionModel(view(),null)).errors,{decision:'choose'},'nothing is sent before the run finished');
+for(const [field,codes] of Object.entries({decision:['choose'],candidate:['choose'],reviewer:['empty','long','printable'],note:['long','printable']}))
+ for(const code of codes)assert.ok(STRINGS[`dec.err.${field}.${code}`],`dec.err.${field}.${code}`);
+for(const d of I.INC_DECISIONS)assert.ok(STRINGS['dec.d.'+d]&&STRINGS['dec.d.'+d+'.x'],d);
+// Refusals: the server's message for invalid input, the evidence state for 409, gone for 404.
+assert.deepEqual(I.incDecisionError({status:422,body:{error:'INPUT_REJECTED',message:'Only a candidate the probes support on the frozen evidence can be accepted'}}),
+ {key:'dec.err.rejected',params:{reason:'Only a candidate the probes support on the frozen evidence can be accepted'}});
+assert.deepEqual(I.incDecisionError({status:409,body:{error:'EVIDENCE_NOT_READY',evidence:{state:'collecting',onset_t:1,needed_s:200,collected_s:63}}}),{key:'cc.err.notready',params:{n:63,needed:200}});
+assert.equal(I.incDecisionError({status:404,body:null}).key,'cc.err.notfound');
+assert.equal(I.incDecisionError({status:422,body:null,message:'x'}).params.reason,'x');
+assert.equal(I.incDecisionError({status:500,body:null}).key,null);
+
+// Wording: the decision, chain and report strings say a decision is recorded and never executed, keep "accepted" a
+// working explanation, mention a root cause only to deny it, and name the digest an integrity check, not a signature.
+assert.match(STRINGS['dec.badge'][1],/Karar kaydedilir, asla uygulanmaz/);
+assert.match(STRINGS['dec.accept.meaning'][0],/working explanation.*It is not a root cause\./);
+assert.match(STRINGS['dec.accept.meaning'][1],/çalışma açıklaması.*Kök neden değildir\./);
+assert.match(STRINGS['chain.x'][0],/integrity check, not a signature/);assert.match(STRINGS['chain.x'][1],/bütünlük denetimidir, imza değildir/);
+for(const [key,[en,tr]] of Object.entries(STRINGS)){
+ if(!/^(dec|chain|rep)\./.test(key))continue;
+ const denied=en.replace(/not a root cause/gi,''),deniedTr=tr.replace(/kök neden değil(dir)?/gi,'');
+ assert.ok(!/\bcause[sd]?\b|confirm/i.test(denied),`${key}: a cause appears only as "not a root cause"; no confirmation`);
+ assert.ok(!/\bneden\b|\bteyit|kesinleş/i.test(deniedTr),`${key} (TR): a cause appears only as "kök neden değil"; no confirmation`);
+ assert.ok(!/\bexecuted\b/i.test(en)||/never executed|nothing (is|was) executed|^executed$/i.test(en),`${key}: a decision is never executed`);
+}
+
+console.log('incident: stepper, evidence, chart, candidates, operations, brief, evidence chain and decision form verified.');
