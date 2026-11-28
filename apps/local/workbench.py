@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 from agent_runs import Busy, RunManager, RunStore, knowledge_retriever, roles as agent_roles
 from agent_summary import model_status, summarize as summarize_agent_runs
 from plant import PlantController
+from decision_store import DecisionStore
 from schema_store import SchemaStore
 from baseline_store import BaselineStore, from_base64
 from knowledge_base import MAX_TEXT_BYTES, MAX_USER_DOCUMENTS, KnowledgeBase
@@ -54,7 +55,8 @@ AGENT_RUN_BODY_LIMIT = 2900000
 # Simulated plant controls are small JSON objects.
 PLANT_BODY_LIMIT = 256
 PLANT_INVESTIGATE = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})/investigate')
-PLANT_INCIDENT = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})(/evidence\.csv)?')
+PLANT_DECIDE = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})/decision')
+PLANT_INCIDENT = re.compile(r'/api/plant/incidents/(INC-[0-9]{4})(/evidence\.csv|/case)?')
 
 
 def write_private(path, text):
@@ -86,7 +88,9 @@ class Workbench:
         self.baselines = BaselineStore(self.root)
         self.agents = RunManager(baselines=self.baselines, retriever=knowledge_retriever(self.kb), store=RunStore(self.root))
         self.model_status = model_status
-        self.plant = PlantController(lambda: self.agents, model_status=lambda: self.model_status())
+        self.decisions = DecisionStore(self.root)
+        self.plant = PlantController(lambda: self.agents, model_status=lambda: self.model_status(),
+                                     decisions=self.decisions)
         self.state = {'status': 'IDLE', 'events': [], 'result': None, 'error': None,
                       'model': 'NOT_CONFIGURED', 'external_spend_usd': 0, 'history': [], 'scenario': 'suite',
                       'run_id': None, 'started_at': None, 'finished_at': None, 'meta': None, 'reviews': {}}
@@ -293,10 +297,10 @@ def make_server(workbench, token, port=0, catalog=None):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow', '/incident')
+            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow', '/incident', '/report')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'), '/incident.js': ('incident.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'), '/incident.js': ('incident.js', 'text/javascript'), '/report.js': ('report.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             page = self.path.split('?', 1)[0]
             if page != self.path and page in pages:  # a page link with a query, e.g. /flow?run=<id>
@@ -349,11 +353,14 @@ def make_server(workbench, token, port=0, catalog=None):
             else:
                 self.respond(403, b'{}')
 
-        def plant_incident(self, incident_id, csv):
-            """One plant incident as JSON, or its frozen evidence window as a CSV download."""
+        def plant_incident(self, incident_id, part):
+            """One plant incident as JSON, its case file (``/case``), or its frozen evidence window as a CSV download."""
+            csv = part == '/evidence.csv'
             try:
                 if csv:
                     body = workbench.plant.evidence_csv(incident_id)
+                elif part == '/case':
+                    body = json.dumps(workbench.plant.case_file(incident_id)).encode()
                 else:
                     body = json.dumps(workbench.plant.incident(incident_id)).encode()
             except KeyError:
@@ -609,7 +616,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 except (ValueError, TypeError):
                     self.respond(400, b'{}')
                 return
-            if self.path in ('/api/plant/control', '/api/plant/inject', '/api/plant/clear') or PLANT_INVESTIGATE.fullmatch(self.path):
+            if self.path in ('/api/plant/control', '/api/plant/inject', '/api/plant/clear') or PLANT_INVESTIGATE.fullmatch(self.path) \
+                    or PLANT_DECIDE.fullmatch(self.path):
                 body = self.read_body('application/json', PLANT_BODY_LIMIT)
                 if body is None:
                     return
@@ -623,6 +631,8 @@ def make_server(workbench, token, port=0, catalog=None):
                         result = workbench.plant.inject(request.get('fault'), request.get('sensor'))
                     elif self.path.endswith('/clear'):
                         result = workbench.plant.clear(request.get('fault_id'))
+                    elif PLANT_DECIDE.fullmatch(self.path):
+                        result = workbench.plant.decide(PLANT_DECIDE.fullmatch(self.path).group(1), request)
                     else:
                         run_id = workbench.plant.investigate(PLANT_INVESTIGATE.fullmatch(self.path).group(1))
                         self.respond(202, json.dumps({'run_id': run_id}).encode()); return

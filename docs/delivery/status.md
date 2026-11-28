@@ -362,3 +362,24 @@ Everything is simulated, so these numbers measure internal consistency, not diag
 - stale wording;
 - a gitleaks false positive on a claim-key comparison in `flow.js`, allowlisted by fingerprint;
 - stale README and agent-page claims that the roles were planned and no model calls existed.
+
+## Increment 67 — evidence chain, human decision and the incident report
+
+An incident now ends in a verifiable case file (`casefile.py`). A hash chain links five records:
+- the plant baseline;
+- the frozen evidence window;
+- the probe-loop record on it;
+- the sealed agent run;
+- the human decision.
+
+Each link carries its record's SHA-256 and the previous link's hash. The server recomputes every link from its source on each request:
+- evidence bytes against their digest;
+- the probe record's trace digest;
+- the run record through `verify_record`, plus a check that the run's A24 evidence is exactly that probe record;
+- the decision's digest.
+
+The page shows each link as verified, mismatch or missing. Tests change each source in turn and see its link turn to a mismatch. The digests are integrity checks anyone can recompute, not signatures.
+
+After the agent run, a reviewer records one decision: accept a supported candidate as the working explanation, reject the candidates, or ask for more evidence. The decision carries the reviewer's name and a note. The server refuses to accept a candidate the probes do not support on the frozen evidence. Decisions are recorded and never executed. Every version is kept in `incident-decisions.json`, written atomically with mode 0600. A tampered file is set aside on load. Decisions are keyed by the evidence digest, so a plant reset never attaches an old decision to a new incident.
+
+The report page (`/report?incident=…`) prints the whole case to A4 through the browser's "Save as PDF". This keeps Turkish characters, needs no new dependency and costs USD 0. The footer carries the chain head and the case file's content digest.

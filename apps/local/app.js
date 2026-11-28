@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents','/flow':'flow','/incident':'incident'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents','/flow':'flow','/incident':'incident','/report':'report'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -83,6 +83,7 @@ function briefTexts(screen,run){
  if(screen==='overview'){const b=commandBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
  if(screen==='flow'){const b=flowBriefNow();return {happened:b.happened,next:{text:b.next,href:null}};}
  if(screen==='incident'){const b=incidentBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
+ if(screen==='report'){const b=reportBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
  const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
  return {happened:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run),next};
 }
@@ -105,7 +106,7 @@ function renderShell(){
  document.documentElement.lang=language;
  document.querySelectorAll('[data-i18n]').forEach(n=>{n.textContent=t(n.dataset.i18n);});
  document.querySelectorAll('.lang').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.language===language)));
- document.querySelectorAll('#main-nav a').forEach(a=>{const active=a.getAttribute('href')===route||(route==='/incident'&&a.getAttribute('href')==='/overview');if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+ document.querySelectorAll('#main-nav a').forEach(a=>{const active=a.getAttribute('href')===route||((route==='/incident'||route==='/report')&&a.getAttribute('href')==='/overview');if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
  $('connection').textContent=t(connected?'conn.on':'conn.off');$('connection').classList.toggle('connected',connected);
  $('session-toggle').textContent=t(connected?'session.on':'session.open');
  const run=currentRun();
@@ -386,9 +387,10 @@ function render(){
  document.title=`${t(`page.${screen}.title`)} · AegisFlow`;
  if(screen!=='overview')ccStop();
  if(screen!=='incident')incStop();
+ if(screen!=='report')repLeave();
  $('page-actions').replaceChildren(...(screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:commandRender,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents,flow:renderFlow,incident:renderIncident})[screen]();
+ ({overview:commandRender,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents,flow:renderFlow,incident:renderIncident,report:renderReport})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

@@ -15,7 +15,9 @@ from aegisflow_dr.hypotheses import investigate
 from aegisflow_dr.pipeline import InputRejected
 from aegisflow_dr import simulation as sim
 from plant import DEFAULT_SPEED, MODEL_TTL_S, PlantController
-from test_agent_runs import GatedRunner, finish
+from test_agent_runs import GatedRunner, finish, unreachable
+from aegisflow_dr.agents.llm import LocalModel
+from aegisflow_dr.casefile import decision_record
 from workbench import PLANT_BODY_LIMIT, Workbench, make_server
 
 TOKEN = 'test-local-token'
@@ -297,6 +299,114 @@ class PlantHttpTests(unittest.TestCase):
         with self.assertRaises(InputRejected):
             controller.inject('unit_change', 5)
 
+
+class CaseFileTests(unittest.TestCase):
+    """The evidence chain and the human decision, over a real agent run (the local model is unreachable)."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.workbench = Workbench(self.tmp.name, '/missing')
+        model = lambda: LocalModel(transport=unreachable)  # noqa: E731 - LLM roles answer MODEL_UNAVAILABLE honestly
+        self.workbench.agents = RunManager(model_factory=model, baselines=self.workbench.baselines, transport='in_process')
+        self.workbench.plant = PlantController(lambda: self.workbench.agents, thread=False,
+                                               decisions=self.workbench.decisions)
+        self.server = make_server(self.workbench, TOKEN)
+        thread = Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.auth = {'Authorization': 'Bearer ' + TOKEN}
+
+    call, post = PlantHttpTests.call, PlantHttpTests.post
+
+    def case(self, incident):
+        status, body, _ = self.call('/api/plant/incidents/%s/case' % incident, headers=self.auth)
+        self.assertEqual(status, 200)
+        return json.loads(body)
+
+    def investigated(self):
+        plant = self.workbench.plant.plant
+        plant.inject('unit_change', 'pressure_kpa')
+        plant.advance(2 * sim.CHECK_EVERY)
+        incident = plant.incidents[0]['id']
+        early = self.case(incident)
+        self.assertEqual([c['status'] for c in early['checks']], ['verified'] + ['missing'] * 4)
+        self.assertEqual(self.post('/api/plant/incidents/%s/decision' % incident,
+                                   {'decision': 'rejected', 'reviewer': 'R'})[0], 409)
+        plant.advance(sim.WINDOW_SECONDS)
+        self.assertEqual(self.post('/api/plant/incidents/%s/decision' % incident,
+                                   {'decision': 'rejected', 'reviewer': 'R'})[0], 422)  # no finished run yet
+        run_id = json.loads(self.post('/api/plant/incidents/%s/investigate' % incident, {})[1])['run_id']
+        deadline = time.monotonic() + 60
+        while self.workbench.agents.detail(run_id)['state'] == 'running' and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return incident
+
+    def test_chain_is_verified_link_by_link_and_completed_by_a_decision(self):
+        incident = self.investigated()
+        before = self.case(incident)
+        self.assertEqual([(c['kind'], c['status']) for c in before['checks']],
+                         [('baseline', 'verified'), ('evidence', 'verified'), ('probes', 'verified'),
+                          ('agent_run', 'verified'), ('decision', 'missing')])
+        self.assertTrue(before['intact'])
+        self.assertFalse(before['complete'])
+        self.assertTrue(before['chain'][3]['summary']['a24_matches_probes'])
+        self.assertEqual(before['chain'][2]['summary']['supported'], ['unit_change'])
+        status, body, _ = self.post('/api/plant/incidents/%s/decision' % incident,
+                                    {'decision': 'accepted', 'candidate': 'noise_increase', 'reviewer': 'R'})
+        self.assertEqual(status, 422)  # not supported on the frozen evidence
+        for bad in ({'decision': 'accepted', 'candidate': 'unit_change', 'reviewer': 'R', 'run': 'x'}, ['list']):
+            self.assertIn(self.post('/api/plant/incidents/%s/decision' % incident, bad)[0], (400, 422))
+        status, body, _ = self.post('/api/plant/incidents/%s/decision' % incident,
+                                    {'decision': 'accepted', 'candidate': 'unit_change', 'reviewer': ' Ada ',
+                                     'note': 'Scale ratio near 10.'})
+        after = json.loads(body)
+        self.assertEqual((status, after['complete'], len(after['chain'])), (200, True, 5))
+        self.assertEqual(after['chain'][4]['summary'], {'decision': 'accepted', 'candidate': 'unit_change', 'reviewer': 'Ada'})
+        self.assertEqual(after['head'], after['chain'][4]['link_sha256'])
+        self.assertEqual(len(after['decisions']), 1)
+        view = json.loads(self.call('/api/plant/incidents/%s' % incident, headers=self.auth)[1])
+        self.assertEqual(view['decision']['decision'], 'accepted')
+        self.assertEqual(self.call('/api/plant/incidents/INC-0404/case', headers=self.auth)[0], 404)
+        self.assertEqual(self.call('/api/plant/incidents/%s/case' % incident)[0], 403)
+
+        # Tampering with any source shows up as a mismatch on its link.
+        controller, decisions = self.workbench.plant, self.workbench.decisions
+        latest = decisions.latest(view['incident']['evidence']['sha256'])
+        with mock.patch.object(decisions, 'latest', return_value={**latest, 'note': 'edited'}):
+            self.assertEqual(controller.case_file(incident)['checks'][4]['status'], 'mismatch')
+        detail = self.workbench.agents.detail(view['incident']['run_id'])
+        tampered = {**detail, 'record': {**detail['record'], 'status': 'edited'}}
+        with mock.patch.object(self.workbench.agents, 'detail', return_value=tampered):
+            self.assertEqual(controller.case_file(incident)['checks'][3]['status'], 'mismatch')
+        with mock.patch('plant.canonical_digest', return_value='0' * 64):
+            self.assertEqual(controller.case_file(incident)['checks'][0]['status'], 'mismatch')
+        with mock.patch('plant.verify_investigation', side_effect=InputRejected('edited')):
+            controller._investigations.clear()
+            self.assertEqual(controller.case_file(incident)['checks'][2]['status'], 'mismatch')
+        evidence = controller.plant._evidence[incident]
+        controller.plant._evidence[incident] = (evidence[0] + b'x', evidence[1])
+        self.assertEqual(controller.case_file(incident)['checks'][1]['status'], 'mismatch')
+        controller.plant._evidence[incident] = evidence
+        with mock.patch.object(self.workbench.agents, 'detail', side_effect=KeyError('gone')):
+            self.assertEqual(controller.case_file(incident)['checks'][3]['status'], 'missing')
+
+    def test_a_decision_from_another_run_is_not_linked_and_no_store_refuses(self):
+        incident = self.investigated()
+        controller = self.workbench.plant
+        sha = controller.incident(incident)['incident']['evidence']['sha256']
+        other = decision_record(incident_id=incident, evidence_sha256=sha, run_id='run-other', decision='rejected',
+                                candidate=None, supported=[], reviewer='R', note='', decided_at='t')
+        self.workbench.decisions.add(other)
+        self.assertEqual(controller.case_file(incident)['checks'][4]['status'], 'missing')
+        bare = PlantController(lambda: self.workbench.agents, thread=False)
+        bare.plant = controller.plant
+        with self.assertRaisesRegex(InputRejected, 'state folder'):
+            bare.decide(incident, {'decision': 'rejected', 'reviewer': 'R'})
+        self.assertEqual(bare.case_file(incident)['decisions'], [])
+        self.assertIsNone(bare.incident(incident)['decision'])
 
 if __name__ == '__main__':
     unittest.main()
