@@ -54,6 +54,7 @@ MODEL = "qwen3:4b"
 LLM_AGENTS = tuple(sorted(MODEL_ROLES))
 RECORDING = Path(__file__).resolve().parents[3] / "fixtures" / "evaluations" / "agents-llm-recording-v1.json"
 RECORDING_NAME = "fixtures/evaluations/agents-llm-recording-v1.json"
+CASES = RECORDING.with_name("agents-cases-v1.json")  # the scored facts of every committed case (see ``collect``)
 NOW = datetime(2026, 11, 25, tzinfo=timezone.utc)  # stamps the run records; not used by any metric
 ERRORS = (None, INVALID_OUTPUT, TIMEOUT, MODEL_UNAVAILABLE)
 _HEX = re.compile(r"[0-9a-f]{64}")
@@ -364,11 +365,51 @@ def _suggested(result):
     return next((c["params"]["mechanisms"] for c in result["claims"] if c["text_key"] == "a23.suggested"), None)
 
 
-def score_case(bucket, name, record, calls, investigation, recorded=None):
-    """Add one run record to ``bucket``; ``calls`` is the replay log of its model calls, ``investigation`` the
-    deterministic loop's record for the same case and ``recorded`` the live run's entry in the recording (or None)."""
+def case_facts(name, record, calls, investigation, recorded=None):
+    """The measurements of one case that scoring needs, as plain JSON: ``record`` is the run record, ``calls`` the replay
+    log of its model calls, ``investigation`` the deterministic loop's record for the same case and ``recorded`` the live
+    run's entry in the recording (or None). Saved facts let the report be re-rendered without replaying every case."""
+    selected = sorted(s["agent_id"] for s in record["selection"] if s["selected"])
+    results = {a["agent_id"]: a["result"] for a in record["agents"]}
+    judge, advisory = {"claims": 0, "accepted": 0, "reasons": {}}, []
+    for verdict in record["judge"]["verdicts"]:
+        agent = verdict["agent"]
+        if agent in SPECIALISTS:
+            judge["claims"] += 1
+            if verdict["verdict"] == "accepted":
+                judge["accepted"] += 1
+            else:
+                _add(judge["reasons"], verdict["reason"])
+        elif verdict.get("text_key") in ADVISORY_CLAIMS.get(agent, ()):
+            advisory.append([agent, verdict["text_key"], verdict["verdict"],
+                             None if verdict["verdict"] == "advisory" else verdict["reason"]])
+    latencies = {}
+    for call in calls:
+        if not call["miss"]:
+            latencies.setdefault(call["prompt_sha256"], []).append(call["latency_ms"])
+    model_calls = []
+    for event in record["events"]:
+        if event["type"] == "llm_call":
+            data = event["data"]
+            key = {True: "valid", INVALID_OUTPUT: "invalid", TIMEOUT: "timeout"}.get(data["ok"] or data["error_code"],
+                                                                                   "unavailable")
+            queue = latencies.get(data["prompt_sha256"])
+            model_calls.append([event["agent_id"], key, queue.pop(0) if queue else None])
+    mechanisms = _suggested(results["A23"])
+    return {"selected": selected, "labels": {agent: _label(results[agent]) for agent in selected}, "judge": judge,
+            "advisory": advisory, "model_calls": model_calls, "a23": mechanisms,
+            "catalog_order": None if mechanisms is None else catalog_order(record["intake"]["observations"]),
+            "supported": sorted({h["mechanism"] for h in investigation["hypotheses"] if h["status"] == "supported"}),
+            "status": record["status"], "exceeded": list(record["budget"]["exceeded"]),
+            "misses": sum(call["miss"] for call in calls),
+            "wall_ms": None if recorded is None else recorded["wall_ms"],
+            "matched": None if recorded is None else outcome(record) == recorded["outcome_sha256"]}
+
+
+def score_facts(bucket, name, facts):
+    """Add one case's facts (see ``case_facts``) to ``bucket``."""
     row, expected = bucket["scenarios"][name], set(EXPECTED_SELECTED[name])
-    selected = {s["agent_id"] for s in record["selection"] if s["selected"]}
+    selected = set(facts["selected"])
     chosen = selected & set(SPECIALISTS)
     row["cases"] += 1
     row["exact"] += chosen == expected
@@ -379,52 +420,38 @@ def score_case(bucket, name, record, calls, investigation, recorded=None):
         _add(row["extra"], agent)
     for agent in expected - chosen:
         _add(row["missed"], agent)
-    results = {a["agent_id"]: a["result"] for a in record["agents"]}
-    for agent in sorted(selected):
-        _add(bucket["agents"].setdefault(agent, {}), _label(results[agent]))
-    for verdict in record["judge"]["verdicts"]:
-        agent = verdict["agent"]
-        if agent in SPECIALISTS:
-            bucket["judge"]["claims"] += 1
-            if verdict["verdict"] == "accepted":
-                bucket["judge"]["accepted"] += 1
+    for agent, label in facts["labels"].items():
+        _add(bucket["agents"].setdefault(agent, {}), label)
+    judge = bucket["judge"]
+    judge["claims"] += facts["judge"]["claims"]
+    judge["accepted"] += facts["judge"]["accepted"]
+    for reason, count in facts["judge"]["reasons"].items():
+        _add(judge["reasons"], reason, count)
+    for agent, text_key, verdict, reason in facts["advisory"]:
+        stats = bucket["llm"][agent]
+        if verdict == "advisory":
+            stats["advisory"] += 1
+        else:
+            stats["rejected"] += 1
+            _add(stats["reasons"], reason)
+        if text_key == "a23.suggested":
+            bucket["a23_judge"]["claims"] += 1
+            if verdict == "advisory":
+                bucket["a23_judge"]["advisory"] += 1
             else:
-                _add(bucket["judge"]["reasons"], verdict["reason"])
-        elif verdict.get("text_key") in ADVISORY_CLAIMS.get(agent, ()):
-            stats = bucket["llm"][agent]
-            if verdict["verdict"] == "advisory":
-                stats["advisory"] += 1
-            else:
-                stats["rejected"] += 1
-                _add(stats["reasons"], verdict["reason"])
-            if verdict["text_key"] == "a23.suggested":
-                bucket["a23_judge"]["claims"] += 1
-                if verdict["verdict"] == "advisory":
-                    bucket["a23_judge"]["advisory"] += 1
-                else:
-                    _add(bucket["a23_judge"]["reasons"], verdict["reason"])
-    latencies = {}
-    for call in calls:
-        if not call["miss"]:
-            latencies.setdefault(call["prompt_sha256"], []).append(call["latency_ms"])
-    for event in record["events"]:
-        if event["type"] != "llm_call":
-            continue
-        stats, data = bucket["llm"][event["agent_id"]], event["data"]
+                _add(bucket["a23_judge"]["reasons"], reason)
+    for agent, key, latency in facts["model_calls"]:
+        stats = bucket["llm"][agent]
         stats["calls"] += 1
-        key = {True: "valid", INVALID_OUTPUT: "invalid", TIMEOUT: "timeout"}.get(data["ok"] or data["error_code"],
-                                                                               "unavailable")
         stats[key] += 1
-        if latencies.get(data["prompt_sha256"]):
-            stats["latencies"].append(latencies[data["prompt_sha256"]].pop(0))
-    truth, mechanisms = truth_of(name), _suggested(results["A23"])
-    supported = {h["mechanism"] for h in investigation["hypotheses"] if h["status"] == "supported"}
+        if latency is not None:
+            stats["latencies"].append(latency)
+    truth, mechanisms, supported = truth_of(name), facts["a23"], set(facts["supported"])
     row["a23_selected"] += "A23" in selected
     row["a23_suggested"] += bool(mechanisms)
     if mechanisms is not None:
         _add(row["a23_lengths"], len(mechanisms))
-        row["a23_echo"] += bool(mechanisms) and mechanisms == catalog_order(record["intake"]["observations"])[
-            :len(mechanisms)]
+        row["a23_echo"] += bool(mechanisms) and mechanisms == facts["catalog_order"][:len(mechanisms)]
         row["a23_repeated"] += len(set(mechanisms)) < len(mechanisms)
     if truth is not None:
         row["a23_top1"] += bool(mechanisms) and mechanisms[0] == truth
@@ -436,14 +463,19 @@ def score_case(bucket, name, record, calls, investigation, recorded=None):
         row["loop_misattributed"] += bool(supported - {"genuine_change"})
     runs = bucket["runs"]
     runs["cases"] += 1
-    _add(runs["statuses"], record["status"])
-    for limit in record["budget"]["exceeded"]:
+    _add(runs["statuses"], facts["status"])
+    for limit in facts["exceeded"]:
         _add(runs["exceeded"], limit)
-    runs["misses"] += sum(call["miss"] for call in calls)
-    if recorded is not None:
-        runs["walls"].append(recorded["wall_ms"])
+    runs["misses"] += facts["misses"]
+    if facts["matched"] is not None:
+        runs["walls"].append(facts["wall_ms"])
         runs["compared"] += 1
-        runs["matched"] += outcome(record) == recorded["outcome_sha256"]
+        runs["matched"] += facts["matched"]
+
+
+def score_case(bucket, name, record, calls, investigation, recorded=None):
+    """Add one run record to ``bucket`` (``case_facts`` then ``score_facts``)."""
+    score_facts(bucket, name, case_facts(name, record, calls, investigation, recorded))
 
 
 def percentile(values, p):
@@ -488,28 +520,43 @@ def _finalize(bucket):
     runs["fidelity"] = _rate(runs["matched"], runs["compared"])
 
 
-def evaluate(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=GROUPS):
-    """Replay ``recording`` over the cases of ``splits`` and score them."""
+def collect(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=GROUPS):
+    """Replay ``recording`` over the cases of ``splits`` and keep each case's facts (see ``case_facts``)."""
     replay = ReplayModel(recording)
     runs = {run["case_id"]: run for run in recording["runs"]}
-    report = {split: _empty_bucket(scenarios) for split in splits}
+    collected = {split: {"groups": 0, "cases": []} for split in splits}
     seen = set()
     for group, split, name, record, current, as_of in cases(splits, scenarios, groups):
-        bucket = report[split]
         if group not in seen:
             seen.add(group)
-            bucket["groups"] += 1
-        clock, log = VirtualClock(), []
-        result = run_one(group, name, record, current, as_of, replay.model(case_id(group, name), clock, log), clock)
-        score_case(bucket, name, result, log, hypotheses.investigate(record, current, as_of=as_of),
-                   runs.get(case_id(group, name)))
-    for bucket in report.values():
-        _finalize(bucket)
-    return {"version": VERSION, "scope": SCOPE, "groups": len(groups),
+            collected[split]["groups"] += 1
+        identifier, clock, log = case_id(group, name), VirtualClock(), []
+        result = run_one(group, name, record, current, as_of, replay.model(identifier, clock, log), clock)
+        facts = case_facts(name, result, log, hypotheses.investigate(record, current, as_of=as_of), runs.get(identifier))
+        collected[split]["cases"].append({"case_id": identifier, "scenario": name, **facts})
+    return {"version": VERSION, "groups": len(groups), "scenarios": list(scenarios),
             "recording": {"model": recording["model"], "prompt_version": recording["prompt_version"],
                           "created": recording["created"], "calls": len(recording["calls"]),
                           "runs": len(recording["runs"])},
-            "splits": report}
+            "splits": collected}
+
+
+def summarise_collected(collected):
+    """The report of collected case facts (see ``collect``)."""
+    report = {}
+    for split, data in collected["splits"].items():
+        bucket = report[split] = _empty_bucket(collected["scenarios"])
+        bucket["groups"] = data["groups"]
+        for case in data["cases"]:
+            score_facts(bucket, case["scenario"], case)
+        _finalize(bucket)
+    return {"version": collected["version"], "scope": SCOPE, "groups": collected["groups"],
+            "recording": collected["recording"], "splits": report}
+
+
+def evaluate(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=GROUPS):
+    """Replay ``recording`` over the cases of ``splits`` and score them."""
+    return summarise_collected(collect(recording, splits, scenarios=scenarios, groups=groups))
 
 
 # -- Report ------------------------------------------------------------------------------------------------------------
@@ -675,10 +722,15 @@ def render_markdown(report):
 
 def main(argv=(), *, transport=None, err=sys.stderr):
     parser = argparse.ArgumentParser(prog="python -m aegisflow_dr.agents.agents_eval")
-    parser.add_argument("--live", action="store_true", help="call the local model for cases not yet recorded")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--live", action="store_true", help="call the local model for cases not yet recorded")
+    source.add_argument("--from-cases", metavar="PATH", help="render the report from saved case facts, without replay")
     parser.add_argument("--record", default=str(RECORDING), help="recording file (default: the committed one)")
     parser.add_argument("--include-heldout", action="store_true", help="also run and score the held-out split")
+    parser.add_argument("--save-cases", metavar="PATH", help="also save the case facts the report is scored from")
     args = parser.parse_args(list(argv))
+    if args.from_cases:
+        return render_markdown(summarise_collected(json.loads(Path(args.from_cases).read_text("utf-8"))))
     splits = SPLITS if args.include_heldout else SPLITS[:2]
     path = Path(args.record)
     if args.live:
@@ -696,7 +748,10 @@ def main(argv=(), *, transport=None, err=sys.stderr):
         save_recording(recording, path)
     elif not path.exists():
         parser.error("no recording at %s; make one with --live" % path)
-    return render_markdown(evaluate(load_recording(path), splits))
+    collected = collect(load_recording(path), splits)
+    if args.save_cases:
+        Path(args.save_cases).write_text(json.dumps(collected, separators=(",", ":")) + "\n", "utf-8")
+    return render_markdown(summarise_collected(collected))
 
 
 if __name__ == "__main__":  # pragma: no cover
