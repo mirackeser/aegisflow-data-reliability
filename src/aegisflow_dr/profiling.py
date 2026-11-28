@@ -10,6 +10,7 @@ import csv
 from datetime import datetime
 import hashlib
 import io
+import math
 from statistics import median
 import re
 
@@ -100,7 +101,7 @@ def _column(name, values):
                "distinct": len({v.strip() for v, k in zip(values, kinds) if k != "empty"})}
     if role == "numeric":
         numbers = [float(v) for v, k in zip(values, kinds) if k in ("integer", "decimal")]
-        profile.update(min=min(numbers), max=max(numbers), mean=round(sum(numbers) / len(numbers), 6), median=median(numbers))
+        profile.update(min=min(numbers), max=max(numbers), mean=round(math.fsum(numbers) / len(numbers), 6), median=median(numbers))
     return profile, kinds
 
 

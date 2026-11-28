@@ -16,6 +16,9 @@
 <script src="/schemaregistry.js" defer></script>
 <script src="/profile.js" defer></script>
 <script src="/baseline.js" defer></script>
+<script src="/flow.js" defer></script>
+<script src="/command.js" defer></script>
+<script src="/incident.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
 <body>
@@ -26,7 +29,8 @@
   <span>AEGISFLOW <small>DATA RELIABILITY</small></span>
  </a>
  <nav id="main-nav" aria-label="Main navigation">
-  <a class="route" href="/overview" data-i18n="nav.overview">Overview</a>
+  <a class="route" href="/overview" data-i18n="nav.overview">Command Center</a>
+  <a class="route nav-primary" href="/flow" data-i18n="nav.flow">Agent flow</a>
   <a class="route" href="/investigations" data-i18n="nav.investigations">Investigations</a>
   <a class="route" href="/sources" data-i18n="nav.sources">Data sources</a>
   <a class="route" href="/activity" data-i18n="nav.activity">Execution flow</a>
@@ -78,6 +82,8 @@
  <section class="screen" data-screen="activity" aria-labelledby="page-title"><div id="screen-activity"></div></section>
  <section class="screen" data-screen="knowledge" aria-labelledby="page-title"><div id="screen-knowledge"></div></section>
  <section class="screen" data-screen="evidence" aria-labelledby="page-title"><div id="screen-evidence"></div></section>
+ <section class="screen" data-screen="flow" aria-labelledby="page-title"><p id="flow-live" class="sr-only" role="status" aria-atomic="true"></p><div id="screen-flow"></div></section>
+ <section class="screen" data-screen="incident" aria-labelledby="page-title"><div id="screen-incident"></div></section>
  <section class="screen" data-screen="agents" aria-labelledby="page-title"><div id="screen-agents"></div></section>
  <section class="screen" data-screen="history" aria-labelledby="page-title"><div id="screen-history"></div></section>
 

@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents','/flow':'flow','/incident':'incident'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -40,9 +40,9 @@ async function request(path,method='GET',body,headers={}){
  if(body!==undefined)options.body=body;
  const response=await fetch(path,options);
  if(!response.ok){
-  let detail='';try{detail=(await response.json()).message||'';}catch{}
+  let detail='',payload=null;try{payload=await response.json();detail=payload?.message||'';}catch{}
   const error=new Error(response.status===409?t('err.busy'):response.status===413?t('err.size'):response.status===422?t('err.rejected',{reason:detail}):t('err.unavailable'));
-  error.status=response.status;throw error;
+  error.status=response.status;error.body=payload;throw error;
  }
  return response.json();
 }
@@ -77,22 +77,35 @@ function nextStep(run){
  if(a&&a.status==='FAIL')return {text:t('next.reinspect'),href:'/sources'};
  return {text:t('next.pass'),href:'/history'};
 }
-function renderBrief(screen,run){
+// The four brief answers. "What happened" and "What next" are recomputed from the current state on every paint of
+// the live pages (Command Center, Agent flow), so they never lag behind what the page shows.
+function briefTexts(screen,run){
+ if(screen==='overview'){const b=commandBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
+ if(screen==='flow'){const b=flowBriefNow();return {happened:b.happened,next:{text:b.next,href:null}};}
+ if(screen==='incident'){const b=incidentBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
  const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
+ return {happened:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run),next};
+}
+let briefSig='';
+function renderBrief(screen,run){
+ const b=briefTexts(screen,run),sig=JSON.stringify([language,screen,b]);
+ if(sig===briefSig&&$('page-brief').childElementCount)return;
+ briefSig=sig;
  const cell=(label,body)=>h('div',{},h('b',{text:t(label)}),body);
  $('page-brief').replaceChildren(
   cell('brief.purpose',h('span',{text:t(`brief.${screen}.purpose`)})),
   cell('brief.can',h('span',{text:t(`brief.${screen}.can`)})),
-  cell('brief.happened',h('span',{text:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run)})),
-  cell('brief.next',next.href?link(next.href,next.text,'text-link'):h('span',{text:next.text})));
+  cell('brief.happened',h('span',{id:'brief-happened',text:b.happened})),
+  cell('brief.next',b.next.href?link(b.next.href,b.next.text,'text-link'):h('span',{id:'brief-next',text:b.next.text})));
 }
+const refreshBrief=()=>renderBrief(PAGES[route]||'overview',currentRun());
 
 // ---------- shell ----------
 function renderShell(){
  document.documentElement.lang=language;
  document.querySelectorAll('[data-i18n]').forEach(n=>{n.textContent=t(n.dataset.i18n);});
  document.querySelectorAll('.lang').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.language===language)));
- document.querySelectorAll('#main-nav a').forEach(a=>{const active=a.getAttribute('href')===route||(route==='/knowledge'&&false);if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+ document.querySelectorAll('#main-nav a').forEach(a=>{const active=a.getAttribute('href')===route||(route==='/incident'&&a.getAttribute('href')==='/overview');if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
  $('connection').textContent=t(connected?'conn.on':'conn.off');$('connection').classList.toggle('connected',connected);
  $('session-toggle').textContent=t(connected?'session.on':'session.open');
  const run=currentRun();
@@ -110,44 +123,7 @@ function renderShell(){
  }):[h('p',{class:'side-empty',text:t('side.none')})]));
 }
 
-// ---------- overview ----------
-function kpi(labelKey,value,sub,tone=''){
- return h('article',{class:'kpi '+tone},h('span',{text:t(labelKey)}),h('strong',{text:value}),h('small',{text:sub}));
-}
-function dimensionPanel(a){
- const body=h('div',{class:'bars'});
- if(!a)body.append(empty('empty.noquality.t','empty.noquality.x'));
- else for(const d of dimensionRows(a)){
-  body.append(h('div',{class:'bar-row'},
-   h('div',{class:'bar-head'},h('span',{text:t('dim.'+d.key)}),h('strong',{text:P(d.ratio)})),
-   h('div',{class:'bar-track',role:'img','aria-label':`${t('dim.'+d.key)}: ${P(d.ratio)}`},(()=>{const f=h('div',{class:'bar-fill'});f.style.width=d.ratio===null?'0%':(d.ratio*100)+'%';return f;})()),
-   h('small',{text:d.total?t('dim.fraction',{p:N(d.passed),n:N(d.total)}):t('dim.na')})));
- }
- return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.dimensions')}),chip(t('badge.exact'),'info')),body,h('p',{class:'panel-note',text:t('panel.dimensions.note')}));
-}
-function heatmapPanel(a){
- const body=h('div',{class:'heat-wrap'});
- if(!a)body.append(empty('empty.noheat.t','empty.noheat.x'));
- else{
-  const cols=['not_null','unique','amount_format'],rows=['order_id','customer_id','order_total'];
-  const max=Math.max(1,...a.heatmap.map(c=>c.records));
-  const table=h('table',{class:'heat'},h('caption',{class:'sr-only',text:t('panel.heat')}),
-   h('thead',{},h('tr',{},h('th',{scope:'col',text:t('heat.column')}),cols.map(c=>h('th',{scope:'col',text:t('check.'+c)})))),
-   h('tbody',{},rows.map(r=>h('tr',{},h('th',{scope:'row',text:r}),cols.map(c=>{
-    const cell=a.heatmap.find(x=>x.column===r&&x.check===c),n=cell?cell.records:0;
-    const level=n===0?0:Math.min(4,1+Math.floor(n/max*3.999));
-    return h('td',{class:'heat-cell level-'+level,text:n?N(n):'·','aria-label':`${r}, ${t('check.'+c)}: ${n}`});})))));
-  body.append(table);
-  if(a.schema_issues.length)body.append(h('p',{class:'schema-line'},...a.schema_issues.map(i=>chip(`${t('check.'+i.check)}: ${i.column}`,'bad'))));
- }
- return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.heat')}),chip(t('badge.records'),'info')),body,h('p',{class:'panel-note',text:t('panel.heat.note')}));
-}
-function histogramPanel(a){
- const body=h('div',{class:'chart-area'});
- if(!a||!a.amount_histogram.length)body.append(empty('empty.nohist.t','empty.nohist.x'));
- else body.append(histogramSvg(a.amount_histogram,{amountLabel:A,label:t('panel.hist')}));
- return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.hist')}),chip(t('badge.valid'),'info')),body,h('p',{class:'panel-note',text:t('panel.hist.note')}));
-}
+// ---------- shared panels ----------
 function trendPanel(){
  const runs=[...(state?.history||[]).slice().reverse(),...(state?.run_id&&state.status!=='IDLE'?[state]:[])].filter(r=>r.result?.cases?.[0]?.analysis).slice(-8);
  const body=h('div',{class:'chart-area'});
@@ -219,39 +195,6 @@ function flowPanel(run,wide=false){
  return h('section',{class:'panel flow-panel'+(wide?' wide':'')},h('div',{class:'panel-heading'},h('h2',{text:t('panel.flow')}),chip(run?.result?t('badge.real'):t('badge.waiting'),run?.result?'ok':'muted')),
   h('div',{class:'flow-scroll'},svg),list,h('p',{class:'panel-note',text:t('panel.flow.note')}),h('div',{class:'panel-bottom'},link('/activity',t('flow.more')),h('span',{text:t('flow.readonly')})));
 }
-function attentionPanel(run){
- const a=analysisOf(run),body=h('div',{class:'attention'});
- if(!run)body.append(empty('empty.attn.t','empty.attn.x',link('/sources',t('cta.start'),'primary route')));
- else if(!a)body.append(h('p',{text:t('attn.example')}));
- else if(a.status==='PASS')body.append(h('h3',{text:t('attn.pass')}),h('p',{text:t('attn.pass.x')}));
- else{
-  const groups=workspaceGroups(a).slice(0,3);
-  body.append(h('h3',{text:t('attn.fail',{n:N(a.impact.affected_records)})}),
-   h('ul',{class:'attn-list'},groups.map(g=>h('li',{},chip(t('prio.'+g.priority),g.priority===1?'bad':g.priority===2?'warn':'muted'),' ',t('group.title.'+g.check,{column:g.column,n:N(g.count)})))),
-   link('/investigations',t('attn.open')));
- }
- return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.attn')})),body);
-}
-function renderOverview(){
- const run=currentRun(),a=analysisOf(run),root=$('screen-overview');
- const verdict=!run?'—':run.status==='RUNNING'?t('status.RUNNING'):a?(a.status==='FAIL'?t('verdict.fail'):t('verdict.pass')):t('status.'+run.status);
- const judge=run?.result?.judge?.decision;
- root.replaceChildren(
-  ...(!run?[h('section',{class:'panel hero'},h('div',{},h('h2',{text:t('hero.title')}),h('p',{text:t('hero.text')}),h('div',{class:'hero-actions'},link('/sources',t('hero.upload'),'primary route'),...SAMPLES.slice(0,2).map(f=>h('button',{type:'button',class:'secondary',disabled:!connected,onclick:()=>startSample(f)},t('sample.'+f)))),connected?null:h('p',{class:'hint',text:t('hero.connect')})),
-   h('ol',{class:'hero-steps'},...['connect','observe','investigate','review'].map((k,i)=>h('li',{},h('b',{text:String(i+1)}),h('span',{},h('strong',{text:t('hero.step.'+k)}),h('small',{text:t('hero.step.'+k+'.x')}))))))]:[]),
-  h('div',{class:'kpi-grid'},
-   kpi('kpi.records',a?N(a.row_count):'—',run?`${t(originKey(run))}${runLabel(run)!=='—'?' · '+runLabel(run):''}`:t('kpi.records.x')),
-   kpi('kpi.health',a?P(a.dimensions.record_health.ratio):'—',a?t('kpi.health.x',{p:N(a.dimensions.record_health.passed),n:N(a.dimensions.record_health.total)}):t('kpi.health.none'),a&&a.status==='FAIL'?'warn':''),
-   kpi('kpi.findings',a?N(a.impact.affected_records):'—',a?t('kpi.findings.x',{c:N(a.impact.affected_customers)}):t('kpi.findings.none'),a&&a.status==='FAIL'?'bad':''),
-   kpi('kpi.verdict',verdict,judge?t('kpi.verdict.x'):t('kpi.verdict.none'),a?(a.status==='FAIL'?'bad':'ok'):'')),
-  h('div',{class:'dash-grid'},flowPanel(run,true),dimensionPanel(a),heatmapPanel(a),histogramPanel(a),driftPanel(),trendPanel(),attentionPanel(run),readinessPanel()));
-}
-function readinessPanel(){
- const rows=[['src.csv','ok','src.csv.x'],['src.sample','ok','src.sample.x'],['src.pg','info','src.pg.x'],['src.company','muted','src.company.x'],['src.warehouse','muted','src.warehouse.x']];
- return h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('panel.ready')}),link('/sources',t('ready.manage'))),
-  h('ul',{class:'ready-list'},rows.map(([name,tone,text])=>h('li',{},h('div',{},h('strong',{text:t(name)}),h('small',{text:t(text)})),chip(t('state.'+tone),tone)))));
-}
-
 // ---------- execution flow ----------
 function renderActivity(){
  const run=currentRun(),root=$('screen-activity'),progress=progressOf(run);
@@ -441,9 +384,11 @@ function render(){
  document.querySelectorAll('.screen').forEach(s=>{s.hidden=s.dataset.screen!==screen;});
  $('page-eyebrow').textContent=t(`page.${screen}.eyebrow`);$('page-title').textContent=t(`page.${screen}.title`);
  document.title=`${t(`page.${screen}.title`)} · AegisFlow`;
- $('page-actions').replaceChildren(...(screen==='overview'||screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
+ if(screen!=='overview')ccStop();
+ if(screen!=='incident')incStop();
+ $('page-actions').replaceChildren(...(screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:renderOverview,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents})[screen]();
+ ({overview:commandRender,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents,flow:renderFlow,incident:renderIncident})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

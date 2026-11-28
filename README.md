@@ -33,7 +33,7 @@ The batch demo now executes source validation → normalized staging → SQL cus
 
 The executable baseline generates synthetic orders and checks a CSV data contract. It detects renamed columns, missing values, duplicate order IDs and invalid amounts. Every report identifies the exact input with SHA-256 and uses logical CSV record numbers as evidence locators. Invalid input and exhausted input budgets fail explicitly.
 
-**This is a deterministic diagnostic foundation, not an agent runtime or root-cause inference system.** The full 36 specialist roles remain planned; two bounded local capability slices (A26 retained evidence read and A27 deterministic verification) are implemented separately. No model calls, third-party data connectors, automatic repair or production writes are enabled.
+**This is a deterministic diagnostic foundation with a local agent runtime, not a root-cause inference system.** All 36 catalog roles are registered, contract-bound executors (`aegisflow_dr.agents`). Most wrap the existing deterministic modules. Five roles (A02, A22, A23, A29, A30) can call an optional local model (Ollama `qwen3:4b`, loopback only), and its output is advisory and checked by the Judge (A27). A router selects at most 8 specialists per case, and A33 only records a human decision. The Command Center plant is a simulation. No third-party data connectors, automatic repair or production writes are enabled.
 
 ## Try locally
 

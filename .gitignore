@@ -28,3 +28,9 @@ dist/
 .ssh/
 .kube/
 .security-reports/
+
+# Local tool state (coverage data, agent workspaces, editor/assistant settings)
+.coverage
+.coverage.*
+.superpowers/
+.claude/

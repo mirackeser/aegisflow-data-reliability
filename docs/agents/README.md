@@ -1,6 +1,6 @@
 # Agent connections and execution visibility
 
-This page is a rendered connection map of implemented capabilities, not a live dashboard. GitHub renders the Mermaid diagrams below. The [36-role catalog](../agent-catalog.json) and original architecture remain the planned specialist design. Only A26 retained evidence read and A27 deterministic verification are currently executable role slices. MCP tools and the investigation workflow are software components, not additional autonomous agents. No live LLM worker is active. Offline dispatcher/routing simulations are executable; their adapters do not establish provider operation.
+This page is a rendered connection map of implemented capabilities, not a live dashboard; the workbench's Agent flow page shows runs live. GitHub renders the Mermaid diagrams below. All 36 roles of the [catalog](../agent-catalog.json) are registered, contract-bound executors in `aegisflow_dr.agents` (runtime, router, waves, budgets, Judge gate, MCP and A2A-over-mTLS paths). Most wrap the existing deterministic modules. A02, A22, A23, A29 and A30 can call an optional local model (Ollama, loopback only), whose output is advisory and Judge-gated. The A26 retained evidence read and A27 deterministic verification slices below predate the runtime and remain as described. MCP tools and the investigation workflow are software components, not additional autonomous agents. Offline dispatcher/routing simulations are executable; their adapters do not establish provider operation.
 
 ## Implemented connections
 
@@ -22,7 +22,7 @@ flowchart LR
   Context --> Usage[Durable local usage admission and accounting]
   Usage --> Adapter[Offline simulated dispatcher and bounded routing]
   Adapter -.-> Offline
-  Planned[Other catalog roles: planned] -.-> Future[Future specialist workflows]
+  Runtime[Agent runtime: 36 contract-bound roles] -.-> Workflow
 ```
 
 The immediate review runs A26 then A27 in one process. The durable queue reserves task `collect` for A26; only after collect succeeds may task `judge` execute under A27. Retry/lease conditions still apply. A26 failure blocks its dependent judge task. Job success means the workflow executed successfully: its Judge verdict can still REJECT the proposed assessment.
