@@ -11,7 +11,8 @@ Deterministic and dependency-free. Thresholds are fixed in the design (docs/supe
   segment; an estimate is *clear* at or above ``CLEAR_STATISTIC``. On clean development data (seeds 1-10, 90 windows
   of 400 s per sensor) the largest value was 17 for the non-seasonal sensors and 26 for the seasonal one.
 
-An estimate says *when* the series changed, never *why*.
+An estimate says *when* the series changed, never *why*. Sums of floats use ``math.fsum`` (exactly rounded): the
+built-in ``sum`` changed its float algorithm in Python 3.12, and results must not depend on the Python version.
 """
 import math
 
@@ -36,7 +37,7 @@ def _solve3(m, v):
             a[row] = [x - factor * y for x, y in zip(a[row], a[col])]
     solution = [0.0, 0.0, 0.0]
     for row in (2, 1, 0):
-        solution[row] = (a[row][3] - sum(a[row][k] * solution[k] for k in range(row + 1, 3))) / a[row][row]
+        solution[row] = (a[row][3] - math.fsum(a[row][k] * solution[k] for k in range(row + 1, 3))) / a[row][row]
     return solution
 
 
@@ -44,13 +45,13 @@ def harmonic_fit(ts, xs, period):
     """Least squares of ``x = a + b sin(wt) + c cos(wt)`` with ``w = 2 pi / period``; returns (a, b, c, sse) or None."""
     w = 2 * math.pi / period
     basis = [(1.0, math.sin(w * t), math.cos(w * t)) for t in ts]
-    gram = [[sum(f[i] * f[j] for f in basis) for j in range(3)] for i in range(3)]
-    moment = [sum(f[i] * x for f, x in zip(basis, xs)) for i in range(3)]
+    gram = [[math.fsum(f[i] * f[j] for f in basis) for j in range(3)] for i in range(3)]
+    moment = [math.fsum(f[i] * x for f, x in zip(basis, xs)) for i in range(3)]
     coefficients = _solve3(gram, moment)
     if coefficients is None:
         return None
     a, b, c = coefficients
-    sse = sum((x - a - b * f[1] - c * f[2]) ** 2 for f, x in zip(basis, xs))
+    sse = math.fsum((x - a - b * f[1] - c * f[2]) ** 2 for f, x in zip(basis, xs))
     return a, b, c, sse
 
 
@@ -62,8 +63,8 @@ def seasonal_period(ts, xs):
     """
     if len(xs) != len(ts) or len(xs) < 3 * MIN_PERIOD:
         return {"period": None, "r2": None}
-    mean = sum(xs) / len(xs)
-    total = sum((x - mean) ** 2 for x in xs)
+    mean = math.fsum(xs) / len(xs)
+    total = math.fsum((x - mean) ** 2 for x in xs)
     if total == 0:
         return {"period": None, "r2": None}
     longest = min(MAX_PERIOD, (ts[-1] - ts[0]) / 3)
@@ -94,7 +95,7 @@ def _residual(gram, moment, square):
     if len(moment) == 1:
         return square - moment[0] * moment[0] / gram[0][0]
     solution = _solve3(gram, moment)
-    return None if solution is None else square - sum(b * m for b, m in zip(solution, moment))
+    return None if solution is None else square - math.fsum(b * m for b, m in zip(solution, moment))
 
 
 def change_point(xs, *, times=None, period=None, min_segment=MIN_SEGMENT):

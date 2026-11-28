@@ -25,6 +25,8 @@ root cause, no model and no production connection. Rates carry counts and a Wils
 the denominator is zero.
 """
 import argparse
+import json
+from pathlib import Path
 from datetime import datetime, timezone
 from random import Random
 from statistics import median
@@ -142,15 +144,25 @@ def _tally(lists):
     return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
-def evaluate(splits=SPLITS[:2], scenarios=SCENARIOS):
-    report = {}
+def collect(splits=SPLITS[:2], scenarios=None):
+    """Every case of ``splits``: per scenario the case measurements by seed, and the fault-free incident counts.
+    ``scenarios`` defaults to the module's ``SCENARIOS`` at call time."""
+    scenarios, collected = SCENARIOS if scenarios is None else scenarios, {}
     for split in splits:
         seeds = SEEDS[split]
-        report[split] = {
+        collected[split] = {
             "seeds": [seeds[0], seeds[-1]],
-            "scenarios": {scenario_name(f, s): summarise([run_case(seed, f, s) for seed in seeds]) for f, s in scenarios},
-            "clean_incidents": sum(clean_case(seed) for seed in seeds), "clean_hours": len(seeds) * CLEAN_SECONDS / 3600,
-        }
+            "cases": {scenario_name(f, s): [run_case(seed, f, s) for seed in seeds] for f, s in scenarios},
+            "clean": [clean_case(seed) for seed in seeds]}
+    return {"version": VERSION, "splits": collected}
+
+
+def summarise_collected(collected):
+    """The report of collected cases (see ``collect``)."""
+    report = {split: {"seeds": bucket["seeds"],
+                      "scenarios": {name: summarise(cases) for name, cases in bucket["cases"].items()},
+                      "clean_incidents": sum(bucket["clean"]), "clean_hours": len(bucket["clean"]) * CLEAN_SECONDS / 3600}
+              for split, bucket in collected["splits"].items()}
     return {"version": VERSION, "scope": SCOPE, "splits": report}
 
 
@@ -244,10 +256,22 @@ def render_markdown(report):
 
 
 def main(argv=()):
+    """The report. ``--save-cases`` also writes the case measurements; ``--from-cases`` renders saved ones instead of
+    running the plants again (the committed report is checked that way, with a recomputed sample of cases)."""
     parser = argparse.ArgumentParser(prog="python -m aegisflow_dr.plant_eval")
     parser.add_argument("--include-heldout", action="store_true", help="also score the held-out split")
+    parser.add_argument("--save-cases", metavar="PATH", help="also write the case measurements as JSON")
+    parser.add_argument("--from-cases", metavar="PATH", help="render saved case measurements without running plants")
     args = parser.parse_args(list(argv))
-    return render_markdown(evaluate(splits=SPLITS if args.include_heldout else SPLITS[:2]))
+    if args.from_cases:
+        collected = json.loads(Path(args.from_cases).read_text("utf-8"))
+        if collected.get("version") != VERSION:
+            parser.error("the saved cases are version %r; the code is %r" % (collected.get("version"), VERSION))
+        return render_markdown(summarise_collected(collected))
+    collected = collect(splits=SPLITS if args.include_heldout else SPLITS[:2])
+    if args.save_cases:
+        Path(args.save_cases).write_text(json.dumps(collected, indent=1) + "\n", "utf-8")  # keeps scenario order
+    return render_markdown(summarise_collected(collected))
 
 
 if __name__ == "__main__":  # pragma: no cover
