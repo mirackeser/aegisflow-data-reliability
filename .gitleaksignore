@@ -1,2 +1,4 @@
-# False positive: generic-api-key matched a claim-key comparison (text_key==='a24.hypothesis') in UI code, not a secret.
+# False positive: generic-api-key matched a claim-key string comparison in UI code (flow.js), not a secret.
 48e78776d049c79210eace8aaee56c0665b7235d:apps/local/flow.js:generic-api-key:378
+# The first version of this file quoted that comparison in its comment and matched the same rule.
+488685c0a1f4e16f82c3456892c366653cacc71d:.gitleaksignore:generic-api-key:1
