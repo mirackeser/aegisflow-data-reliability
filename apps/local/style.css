@@ -772,3 +772,4 @@ svg.fl-icon{width:14px;height:14px;flex:0 0 auto}.fl-icon .fl-solid{fill:current
 .qua-table th[scope=row] small.qua-dir-inline{display:none}
 @media (max-width:600px){.qua-grid{grid-template-columns:1fr}.qua-tile-key{min-height:0}.qua-table th[scope=row]{min-width:0;width:48%}.qua-table .qua-dir{display:none}.qua-table th[scope=row] small.qua-dir-inline{display:block;color:var(--teal)}.qua-rate{min-width:0}}
 @media print{.qua-splits,.qua-toc{display:none}}
+.qua-callout.good{border-color:rgba(53,240,216,.35);border-left-color:var(--teal);background:rgba(53,240,216,.06)}.qua-callout.good strong{color:var(--teal)}

@@ -24,6 +24,9 @@ const summary={version:'1',splits:Q.QUA_SPLITS,evaluations:[
   scenarios:{columns:['a23_any','a23_top1','a23_echo','loop_sole','a23_misattributed','loop_misattributed'],
    rows:[{name:'unit_change',splits:per({a23_echo:rate(10,10),a23_misattributed:null},{},{})},{name:'clean',splits:per({a23_echo:rate(0,0)},{},{})},
     {name:'unmodelled_sign_flip',splits:per({a23_echo:rate(2,10)},{},{})}]}},
+ {id:'agents_v1',family:'agents',available:true,report:'docs/evaluation/agents.md',model:'qwen3:4b',prompt_version:'2',units:per({groups:10,cases:140},{groups:9,cases:126},{groups:21,cases:294}),
+  metrics:[metric('a23_any','higher',per(rate(90,110),rate(1,1),rate(1,1))),metric('a23_top1','higher',per(rate(40,110),rate(1,1),rate(1,1)))],
+  scenarios:{columns:['a23_echo'],rows:[{name:'unit_change',splits:per({a23_echo:rate(10,10)},{},{})},{name:'unmodelled_sign_flip',splits:per({a23_echo:rate(2,10)},{},{})}]}},
  {id:'hypotheses',available:true,report:'docs/evaluation/hypotheses.md',units:per({groups:12},{groups:18},{groups:30}),
   metrics:[metric('truth_sole_supported','higher',per(rate(124,132),rate(1,1),rate(1,1))),metric('misattributed','lower',per(rate(19,24),rate(1,1),rate(1,1)))]},
  {id:'baseline',available:false},
@@ -52,15 +55,22 @@ assert.equal(tiles[1].better,'lower');assert.deepEqual(tiles[0].value,{kind:'rat
 console.log('headline tiles verified.');
 
 // The model weakness comes from the API's own numbers; the echo pools the scenario rows that apply.
-const weak=Q.quaWeakness(summary,'heldout');
+const weak=Q.quaWeakness(summary,'heldout');  // the previous prompt (agents_v1)
 assert.equal(weak.top1.numerator,40);assert.equal(weak.any.numerator,90);
 assert.deepEqual(Q.quaPoolColumn(Q.quaCard(summary,'agents'),'a23_echo','heldout'),{numerator:12,denominator:20,value:0.6});
 assert.deepEqual(Q.quaPoolColumn(null,'a23_echo','heldout'),{numerator:0,denominator:0,value:null});
 assert.equal(Q.quaWeakness(summary,'validation'),null,'no echo rows on this split: no claim');
 assert.equal(Q.quaWeakness({evaluations:[]},'heldout'),null);
-const noTop={evaluations:[{...Q.quaCard(summary,'agents'),metrics:[metric('a23_top1','higher',per(rate(0,0),null,null)),metric('a23_any','higher',per(rate(1,2),null,null))]}]};
+const noTop={evaluations:[{...Q.quaCard(summary,'agents_v1'),metrics:[metric('a23_top1','higher',per(rate(0,0),null,null)),metric('a23_any','higher',per(rate(1,2),null,null))]}]};
 assert.equal(Q.quaWeakness(noTop,'heldout'),null,'an n/a rate makes no claim');
-console.log('model weakness verified.');
+// The change from v1 to v2 is read from both cards; either one missing or unmeasured makes no claim.
+const change=Q.quaChange(summary,'heldout');
+assert.equal(change.before.top1.numerator,40);assert.equal(change.after.top1.numerator,40);
+assert.deepEqual(change.after.echo,{numerator:12,denominator:20,value:0.6});
+assert.equal(Q.quaChange(summary,'validation'),null);
+assert.equal(Q.quaChange({evaluations:summary.evaluations.filter(c=>c.id!=='agents_v1')},'heldout'),null);
+assert.equal(Q.quaFamily(Q.quaCard(summary,'agents_v1')),'agents');assert.equal(Q.quaFamily(plant),'plant');
+console.log('model weakness and v1 to v2 change verified.');
 
 // Units, scenario labels and the brief.
 assert.deepEqual(Q.quaUnits(plant,'heldout'),{key:'qua.units.seeds',n:20});
@@ -70,7 +80,7 @@ assert.equal(Q.quaUnits({units:{}},'heldout'),null);
 assert.deepEqual(Q.quaScenarioLabel(plant,'unit_change/pressure_kpa'),['cc.fault.unit_change','cc.sensor.pressure_kpa']);
 assert.deepEqual(Q.quaScenarioLabel(plant,'duplicate_burst'),['cc.fault.duplicate_burst']);
 assert.deepEqual(Q.quaScenarioLabel(Q.quaCard(summary,'agents'),'clean'),['qua.scn.clean']);
-assert.deepEqual(Q.quaBrief(summary,'heldout'),{evaluations:5,missing:['baseline'],split:'heldout'});
+assert.deepEqual(Q.quaBrief(summary,'heldout'),{evaluations:6,missing:['baseline'],split:'heldout'});
 console.log('units, labels and brief verified.');
 
 // Every key the page can build at run time is translated in both languages.
@@ -81,13 +91,13 @@ for(const [id,key] of Q.QUA_HEADLINE)for(const k of ['qua.m.'+id+'.'+key,'qua.m.
 for(const s of Q.QUA_SPLITS)has('split.'+s);
 for(const b of ['higher','lower'])has('qua.better.'+b);
 for(const card of summary.evaluations.filter(c=>c.available)){
- for(const m of card.metrics)for(const k of ['qua.m.'+card.id+'.'+m.key,'qua.m.'+card.id+'.'+m.key+'.x'])has(k);
- for(const c of card.scenarios?.columns||[])has('qua.c.'+card.id+'.'+c);
+ for(const m of card.metrics)for(const k of ['qua.m.'+Q.quaFamily(card)+'.'+m.key,'qua.m.'+Q.quaFamily(card)+'.'+m.key+'.x'])has(k);
+ for(const c of card.scenarios?.columns||[])has('qua.c.'+Q.quaFamily(card)+'.'+c);
  for(const r of card.scenarios?.rows||[])Q.quaScenarioLabel(card,r.name).forEach(has);
 }
 for(const k of ['unit_change','calibration_offset','noise_increase','stuck_sensor','sampling_config_change','partial_load','duplicate_delivery','delivery_delay',
  'source_outage','field_outage','intermittent_loss','clean','unmodelled_sign_flip','unmodelled_amplitude'])has('qua.scn.'+k);
-for(const k of ['qua.weak.t','qua.weak.x','qua.of','qua.ci','qua.bar.aria','qua.perhours','qua.ms','page.quality.title','page.quality.eyebrow','brief.quality.purpose','brief.quality.can','next.quality','nav.quality'])has(k);
+for(const k of ['qua.weak.t','qua.weak.x','qua.change.t','qua.change.x','qua.of','qua.ci','qua.bar.aria','qua.perhours','qua.ms','page.quality.title','page.quality.eyebrow','brief.quality.purpose','brief.quality.can','next.quality','nav.quality'])has(k);
 // The wording never claims accuracy on real data or a cause.
 for(const [key,[en]] of Object.entries(STRINGS))if(key.startsWith('qua.'))
  assert.ok(!/\bcaused?\b|root.cause|accurate on real|proves?\b/i.test(en.replace('not a confirmed cause','').replace('not diagnostic accuracy','')),`${key}: overclaims`);

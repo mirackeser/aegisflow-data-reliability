@@ -418,3 +418,37 @@ Statements that were no longer true are corrected:
 - the opening of the README and of the workbench README.
 
 The README opens with a captioned 12-frame demo GIF (`docs/media/aegisflow-demo.gif`, 1.1 MB). It was made from browser screenshots of one real run, assembled with the local Pillow and no new dependency. The run covers fault injection, detection, the frozen evidence, 36 agents, probes, a recorded decision, the verified chain, the report and measured quality.
+
+## Increment 70 — A23 reads qualitative readings (prompt version 3), measured on a fresh corpus
+
+The v1 agents evaluation showed A23's suggestion barely discriminating: 40/110 first choices on held-out, mostly the
+catalog order. The cause was its input. Given only check names, five catalog mechanisms explain the same
+`distribution_shift`. Trials on v1 development groups showed three things:
+- numbers alone did not help the 4B model under constrained decoding;
+- thinking mode took about 20 s per call;
+- deterministic qualitative readings with written signatures worked.
+
+**What changed.**
+- `aegisflow_dr.readings` turns each observation into fixed words from aggregates only: mean scaled by a power of ten,
+  shifted or unchanged; spread wider, narrower or unchanged; rows dropped or increased; late data; empty values in one
+  contiguous run or scattered.
+- Prompt version 3 gives A23 those readings and the signatures, without the catalog list, and asks for a ranking.
+- `Case.prompt_version` threads the version through every model call and record. Version 2 stays byte for byte, so the
+  committed v1 evaluation replays unchanged.
+- `agents_eval` has a protocol per version. v2 uses fresh groups 160 to 199 and its own recording, facts and report.
+- The product (Agent flow, plant incidents) uses version 3.
+
+**v2 results** (prompt frozen beforehand; held-out recorded and scored once):
+
+| | Development (26 groups) | Validation (5 groups) | Held-out (9 groups) |
+|---|---|---|---|
+| A23 first choice is the injected mechanism | 286/286 | 55/55 | 99/99 |
+
+- **Sign flip:** left to `genuine_change` (0 misattributed), while the loop still misattributes it.
+- **Seasonal amplitude change:** still misattributed, because it reads like noise.
+- **Duplicate delivery:** the model pads its list with two wrong-direction mechanisms, and the Judge rejects those
+  claims. The advisory rate is therefore 92.3% rather than 100%.
+- **One remediation draft (A29)** timed out on held-out.
+
+Because the readings use the same aggregates and thresholds as the probes, this is correct mapping of documented
+signatures, not independent diagnosis. The quality page shows v1 and v2 side by side, with the change in numbers.

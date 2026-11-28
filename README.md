@@ -19,7 +19,7 @@ Held-out results, each scored once (simulated or synthetic data only):
 
 - **Plant:** the injected mechanism is the only one supported in 258/295 detected faults. A wrong mechanism is supported in 0/295. There was 1 false alarm in 20 simulated hours.
 - **Agents with the live model:** exact specialist sets in 140/140 cases and schema-valid replies in 400/400.
-- **The model's weak point:** it names the injected mechanism first in only 40/110 cases. The deterministic loop, not the model, decides which candidates are supported.
+- **The model's suggestion (A23):** with prompt v1 it named the injected mechanism first in only 40/110 cases, because it saw only check names. With prompt v3 it reads deterministic qualitative readings of the aggregates, and on a fresh held-out it names the injected mechanism first in 99/99 cases. This is correct mapping of documented signatures, not independent diagnosis. The deterministic loop, not the model, decides which candidates are supported.
 
 Details: [measured quality](docs/evaluation/README.md) and [status](docs/delivery/status.md).
 

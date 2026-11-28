@@ -75,6 +75,20 @@ test keeps both in sync and replays the first case of each split to show the sav
 states the model's weakness plainly: its suggestion often repeats the catalog order of the explaining mechanisms instead
 of telling them apart. Agreement with an injected label on simulated cases is not diagnostic accuracy on real data.
 
+**v2 (prompt version 3).** The v1 weakness came from A23's input: given only check names, several catalog mechanisms
+explain the same observation. In v2 A23 instead reads a deterministic qualitative reading of each observation
+(`aegisflow_dr.readings`) and the mechanisms' signatures in those words. The prompt was tried on v1 development groups
+and frozen before v2 was recorded on fresh groups 160 to 199 (`--protocol 2`, `agents-v2.md`). Held-out, scored once:
+
+- the model's first choice is the injected mechanism in 99/99 modelled cases, against 40/110 in v1;
+- a sign flip outside the catalog is left to `genuine_change`;
+- a seasonal amplitude change is still misattributed;
+- on duplicate delivery the model pads its list with two wrong-direction mechanisms, which the Judge rejects;
+- one remediation draft (A29) timed out.
+
+The readings use the same aggregates and documented thresholds as the probes. The agreement therefore shows correct
+mapping of documented signatures, not independent diagnosis. v1 stays as committed.
+
 ## Measured quality page
 
 The workbench's `/quality` page shows every evaluation above through `aegisflow_dr.quality.summary()` (`GET /api/quality`).

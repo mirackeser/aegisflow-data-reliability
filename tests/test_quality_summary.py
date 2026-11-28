@@ -49,8 +49,11 @@ class CardTests(unittest.TestCase):
             row = bucket["scenarios"][name]
             row.update(cases=1, exact=1, a23_suggested=1, a23_any=1, a23_misattributed=1)
         agents_eval._finalize(bucket)
-        report = {"recording": {"model": "m", "prompt_version": "2"}, "splits": {"heldout": bucket}}
+        report = {"version": "1", "recording": {"model": "m", "prompt_version": "2"}, "splits": {"heldout": bucket}}
         card = q.agents_card(report)
+        self.assertEqual((card["id"], card["family"], card["report"], card["evaluation_version"]),
+                         ("agents", "agents", "docs/evaluation/agents.md", "1"))
+        self.assertEqual(q.agents_card(dict(report, version="2"), "agents_v1")["report"], "docs/evaluation/agents-v2.md")
         modelled = sum(agents_eval.truth_of(n) is not None for n in agents_eval.SCENARIOS)
         self.assertEqual(metric(card, "a23_any")["splits"]["heldout"], q.rate(modelled, modelled))
         self.assertEqual(metric(card, "a23_misattributed")["splits"]["heldout"], q.rate(2, 2))  # sign flip, amplitude
@@ -59,9 +62,9 @@ class CardTests(unittest.TestCase):
         self.assertEqual((card["model"], card["units"]["heldout"]), ("m", {"groups": 1, "cases": 0}))
         self.assertEqual(len(card["scenarios"]["rows"]), len(agents_eval.SCENARIOS))
 
-    @unittest.skipUnless(q.AGENTS_CASES.exists(), "no saved agent case facts")
+    @unittest.skipUnless(q.AGENTS_V1_CASES.exists(), "no saved agent case facts")
     def test_agents_card_from_saved_facts(self):
-        report = agents_eval.summarise_collected(json.loads(q.AGENTS_CASES.read_text("utf-8")))
+        report = agents_eval.summarise_collected(json.loads(q.AGENTS_V1_CASES.read_text("utf-8")))
         card, held = q.agents_card(report), report["splits"]["heldout"]
         self.assertEqual(card["units"]["heldout"], {"groups": held["groups"], "cases": held["runs"]["cases"]})
         self.assertEqual(metric(card, "selection_exact")["splits"]["heldout"], q.from_report(held["selection"]["exact"]))
@@ -107,6 +110,7 @@ class SummaryTests(unittest.TestCase):
                  ("plant_card", "agents_card", "hypotheses_card", "baseline_card", "profiling_card", "checks_card")}
         with tempfile.TemporaryDirectory() as folder, mock.patch.multiple(q, **cards), \
                 mock.patch.object(q, "AGENTS_CASES", Path(folder) / "none.json"), \
+                mock.patch.object(q, "AGENTS_V1_CASES", Path(folder) / "none.json"), \
                 mock.patch.object(plant_eval, "summarise_collected", return_value="plant report"), \
                 mock.patch.object(hypotheses_eval, "evaluate", return_value="h") as hypotheses, \
                 mock.patch.object(baseline_eval, "evaluate", return_value="b") as baseline, \
@@ -114,7 +118,9 @@ class SummaryTests(unittest.TestCase):
                 mock.patch.object(check_evaluation, "evaluate", return_value="c") as checks:
             result = q.summary()
         self.assertEqual([c["id"] for c in result["evaluations"]],
-                         ["plant_card", "agents", "hypotheses_card", "baseline_card", "profiling_card", "checks_card"])
+                         ["plant_card", "agents", "agents_v1", "hypotheses_card", "baseline_card", "profiling_card",
+                          "checks_card"])
+        self.assertEqual(result["evaluations"][2], {"id": "agents_v1", "available": False})
         self.assertEqual(result["evaluations"][1], {"id": "agents", "available": False})
         cards["plant_card"].assert_called_once_with("plant report")
         hypotheses.assert_called_once_with(splits=q.SPLITS)
