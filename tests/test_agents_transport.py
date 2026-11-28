@@ -73,6 +73,12 @@ class Mcp(unittest.TestCase):
             return mock.patch.object(T.McpTools, "_exchange", new=mock.AsyncMock(
                 return_value={"outcome": value, "report": None}))
 
+        # The OK path without the real client too: on Python 3.11/3.12 line tracing does not survive the official
+        # client's event loop, so the round-trip test alone does not show this branch as covered there.
+        converted = (lambda report: ("converted", report),)
+        with outcome("OK"), mock.patch.dict(T.MCP_TOOLS, {"diagnose_csv": T.MCP_TOOLS["diagnose_csv"][:2] + converted}):
+            self.assertEqual(self.tools.invoke("diagnose_csv", arguments, diagnose_csv, (ORDERS,)),
+                             (("converted", None), "mcp_local", None))
         with outcome("OUTPUT_REJECTED"):
             self.assertEqual(self.tools.invoke("diagnose_csv", arguments, diagnose_csv, (ORDERS,)),
                              (diagnose_csv(ORDERS), "in_process", "mcp_output_limit"))
