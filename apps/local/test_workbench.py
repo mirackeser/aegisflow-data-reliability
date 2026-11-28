@@ -534,6 +534,23 @@ class WorkflowTests(unittest.TestCase):
    self.assertEqual(report['groups']['out_of_scope']['false_retrieval']['numerator'],0)
   finally:
    server.shutdown();server.server_close();thread.join()
+ def test_http_quality_summary_is_authorized_and_cached(self):
+  import json
+  import workbench as wb
+  wb.quality_report.cache_clear()
+  server=make_server(self.w,'q-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+  try:
+   def get(headers):
+    c=HTTPConnection('127.0.0.1',server.server_port,timeout=5);c.request('GET','/api/quality',headers=headers);r=c.getresponse();value=(r.status,r.read());c.close();return value
+   with patch.object(wb,'quality_summary',return_value={'version':'1','evaluations':[]}) as summary:
+    self.assertEqual(get({})[0],403)
+    status,body=get({'Authorization':'Bearer q-token'})
+    self.assertEqual((status,json.loads(body)),(200,{'version':'1','evaluations':[]}))
+    get({'Authorization':'Bearer q-token'})
+    summary.assert_called_once_with()
+   self.assertEqual(get({'Authorization':'Bearer q-token'})[0],200)
+  finally:
+   wb.quality_report.cache_clear();server.shutdown();server.server_close();thread.join()
  def test_http_platform_map_is_authorized_and_claims_nothing_live(self):
   import json
   server=make_server(self.w,'plat-token');thread=Thread(target=server.serve_forever,daemon=True);thread.start()

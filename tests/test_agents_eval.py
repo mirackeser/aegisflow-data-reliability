@@ -454,14 +454,34 @@ class SmallRecordingTests(unittest.TestCase):
 class MainTests(unittest.TestCase):
     def test_default_replays_the_committed_recording_without_heldout(self):
         with mock.patch.object(ae, "load_recording", return_value="rec") as load, \
-                mock.patch.object(ae, "evaluate", return_value="report") as evaluate, \
-                mock.patch.object(ae, "render_markdown", return_value="text"), \
+                mock.patch.object(ae, "collect", return_value="facts") as collect, \
+                mock.patch.object(ae, "summarise_collected", return_value="report") as summarise, \
+                mock.patch.object(ae, "render_markdown", return_value="text") as render, \
                 mock.patch.object(Path, "exists", return_value=True):
             self.assertEqual(ae.main(), "text")
             load.assert_called_once_with(ae.RECORDING)
-            evaluate.assert_called_once_with("rec", ("development", "validation"))
+            collect.assert_called_once_with("rec", ("development", "validation"))
+            summarise.assert_called_once_with("facts")
+            render.assert_called_once_with("report")
             ae.main(["--include-heldout"])
-            evaluate.assert_called_with("rec", ("development", "validation", "heldout"))
+            collect.assert_called_with("rec", ("development", "validation", "heldout"))
+
+    def test_case_facts_are_saved_and_rendered_without_replay(self):
+        collected = {"version": "1", "splits": {}}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(ae, "load_recording", return_value="rec"), \
+                mock.patch.object(ae, "collect", return_value=collected), \
+                mock.patch.object(ae, "summarise_collected", return_value="report") as summarise, \
+                mock.patch.object(ae, "render_markdown", return_value="text"), \
+                mock.patch.object(Path, "exists", return_value=True):
+            saved = Path(folder) / "cases.json"
+            self.assertEqual(ae.main(["--save-cases", str(saved)]), "text")
+            self.assertEqual(json.loads(saved.read_text("utf-8")), collected)
+            with mock.patch.object(ae, "collect") as replay:
+                self.assertEqual(ae.main(["--from-cases", str(saved)]), "text")
+                replay.assert_not_called()
+            summarise.assert_called_with(collected)
+        with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+            ae.main(["--live", "--from-cases", "x.json"])  # one source only
 
     def test_missing_recording_is_an_error(self):
         with tempfile.TemporaryDirectory() as folder, mock.patch("sys.stderr", io.StringIO()):
@@ -477,7 +497,8 @@ class MainTests(unittest.TestCase):
         err = io.StringIO()
         with tempfile.TemporaryDirectory() as folder, \
                 mock.patch.object(ae, "record_live", side_effect=fake_live) as live, \
-                mock.patch.object(ae, "evaluate", return_value="report") as evaluate, \
+                mock.patch.object(ae, "collect", return_value="facts") as collect, \
+                mock.patch.object(ae, "summarise_collected", return_value="report"), \
                 mock.patch.object(ae, "render_markdown", return_value="text"):
             path = Path(folder) / "rec.json"
             self.assertEqual(ae.main(["--live", "--record", str(path)], transport="t", err=err), "text")
@@ -485,7 +506,7 @@ class MainTests(unittest.TestCase):
             self.assertEqual(live.call_args.kwargs["transport"], "t")
             saved = ae.load_recording(path)
             self.assertEqual(len(saved["runs"]), 1)
-            self.assertEqual(evaluate.call_args.args, (saved, ("development", "validation")))
+            self.assertEqual(collect.call_args.args, (saved, ("development", "validation")))
             ae.main(["--live", "--record", str(path)], err=err)  # extends the existing recording
             self.assertEqual(len(ae.load_recording(path)["runs"]), 2)
         self.assertEqual(err.getvalue(), "g120.clean 5 ms\ng120.clean 5 ms\n")
@@ -549,6 +570,36 @@ class CommittedRecordingTests(unittest.TestCase):
             runs = report["splits"][split]["runs"]
             self.assertEqual((runs["cases"], runs["compared"], runs["matched"], runs["misses"]),
                              (len(ae.SCENARIOS),) * 3 + (0,), split)
+
+
+REPORT = Path(__file__).resolve().parents[1] / "docs" / "evaluation" / "agents.md"
+
+
+@unittest.skipUnless(ae.CASES.exists() and ae.RECORDING.exists(), "no committed case facts")
+class CommittedReportTests(unittest.TestCase):
+    """The committed report is rendered from the saved case facts, and those facts are what the code measures."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.collected = json.loads(ae.CASES.read_text("utf-8"))
+
+    def test_committed_report_is_rendered_from_the_saved_facts(self):
+        self.assertEqual(ae.render_markdown(ae.summarise_collected(self.collected)) + "\n", REPORT.read_text("utf-8"))
+
+    def test_saved_facts_cover_every_recorded_run_once(self):
+        recording = ae.load_recording(ae.RECORDING)
+        saved = [c["case_id"] for split in self.collected["splits"].values() for c in split["cases"]]
+        self.assertEqual(sorted(saved), sorted(r["case_id"] for r in recording["runs"]))
+        self.assertEqual(list(self.collected["splits"]), list(ae.SPLITS))  # held-out included, scored once
+        self.assertEqual(self.collected["recording"]["runs"], len(recording["runs"]))
+
+    def test_first_case_of_each_split_replays_to_the_saved_facts(self):
+        recording = ae.load_recording(ae.RECORDING)
+        for split, data in self.collected["splits"].items():
+            saved = data["cases"][0]
+            group, name = saved["case_id"][1:].split(".", 1)
+            again = ae.collect(recording, (split,), scenarios=(name,), groups=(int(group),))
+            self.assertEqual(json.loads(json.dumps(again["splits"][split]["cases"][0])), saved, split)
 
 
 if __name__ == "__main__":

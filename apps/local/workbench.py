@@ -36,6 +36,7 @@ from functools import lru_cache
 from aegisflow_dr.capability_map import capability_map
 from aegisflow_dr.platform_map import platform_map
 from aegisflow_dr.check_evaluation import evaluate as evaluate_checks
+from aegisflow_dr.quality import summary as quality_summary
 from aegisflow_dr.connectors import SourceCatalog
 from aegisflow_dr.cardinality import join_cardinality
 from aegisflow_dr.consistency import compare as compare_sources
@@ -263,6 +264,12 @@ def evaluation_report():
 
 
 @lru_cache(maxsize=1)
+def quality_report():
+    # Every committed evaluation's headline numbers; deterministic, about ten seconds, so computed once per process.
+    return json.dumps(quality_summary()).encode()
+
+
+@lru_cache(maxsize=1)
 def passage_report():
     return json.dumps(evaluate_passages()).encode()
 
@@ -297,10 +304,10 @@ def make_server(workbench, token, port=0, catalog=None):
         def do_GET(self):
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                 self.respond(403, b'{}'); return
-            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/agents', '/flow', '/incident', '/report')
+            pages = ('/', '/overview', '/sources', '/investigations', '/activity', '/knowledge', '/history', '/evidence', '/quality', '/agents', '/flow', '/incident', '/report')
             assets = {**{page: ('index.html', 'text/html; charset=utf-8') for page in pages},
                       '/app.js': ('app.js', 'text/javascript'), '/i18n.js': ('i18n.js', 'text/javascript'),
-                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'), '/incident.js': ('incident.js', 'text/javascript'), '/report.js': ('report.js', 'text/javascript'),
+                      '/presentation.js': ('presentation.js', 'text/javascript'), '/charts.js': ('charts.js', 'text/javascript'), '/strings.js': ('strings.js', 'text/javascript'), '/workspace.js': ('workspace.js', 'text/javascript'), '/knowledgebase.js': ('knowledgebase.js', 'text/javascript'), '/schemaregistry.js': ('schemaregistry.js', 'text/javascript'), '/profile.js': ('profile.js', 'text/javascript'), '/baseline.js': ('baseline.js', 'text/javascript'), '/flow.js': ('flow.js', 'text/javascript'), '/command.js': ('command.js', 'text/javascript'), '/incident.js': ('incident.js', 'text/javascript'), '/report.js': ('report.js', 'text/javascript'), '/quality.js': ('quality.js', 'text/javascript'),
                       '/style.css': ('style.css', 'text/css'), '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             page = self.path.split('?', 1)[0]
             if page != self.path and page in pages:  # a page link with a query, e.g. /flow?run=<id>
@@ -325,6 +332,8 @@ def make_server(workbench, token, port=0, catalog=None):
                 self.respond(200, retrieval_report())
             elif self.path == '/api/evaluation' and self.authorized():
                 self.respond(200, evaluation_report())
+            elif self.path == '/api/quality' and self.authorized():
+                self.respond(200, quality_report())
             elif self.path == '/api/sources' and self.authorized():
                 listing = {'configured': catalog is not None, 'sources': catalog.sources() if catalog else []}
                 self.respond(200, json.dumps(listing).encode())
@@ -691,4 +700,5 @@ if __name__ == '__main__':
     write_private(Path(args.state_dir) / 'access-token', token)
     server = make_server(workbench, token, args.port, SourceCatalog(args.source_dir) if args.source_dir else None)
     print(f'Local workbench: http://127.0.0.1:{server.server_port}; access token is in the private state directory.', flush=True)
+    Thread(target=quality_report, daemon=True).start()  # warm the quality summary before the page asks for it
     server.serve_forever()

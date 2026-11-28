@@ -1,6 +1,6 @@
 'use strict';
 // Core: state, routing, shell, overview, execution flow, reports and references.
-let passages=null,retrieval=null,platform=null,capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,evaluationLoading=false,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
+let passages=null,retrieval=null,platform=null,capabilities=null,capabilitiesLoading=false,roleFilter='all',evaluation=null,driftKey=null,token='',polling=null,state=null,viewId=null,connected=false,route='/overview';
 const $=id=>document.getElementById(id);
 function h(tag,attrs={},...kids){
  const n=document.createElement(tag);
@@ -15,7 +15,7 @@ const locale=()=>language==='tr'?'tr-TR':'en-GB';
 const A=value=>formatAmount(value,language),P=ratio=>percent(ratio,language),N=n=>Number(n).toLocaleString(locale());
 const when=iso=>iso?new Date(iso).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):'—';
 const PAGES={
- '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/evidence':'evidence','/agents':'agents','/flow':'flow','/incident':'incident','/report':'report'};
+ '/overview':'overview','/investigations':'investigations','/sources':'sources','/activity':'activity','/history':'history','/knowledge':'knowledge','/quality':'quality','/agents':'agents','/flow':'flow','/incident':'incident','/report':'report'};
 const WAITING_PLAN=[['contract_check','A09',[]],['profiling','A10',['contract_check']],['reconciliation','A19',['contract_check']],['impact','A13',['contract_check']],
  ['evidence','A26',['contract_check','profiling']],['verification','A27',['evidence']],['human_review','A33',['verification']],['root_cause','A23',['verification']],['remediation','A29',['human_review']]]
  .map(([id,role,depends_on])=>({id,role,depends_on,status:'waiting',reason:null,capability:id}));
@@ -47,6 +47,7 @@ async function request(path,method='GET',body,headers={}){
  return response.json();
 }
 function navigate(path,push=true){
+ if(path==='/evidence'){path='/quality';if(!push)history.replaceState({},'','/quality');}  // the earlier "Check accuracy" address
  route=PAGES[path]?path:'/overview';
  if(push)setNotice('');
  if(push&&location.pathname!==route)history.pushState({},'',route);
@@ -84,8 +85,8 @@ function briefTexts(screen,run){
  if(screen==='flow'){const b=flowBriefNow();return {happened:b.happened,next:{text:b.next,href:null}};}
  if(screen==='incident'){const b=incidentBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
  if(screen==='report'){const b=reportBrief();return {happened:b.happened,next:{text:b.next,href:null}};}
- const next=screen==='evidence'?{text:t('next.evidence'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
- return {happened:screen==='evidence'?evidenceHappened():screen==='agents'?agentsHappened(run):happened(run),next};
+ const next=screen==='quality'?{text:t('next.quality'),href:null}:screen==='agents'?{text:t('next.agents'),href:null}:nextStep(run);
+ return {happened:screen==='quality'?quaHappened():screen==='agents'?agentsHappened(run):happened(run),next};
 }
 let briefSig='';
 function renderBrief(screen,run){
@@ -265,18 +266,6 @@ function renderKnowledge(){
 }
 
 // ---------- check accuracy ----------
-function evidenceHappened(){
- if(!connected)return t('evidence.connect');
- if(!evaluation)return t('evidence.loading');
- const errors=['diagnose_csv','record_issues'].flatMap(d=>Object.values(evaluation.results[d])).reduce((n,r)=>n+r.overall.false_positives+r.overall.false_negatives,0);
- return t('evidence.happened',{cases:N(evaluation.corpus.cases),errors:N(errors)});
-}
-async function loadEvaluation(){
- if(evaluationLoading||(evaluation&&retrieval&&passages)||!connected)return;
- evaluationLoading=true;
- try{[evaluation,retrieval,passages]=await Promise.all([request('/api/evaluation'),request('/api/retrieval'),request('/api/passages')]);}catch(error){setNotice(error.message,true);}
- evaluationLoading=false;render();
-}
 const SPLIT_ORDER=['development','validation','heldout'];
 function rateCell(rate){
  if(rate.value===null)return h('td',{class:'rate na',text:t('evidence.na')});
@@ -310,24 +299,6 @@ function passagePanel(){
   h('div',{class:'table-wrap'},h('table',{class:'data-table evidence-table'},h('thead',{},h('tr',{},['psg.col.group','psg.col.method','psg.col.doc','psg.col.passage','psg.col.bytes'].map(k=>h('th',{scope:'col',text:t(k)})))),h('tbody',{},rows))),
   h('p',{class:'panel-note',text:t('psg.note')}));
 }
-function renderEvidence(){
- const root=$('screen-evidence');
- if(!connected){root.replaceChildren(h('section',{class:'panel'},empty('evidence.connect.t','evidence.connect.x')));return;}
- if(!evaluation||!retrieval||!passages){loadEvaluation();root.replaceChildren(h('section',{class:'panel'},empty('evidence.loading.t','evidence.loading.x')));return;}
- const c=evaluation.corpus,leak=evaluation.leakage;
- const tile=(key,value,sub,tone='')=>h('div',{class:'kpi '+tone},h('span',{text:t(key)}),h('strong',{text:value}),h('small',{text:sub}));
- root.replaceChildren(
-  h('div',{class:'kpi-grid'},tile('evidence.k.cases',N(c.cases),t('evidence.k.cases.x',{g:N(c.groups),v:N(c.variants)})),
-   tile('evidence.k.splits',SPLIT_ORDER.map(s=>N(c.per_split[s].cases)).join(' / '),t('evidence.k.splits.x')),
-   tile('evidence.k.leak',leak.clean?t('evidence.k.leak.none'):t('evidence.k.leak.found'),t('evidence.k.leak.x'),leak.clean?'ok':'bad'),
-   tile('evidence.k.digest',c.sha256.slice(0,12),t('evidence.k.digest.x'))),
-  detectorPanel('diagnose_csv'),detectorPanel('record_issues'),retrievalPanel(),passagePanel(),
-  h('div',{class:'dash-grid two'},
-   h('section',{class:'panel'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.how')})),h('ul',{class:'plain-list'},['evidence.how.1','evidence.how.2','evidence.how.3','evidence.how.4'].map(k=>h('li',{text:t(k)})))),
-   h('section',{class:'panel not-shown'},h('div',{class:'panel-heading'},h('h2',{text:t('evidence.not')}),chip(t('evidence.limits'),'warn')),h('ul',{class:'plain-list'},['evidence.not.1','evidence.not.2','evidence.not.3','evidence.not.4'].map(k=>h('li',{text:t(k)}))))),
-  h('p',{class:'panel-note',text:t('evidence.foot')}));
-}
-
 // ---------- capability map ----------
 function agentsHappened(run){
  const implemented=capabilities?.counts?.implemented??7;
@@ -390,7 +361,7 @@ function render(){
  if(screen!=='report')repLeave();
  $('page-actions').replaceChildren(...(screen==='history'?[link('/sources',t('cta.new')+' ↗','primary route')]:[]));
  renderShell();renderBrief(screen,run);
- ({overview:commandRender,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,evidence:renderEvidence,agents:renderAgents,flow:renderFlow,incident:renderIncident,report:renderReport})[screen]();
+ ({overview:commandRender,investigations:()=>renderWorkspace(),sources:()=>renderSources(),activity:renderActivity,history:renderHistory,knowledge:renderKnowledge,quality:renderQuality,agents:renderAgents,flow:renderFlow,incident:renderIncident,report:renderReport})[screen]();
  $('notice').hidden=!$('notice').textContent;
 }
 async function refresh(){

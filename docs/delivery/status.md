@@ -1,6 +1,6 @@
 # Implementation status and increment history
 
-Latest implementation: increment 45, retained multi-case evaluation campaigns joining actual investigation, bounded dispatch, independent Judge, aggregate budgets and recomputed quality/latency reports. Crash-preserving artifacts, historical zero-call readback and integrated signed mTLS qualification are included. Validation: 794 application + 13 security/hygiene methods; full Python 3.12/3.14 coverage; fourteen installed checks. Provider-specific usage qualification and independent real-model acceptance remain open. [Increment 45 and next coherent packages](increment-45.md).
+Latest implementation: increment 68, the measured quality page and the live-model held-out of the 36-role agents (see the last section). Increments 46 to 67 are recorded below; [increment 45](increment-45.md) remains the record of the retained evaluation campaigns.
 
 This record distinguishes delivered capabilities from the original target architecture. The six-layer design, 36-role catalog and 16-week plan are reference targets, not a claim that all layers or roles are running.
 
@@ -383,3 +383,19 @@ The page shows each link as verified, mismatch or missing. Tests change each sou
 After the agent run, a reviewer records one decision: accept a supported candidate as the working explanation, reject the candidates, or ask for more evidence. The decision carries the reviewer's name and a note. The server refuses to accept a candidate the probes do not support on the frozen evidence. Decisions are recorded and never executed. Every version is kept in `incident-decisions.json`, written atomically with mode 0600. A tampered file is set aside on load. Decisions are keyed by the evidence digest, so a plant reset never attaches an old decision to a new incident.
 
 The report page (`/report?incident=…`) prints the whole case to A4 through the browser's "Save as PDF". This keeps Turkish characters, needs no new dependency and costs USD 0. The footer carries the chain head and the case file's content digest.
+
+## Increment 68 — measured quality page and the live-model held-out of the agents
+
+The agents' held-out split (10 groups, 140 cases) was recorded live once with the local model `qwen3:4b`. It was scored once with prompt version 2. The prompt, the role table and the expected specialist sets were fixed before development was scored. Results on held-out:
+
+- **Role selection:** 140/140 exact specialist sets.
+- **Model replies:** 400/400 schema-valid.
+- **Judge on specialist claims:** 1310/1310 accepted.
+- **Replay:** reproduced every live outcome, 140/140.
+- **Deterministic loop (A24):** supports only the injected mechanism in 107/110 modelled cases.
+
+The model's suggestion (A23) is weak, and the report and the page say so. It lists the injected mechanism in 90/110 modelled cases, but names it first in only 40/110. Its list is often just the catalog order of the explaining mechanisms. On the two changes outside the catalog it suggests a catalog mechanism every time. Fixing this needs a new prompt version and a fresh corpus. It was not tuned here.
+
+`agents_eval` now scores saved per-case facts (`fixtures/evaluations/agents-cases-v1.json`), so the report renders in a fraction of a second. A test keeps `docs/evaluation/agents.md` in sync with those facts. Another test replays the first case of each split to show the facts match the code. The refactor was checked by rendering the full report through the old and the new path: the two were byte-identical.
+
+The new `/quality` page ("Measured quality") replaces "Check accuracy"; the old `/evidence` address still opens it. It shows the plant, agents, hypothesis-loop, baseline, profiling and CSV-check evaluations from `GET /api/quality` (`aegisflow_dr.quality`). It has a split selector, held-out headline tiles, per-scenario tables and a model-weakness note computed from the API's own numbers. Each rate shows its counts and a Wilson interval, drawn as a bar. The page lists the limits of every evaluation, works in EN and TR, and works at 375 px.
