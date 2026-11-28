@@ -6,13 +6,15 @@
 
 // ---------- pure core (also used by test_quality.cjs) ----------
 const QUA_SPLITS=['development','validation','heldout'];
-const QUA_ORDER=['plant','agents','hypotheses','baseline','profiling','checks'];
+const QUA_ORDER=['plant','agents','agents_v1','hypotheses','baseline','profiling','checks'];
 // Held-out headline tiles: the decision each part of the system makes, and the model's weakest number next to them.
 const QUA_HEADLINE=[['plant','sole_supported'],['plant','wrong_supported'],['agents','selection_exact'],['agents','a23_any'],
  ['agents','a23_top1'],['hypotheses','truth_sole_supported'],['baseline','case_detection'],['profiling','case_detection']];
 const QUA_LIMITS=['synthetic','authors','pooled','heldout','model','cause'];
 
 function quaCard(summary,id){return (summary?.evaluations||[]).find(c=>c.id===id&&c.available)||null;}
+// String family of a card: the previous agents evaluation shares the agents labels.
+const quaFamily=card=>card.family||card.id;
 function quaMetric(card,key){return card?.metrics.find(m=>m.key===key)||null;}
 // One metric on one split, as a display model: a rate keeps its counts and interval, a count per hours and a time stay
 // as they are, and anything not measured on that split is n/a.
@@ -33,14 +35,23 @@ function quaPoolColumn(card,column,split){
  for(const row of card?.scenarios?.rows||[]){const r=row.splits?.[split]?.[column];if(r){numerator+=r.numerator;denominator+=r.denominator;}}
  return {numerator,denominator,value:denominator?numerator/denominator:null};
 }
-// The agents' model weakness in numbers from the API: how often A23's first mechanism is the injected one, how often the
-// injected one is anywhere in its list, and how often the list is the catalog order of the explaining mechanisms.
+// The previous prompt's weakness in numbers from the API: how often A23's first mechanism is the injected one, how often
+// the injected one is anywhere in its list, and how often the list is the catalog order of the explaining mechanisms.
 function quaWeakness(summary,split){
- const card=quaCard(summary,'agents');
+ const card=quaCard(summary,'agents_v1');
  if(!card)return null;
  const top1=quaValue(quaMetric(card,'a23_top1'),split),any=quaValue(quaMetric(card,'a23_any'),split),echo=quaPoolColumn(card,'a23_echo',split);
  if(top1.kind!=='rate'||any.kind!=='rate'||echo.value===null)return null;
  return {top1,any,echo};
+}
+// The same three numbers for the previous and the latest agents evaluation, both from the API; null when either is
+// missing or not measured on this split.
+function quaChange(summary,split){
+ const read=id=>{const card=quaCard(summary,id);if(!card)return null;
+  const top1=quaValue(quaMetric(card,'a23_top1'),split),echo=quaPoolColumn(card,'a23_echo',split);
+  return top1.kind==='rate'&&echo.value!==null?{top1,echo}:null;};
+ const before=read('agents_v1'),after=read('agents');
+ return before&&after?{before,after}:null;
 }
 function quaUnits(card,split){
  const u=card?.units?.[split];
@@ -56,8 +67,8 @@ function quaBrief(summary,split){
  return {evaluations:cards.length,missing:QUA_ORDER.filter(id=>!quaCard(summary,id)),split};
 }
 
-if(typeof module!=='undefined')module.exports={QUA_SPLITS,QUA_ORDER,QUA_HEADLINE,QUA_LIMITS,quaCard,quaMetric,quaValue,quaHeadline,
- quaPoolColumn,quaWeakness,quaUnits,quaScenarioLabel,quaBrief};
+if(typeof module!=='undefined')module.exports={QUA_SPLITS,QUA_ORDER,QUA_HEADLINE,QUA_LIMITS,quaCard,quaFamily,quaMetric,quaValue,
+ quaHeadline,quaPoolColumn,quaWeakness,quaChange,quaUnits,quaScenarioLabel,quaBrief};
 
 // ---------- page ----------
 let quaData=null,quaLoading=false,quaSplit='heldout',quaError=null;
@@ -104,7 +115,7 @@ function quaMetricsTable(card){
  return h('div',{class:'table-wrap'},h('table',{class:'data-table qua-table'},
   h('caption',{class:'sr-only',text:t('qua.card.'+card.id)+' · '+t('split.'+quaSplit)}),
   h('thead',{},h('tr',{},h('th',{scope:'col',text:t('qua.col.metric')}),h('th',{scope:'col',text:units?t(units.key,units):t('split.'+quaSplit)}),h('th',{scope:'col',class:'qua-dir',text:t('qua.col.better')}))),
-  h('tbody',{},card.metrics.map(m=>h('tr',{},h('th',{scope:'row'},h('span',{text:t('qua.m.'+card.id+'.'+m.key)}),h('small',{text:t('qua.m.'+card.id+'.'+m.key+'.x')}),
+  h('tbody',{},card.metrics.map(m=>h('tr',{},h('th',{scope:'row'},h('span',{text:t('qua.m.'+quaFamily(card)+'.'+m.key)}),h('small',{text:t('qua.m.'+quaFamily(card)+'.'+m.key+'.x')}),
     h('small',{class:'qua-dir-inline',text:t('qua.better.'+m.better)})),
    h('td',{},quaRate(quaValue(m,quaSplit),m.better)),h('td',{class:'qua-dir',text:t('qua.better.'+m.better)}))))));
 }
@@ -114,9 +125,15 @@ function quaScenarioTable(card){
   return h('td',{class:'rate'},h('strong',{text:quaPct(r.value)}),h('small',{text:`${N(r.numerator)}/${N(r.denominator)}`}));};
  return h('details',{class:'qua-details'},h('summary',{text:t('qua.scenarios',{n:N(card.scenarios.rows.length)})}),
   h('div',{class:'table-wrap'},h('table',{class:'data-table rate-table qua-scn'},
-   h('thead',{},h('tr',{},h('th',{scope:'col',text:t('qua.col.scenario')}),cols.map(c=>h('th',{scope:'col',text:t('qua.c.'+card.id+'.'+c)})))),
+   h('thead',{},h('tr',{},h('th',{scope:'col',text:t('qua.col.scenario')}),cols.map(c=>h('th',{scope:'col',text:t('qua.c.'+quaFamily(card)+'.'+c)})))),
    h('tbody',{},card.scenarios.rows.map(row=>h('tr',{},h('th',{scope:'row',text:quaScenarioLabel(card,row.name).map(k=>t(k)).join(' · ')}),
     cols.map(c=>cell(row.splits?.[quaSplit]?.[c]))))))));
+}
+function quaChangeNote(){
+ const c=quaChange(quaData,quaSplit);
+ if(!c)return null;
+ return h('div',{class:'qua-callout good',role:'note'},h('strong',{text:t('qua.change.t')}),
+  h('p',{text:t('qua.change.x',{b1:quaPct(c.before.top1.value),a1:quaPct(c.after.top1.value),be:quaPct(c.before.echo.value),ae:quaPct(c.after.echo.value)})}));
 }
 function quaWeaknessNote(){
  const w=quaWeakness(quaData,quaSplit);
@@ -125,7 +142,8 @@ function quaWeaknessNote(){
   h('p',{text:t('qua.weak.x',{top1:quaPct(w.top1.value),any:quaPct(w.any.value),echo:quaPct(w.echo.value)})}));
 }
 function quaSection(card){
- const extra=card.id==='agents'?[h('p',{class:'panel-note',text:t('qua.agents.model',{model:card.model,v:card.prompt_version})}),quaWeaknessNote()]:
+ const model=()=>h('p',{class:'panel-note',text:t('qua.agents.model',{model:card.model,v:card.prompt_version})});
+ const extra=card.id==='agents'?[model(),quaChangeNote()]:card.id==='agents_v1'?[model(),quaWeaknessNote()]:
   card.id==='checks'&&evaluation?[h('details',{class:'qua-details'},h('summary',{text:t('qua.checks.detail')}),detectorPanel('diagnose_csv'),detectorPanel('record_issues'))]:[];
  return h('section',{class:'panel qua-section',id:'qua-'+card.id,'aria-labelledby':'qua-h-'+card.id},
   h('div',{class:'panel-heading'},h('h2',{id:'qua-h-'+card.id,text:t('qua.card.'+card.id)}),h('code',{class:'qua-report',text:card.report})),

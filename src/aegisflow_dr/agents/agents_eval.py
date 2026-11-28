@@ -17,6 +17,12 @@ produced by replaying that recording (``ReplayModel``), so CI regenerates it exa
 hash is a typed MODEL_UNAVAILABLE with a clear message, never a guess. Latencies in the report are the recorded live
 latencies; the replay clock advances by them so budgets and deadlines behave as they did live.
 
+Two protocols exist (``PROTOCOLS``). The description above is v1 (prompt version 2), committed and never re-scored.
+v2 runs the same scenarios on fresh groups 160-199 (salt ``aegisflow-agents-eval-v2``) with prompt version 3, where A23
+reads deterministic qualitative readings (``aegisflow_dr.readings``) instead of the catalog list; it has its own
+recording, saved facts and report (docs/superpowers/specs/2026-11-28-a23-readings-design.md). A recording carries its
+version, so it is always replayed under its own protocol.
+
 Scope, stated plainly: simulated scenarios on generated series, written by the same authors as the catalog, the role
 table and the prompts. A model suggestion that agrees with an injected label is not diagnostic accuracy on real data.
 The model is advisory and Judge-gated; nothing here is a root cause, a production connection or a remediation. Rates
@@ -24,6 +30,7 @@ carry counts and a Wilson 95% interval and are ``None`` (shown ``n/a``) when the
 not apply.
 """
 import argparse
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
 import json
@@ -41,20 +48,50 @@ from . import llm
 from .executors.orchestration import SPECIALISTS
 from .executors.reasoning import ADVISORY_CLAIMS, _explains
 from .llm import INVALID_OUTPUT, MODEL_UNAVAILABLE, TIMEOUT, LocalModel
-from .prompts import PROMPT_VERSION
 from .registry import role
 from .runtime import MODEL_ROLES, Case, canonical, run_case
 
-VERSION = "1"
 SPLITS = be.SPLITS
 GROUPS = range(120, 160)  # after baseline_eval's 0-59 and hypotheses_eval's 60-119
-SALT = "aegisflow-agents-eval-v%s:%%d" % VERSION
 SCENARIOS = he.SCENARIOS
 MODEL = "qwen3:4b"
 LLM_AGENTS = tuple(sorted(MODEL_ROLES))
 RECORDING = Path(__file__).resolve().parents[3] / "fixtures" / "evaluations" / "agents-llm-recording-v1.json"
-RECORDING_NAME = "fixtures/evaluations/agents-llm-recording-v1.json"
 CASES = RECORDING.with_name("agents-cases-v1.json")  # the scored facts of every committed case (see ``collect``)
+
+
+@dataclass(frozen=True)
+class Protocol:
+    """One version of this evaluation: its groups, split salt, prompt version and committed files.
+
+    A recording, its saved facts and its report carry the version, so each is always replayed and scored under its own
+    protocol. v1 (groups 120-159, prompt version 2) is committed and never re-scored; v2 (groups 160-199, prompt version
+    3, A23 with qualitative readings; docs/superpowers/specs/2026-11-28-a23-readings-design.md) is a fresh corpus.
+    """
+    version: str
+    groups: range
+    prompt_version: str
+    recording: Path
+    cases: Path
+    report: str
+
+    def split_of(self, group):
+        bucket = int(sha256(("aegisflow-agents-eval-v%s:%d" % (self.version, group)).encode()).hexdigest(), 16) % 10
+        return SPLITS[0] if bucket < 6 else SPLITS[1] if bucket < 8 else SPLITS[2]
+
+    @property
+    def recording_name(self):
+        return "fixtures/evaluations/" + self.recording.name
+
+
+PROTOCOLS = {"1": Protocol("1", GROUPS, "2", RECORDING, CASES, "docs/evaluation/agents.md"),
+             "2": Protocol("2", range(160, 200), "3", RECORDING.with_name("agents-llm-recording-v2.json"),
+                           RECORDING.with_name("agents-cases-v2.json"), "docs/evaluation/agents-v2.md")}
+V1, LATEST = PROTOCOLS["1"], PROTOCOLS["2"]
+SCOPE_V2 = ("The 36-role agent runtime on simulated incident cases with a local 4B model (qwen3:4b) that is advisory and "
+            "Judge-gated; A23 reads a deterministic qualitative reading of each observation (prompt version 3). Simulated "
+            "scenarios on generated series only: no real incidents, no root cause, no production connection, no "
+            "autonomous remediation.")
 NOW = datetime(2026, 11, 25, tzinfo=timezone.utc)  # stamps the run records; not used by any metric
 ERRORS = (None, INVALID_OUTPUT, TIMEOUT, MODEL_UNAVAILABLE)
 _HEX = re.compile(r"[0-9a-f]{64}")
@@ -91,9 +128,8 @@ EXPECTED_SELECTED = {
 }
 
 
-def split_of(group):
-    bucket = int(sha256((SALT % group).encode()).hexdigest(), 16) % 10
-    return SPLITS[0] if bucket < 6 else SPLITS[1] if bucket < 8 else SPLITS[2]
+def split_of(group, protocol=V1):
+    return protocol.split_of(group)
 
 
 def case_id(group, name):
@@ -105,8 +141,8 @@ def truth_of(name):
 
 
 # -- Recording and replay ----------------------------------------------------------------------------------------------
-def new_recording(model=MODEL, created=None):
-    return {"version": VERSION, "model": model, "prompt_version": PROMPT_VERSION,
+def new_recording(model=MODEL, created=None, protocol=V1):
+    return {"version": protocol.version, "model": model, "prompt_version": protocol.prompt_version,
             "created": created or date.today().isoformat(), "calls": [], "runs": []}
 
 
@@ -126,15 +162,16 @@ def _run_ok(r):
 
 
 def check_recording(recording):
-    """Return ``recording`` when it is a well-formed recording for the current prompts; else raise ValueError."""
-    if (type(recording) is not dict or recording.get("version") != VERSION or type(recording.get("model")) is not str
+    """Return ``recording`` when it is a well-formed recording of a known protocol; else raise ValueError."""
+    if (type(recording) is not dict or recording.get("version") not in PROTOCOLS or type(recording.get("model")) is not str
             or type(recording.get("created")) is not str or type(recording.get("calls")) is not list
             or type(recording.get("runs")) is not list or not all(_call_ok(c) for c in recording["calls"])
             or not all(_run_ok(r) for r in recording["runs"])):
         raise ValueError("Invalid model recording")
-    if recording.get("prompt_version") != PROMPT_VERSION:
-        raise ValueError("The recording was made with prompt version %r; the code has %r. Record again with --live."
-                         % (recording.get("prompt_version"), PROMPT_VERSION))
+    expected = PROTOCOLS[recording["version"]].prompt_version
+    if recording.get("prompt_version") != expected:
+        raise ValueError("The recording was made with prompt version %r; protocol v%s uses %r. Record again with --live."
+                         % (recording.get("prompt_version"), recording["version"], expected))
     return recording
 
 
@@ -270,10 +307,11 @@ def outcome(record):
 
 
 # -- Cases -------------------------------------------------------------------------------------------------------------
-def cases(splits, scenarios=SCENARIOS, groups=GROUPS):
-    """Yield (group, split, scenario, baseline record, current payload, as_of) in group then scenario order."""
-    for group in groups:
-        split = split_of(group)
+def cases(splits, scenarios=SCENARIOS, groups=None, protocol=V1):
+    """Yield (group, split, scenario, baseline record, current payload, as_of) in group then scenario order; ``groups``
+    defaults to the protocol's."""
+    for group in protocol.groups if groups is None else groups:
+        split = protocol.split_of(group)
         if split not in splits:
             continue
         record = None
@@ -283,32 +321,33 @@ def cases(splits, scenarios=SCENARIOS, groups=GROUPS):
             yield group, split, name, record, current, as_of
 
 
-def run_one(group, name, record, current, as_of, model, clock):
+def run_one(group, name, record, current, as_of, model, clock, prompt_version=V1.prompt_version):
     identifier = case_id(group, name)
-    return run_case(Case(payload=current, case_id=identifier, baseline=record, as_of=as_of), model=model, clock=clock,
-                    transport="in_process", now=lambda: NOW, run_id=identifier)
+    return run_case(Case(payload=current, case_id=identifier, baseline=record, as_of=as_of,
+                         prompt_version=prompt_version),
+                    model=model, clock=clock, transport="in_process", now=lambda: NOW, run_id=identifier)
 
 
 class ModelStopped(RuntimeError):
     """The live model stopped answering during a recording."""
 
 
-def record_live(recording, splits, *, transport=None, scenarios=SCENARIOS, groups=GROUPS, checkpoint=None):
+def record_live(recording, splits, *, transport=None, scenarios=SCENARIOS, groups=None, checkpoint=None):
     """Run every case of ``splits`` not yet in ``recording`` against the live model and record it (in place).
 
     ModelStopped when a call finds the model unavailable; the cases recorded before it stay in ``recording``.
     """
-    check_recording(recording)
+    protocol = PROTOCOLS[check_recording(recording)["version"]]
     live = transport or llm._urllib_transport
     done = {run["case_id"] for run in recording["runs"]}
-    for group, split, name, record, current, as_of in cases(splits, scenarios, groups):
+    for group, split, name, record, current, as_of in cases(splits, scenarios, groups, protocol):
         identifier = case_id(group, name)
         if identifier in done:
             continue
         calls = []
         model = LocalModel(model=recording["model"], transport=recorder(live, identifier, calls))
         started = perf_counter()
-        result = run_one(group, name, record, current, as_of, model, monotonic)
+        result = run_one(group, name, record, current, as_of, model, monotonic, protocol.prompt_version)
         wall = max(0, round((perf_counter() - started) * 1000))
         if any(call["error"] == MODEL_UNAVAILABLE for call in calls):
             # A model that stops answering must not be recorded as the model's behaviour: stop, keep what is done, and
@@ -520,21 +559,24 @@ def _finalize(bucket):
     runs["fidelity"] = _rate(runs["matched"], runs["compared"])
 
 
-def collect(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=GROUPS):
+def collect(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=None):
     """Replay ``recording`` over the cases of ``splits`` and keep each case's facts (see ``case_facts``)."""
+    protocol = PROTOCOLS[check_recording(recording)["version"]]
     replay = ReplayModel(recording)
     runs = {run["case_id"]: run for run in recording["runs"]}
     collected = {split: {"groups": 0, "cases": []} for split in splits}
     seen = set()
-    for group, split, name, record, current, as_of in cases(splits, scenarios, groups):
+    for group, split, name, record, current, as_of in cases(splits, scenarios, groups, protocol):
         if group not in seen:
             seen.add(group)
             collected[split]["groups"] += 1
         identifier, clock, log = case_id(group, name), VirtualClock(), []
-        result = run_one(group, name, record, current, as_of, replay.model(identifier, clock, log), clock)
+        result = run_one(group, name, record, current, as_of, replay.model(identifier, clock, log), clock,
+                         protocol.prompt_version)
         facts = case_facts(name, result, log, hypotheses.investigate(record, current, as_of=as_of), runs.get(identifier))
         collected[split]["cases"].append({"case_id": identifier, "scenario": name, **facts})
-    return {"version": VERSION, "groups": len(groups), "scenarios": list(scenarios),
+    return {"version": protocol.version, "groups": len(protocol.groups if groups is None else groups),
+            "scenarios": list(scenarios),
             "recording": {"model": recording["model"], "prompt_version": recording["prompt_version"],
                           "created": recording["created"], "calls": len(recording["calls"]),
                           "runs": len(recording["runs"])},
@@ -550,11 +592,12 @@ def summarise_collected(collected):
         for case in data["cases"]:
             score_facts(bucket, case["scenario"], case)
         _finalize(bucket)
-    return {"version": collected["version"], "scope": SCOPE, "groups": collected["groups"],
+    return {"version": collected["version"], "scope": SCOPE if collected["version"] == "1" else SCOPE_V2,
+            "groups": collected["groups"],
             "recording": collected["recording"], "splits": report}
 
 
-def evaluate(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=GROUPS):
+def evaluate(recording, splits=SPLITS[:2], *, scenarios=SCENARIOS, groups=None):
     """Replay ``recording`` over the cases of ``splits`` and score them."""
     return summarise_collected(collect(recording, splits, scenarios=scenarios, groups=groups))
 
@@ -585,24 +628,41 @@ def _agent_rows(agents):
     return out
 
 
+V2_CHANGES = (
+    "**What changed in v2.** A23 no longer receives the catalog list. Each observation carries a qualitative reading "
+    "computed deterministically from aggregates (`aegisflow_dr.readings`: a mean scaled by a power of ten, shifted or "
+    "unchanged; a wider, narrower or unchanged spread; rows that dropped or increased; late data; more empty values in "
+    "one contiguous run or scattered), and the prompt states each mechanism's signature in those words and asks for a "
+    "ranking (prompt version 3). The readings use the same aggregates and documented thresholds the probes use, so "
+    "agreement now measures whether the model maps documented signatures to readings, not independent diagnosis. The "
+    "prompt was written and tried on v1 development groups only and frozen before this corpus was recorded "
+    "(docs/superpowers/specs/2026-11-28-a23-readings-design.md). The v1 report (`agents.md`, prompt version 2) stays "
+    "as committed.")
+
+
 def render_markdown(report):
-    sizes = [sum(split_of(g) == name for g in GROUPS) for name in SPLITS]
+    protocol = PROTOCOLS[report["version"]]
+    v2 = protocol.version != "1"
+    sizes = [sum(protocol.split_of(g) == name for g in protocol.groups) for name in SPLITS]
     scored = ("development, validation and held-out (`--include-heldout`)" if "heldout" in report["splits"]
               else "development and validation; `--include-heldout` adds the held-out split")
     rec = report["recording"]
-    out = ["# Agent runtime evaluation", "",
-           "Generated by `python -m aegisflow_dr.agents.agents_eval` by replaying `%s` (%s)." % (RECORDING_NAME, scored),
-           "", "**Scope.** " + report["scope"], "",
+    out = ["# Agent runtime evaluation" + (" (v%s)" % protocol.version if v2 else ""), "",
+           "Generated by `python -m aegisflow_dr.agents.agents_eval%s` by replaying `%s` (%s)."
+           % (" --protocol %s" % protocol.version if v2 else "", protocol.recording_name, scored),
+           "", "**Scope.** " + report["scope"], ""] + ([V2_CHANGES, ""] if v2 else []) + [
            "## Corpus", "",
            "%d groups (groups %d-%d) from the baseline evaluation's generator, with the fourteen scenario injections of "
            "the hypothesis loop evaluation (`hypotheses_eval.scenario`, imported, not copied). The corpus is disjoint from "
-           "the baseline comparison evaluation (D05c, groups 0-%d) and the hypothesis loop evaluation (F04, groups %d-%d): "
+           "the baseline comparison evaluation (D05c, groups 0-%d) and the hypothesis loop evaluation (F04, groups %d-%d)%s: "
            "the generator is seeded by the group number, so no group, base series or payload is shared with them."
-           % (report["groups"], GROUPS[0], GROUPS[-1], be.GROUPS - 1, he.GROUPS[0], he.GROUPS[-1]), "",
+           % (report["groups"], protocol.groups[0], protocol.groups[-1], be.GROUPS - 1, he.GROUPS[0], he.GROUPS[-1],
+              " and the v1 agents evaluation (groups %d-%d)" % (V1.groups[0], V1.groups[-1]) if v2 else ""), "",
            "Groups are split by a hash of the group number (salt `aegisflow-agents-eval-v%s`, buckets 6/2/2 out of 10), "
            "realized as development %d, validation %d and held-out %d groups; all scenarios of a group stay in one split. "
            "Held-out is small, so its intervals are wide: a perfect %d/%d has a Wilson 95%% lower bound of %.1f%%."
-           % (VERSION, sizes[0], sizes[1], sizes[2], sizes[2], sizes[2], wilson(sizes[2], sizes[2])[0] * 100), "",
+           % (protocol.version, sizes[0], sizes[1], sizes[2], sizes[2], sizes[2], wilson(sizes[2], sizes[2])[0] * 100),
+           "",
            "Each case is one `run_case`: the baseline built from the group's %d reference batches, the scenario's current "
            "batch and `as_of`; no second file, no retriever and no run history. Transports are in process (no MCP or "
            "A2A hop), no context cache is used, and the budgets are the catalog defaults (8 specialists, 12 model calls, "
@@ -690,12 +750,27 @@ def render_markdown(report):
             "- The model is a local 4B model (`qwen3:4b`, 4-bit quantised) used as an advisor. Its output is never "
             "evidence: the Judge labels model-based claims advisory at best, and only specialist claims can be accepted "
             "as findings. No result here is a root cause.",
-            "- Agreement of A23 with an injected label on simulated scenarios is not diagnostic accuracy on real data. "
-            "The scenarios, the mechanism catalog (with the checks each mechanism explains, which A23 sees in its "
-            "prompt) and the prompts were written by the same authors, so agreement measures whether the model maps "
-            "observation checks to catalog mechanisms the way the catalog intends.",
-            "- A23's prompt does not ask for a ranking, so *top-1* is the first mechanism the model happened to list, "
-            "not a calibrated best guess; *any* is the fairer reading of a list of up to three.",
+            ("- Agreement of A23 with an injected label on simulated scenarios is not diagnostic accuracy on real data. "
+             "The scenarios, the readings and their thresholds, the signatures in the prompt and the probes were written "
+             "by the same authors from the same catalog, so agreement measures whether the model maps documented "
+             "signatures to deterministic readings. A reading that fits two mechanisms equally cannot be told apart." if v2
+             else "- Agreement of A23 with an injected label on simulated scenarios is not diagnostic accuracy on real "
+             "data. The scenarios, the mechanism catalog (with the checks each mechanism explains, which A23 sees in its "
+             "prompt) and the prompts were written by the same authors, so agreement measures whether the model maps "
+             "observation checks to catalog mechanisms the way the catalog intends."),
+            ("- A23's prompt asks for the candidates from the best fit to the worst, so *top-1* is the model's first "
+             "choice. *Catalog-order echo* stays as a check that the list does not simply follow the catalog; for a list "
+             "of one mechanism it is true whenever that mechanism is the first in catalog order that explains the "
+             "observations, so it reads 100% on unit change, sampling change, delivery delay and field outage by "
+             "construction." if v2
+             else "- A23's prompt does not ask for a ranking, so *top-1* is the first mechanism the model happened to "
+             "list, not a calibrated best guess; *any* is the fairer reading of a list of up to three."),
+            ] + ([
+            "- On duplicate delivery the model pads its list with `partial_load` and `sampling_config_change` and claims "
+            "they explain the volume increase, which neither does; the Judge rejects those claims "
+            "(`mechanism_does_not_explain`), so the A23 advisory rate is below 100% while its first choice is "
+            "unaffected. This was seen on development after the prompt had been frozen and was not tuned away."] if v2
+            else []) + [
             "- The deterministic loop and A23 answer different questions: the loop tests mechanisms with fixed probes, "
             "A23 only proposes. The side-by-side columns show both on the same cases, not a contest between equals.",
             "- Role selection is deterministic code implementing the role table, and the expected sets come from the "
@@ -716,7 +791,8 @@ def render_markdown(report):
             "- Temperature 0 and a fixed seed do not guarantee identical output across Ollama versions or hardware; the "
             "recording fixes one live run, and the replay-fidelity line shows whether replay reproduces it.",
             "- Prompts (version %s) were fixed before development was scored and were not changed after looking at "
-            "validation; held-out is scored once, and anything it reveals is reported as a weakness." % PROMPT_VERSION]
+            "validation; held-out is scored once, and anything it reveals is reported as a weakness."
+            % protocol.prompt_version]
     return "\n".join(out)
 
 
@@ -725,16 +801,19 @@ def main(argv=(), *, transport=None, err=sys.stderr):
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--live", action="store_true", help="call the local model for cases not yet recorded")
     source.add_argument("--from-cases", metavar="PATH", help="render the report from saved case facts, without replay")
-    parser.add_argument("--record", default=str(RECORDING), help="recording file (default: the committed one)")
+    parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default=LATEST.version,
+                        help="evaluation version (default: the latest); each has its own corpus and recording")
+    parser.add_argument("--record", help="recording file (default: the protocol's committed one)")
     parser.add_argument("--include-heldout", action="store_true", help="also run and score the held-out split")
     parser.add_argument("--save-cases", metavar="PATH", help="also save the case facts the report is scored from")
     args = parser.parse_args(list(argv))
     if args.from_cases:
         return render_markdown(summarise_collected(json.loads(Path(args.from_cases).read_text("utf-8"))))
     splits = SPLITS if args.include_heldout else SPLITS[:2]
-    path = Path(args.record)
+    protocol = PROTOCOLS[args.protocol]
+    path = Path(args.record) if args.record else protocol.recording
     if args.live:
-        recording = load_recording(path) if path.exists() else new_recording()
+        recording = load_recording(path) if path.exists() else new_recording(protocol=protocol)
 
         def checkpoint(identifier, wall):
             save_recording(recording, path)
@@ -748,7 +827,10 @@ def main(argv=(), *, transport=None, err=sys.stderr):
         save_recording(recording, path)
     elif not path.exists():
         parser.error("no recording at %s; make one with --live" % path)
-    collected = collect(load_recording(path), splits)
+    recording = load_recording(path)
+    if recording["version"] != protocol.version:
+        parser.error("%s is a v%s recording; pass --protocol %s" % (path, recording["version"], recording["version"]))
+    collected = collect(recording, splits)
     if args.save_cases:
         Path(args.save_cases).write_text(json.dumps(collected, separators=(",", ":")) + "\n", "utf-8")
     return render_markdown(summarise_collected(collected))

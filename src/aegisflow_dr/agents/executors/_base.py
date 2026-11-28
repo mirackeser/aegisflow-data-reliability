@@ -20,7 +20,7 @@ from ...pipeline import InputRejected
 from ..context import PolicyDenied, ToolBudgetExceeded, ToolError
 from ..contracts import MAX_ADVISORY_CHARS, validate_result, validate_task
 from ..llm import MAX_OUTPUT_TOKENS, MAX_TIMEOUT_S, PROVIDER, SEED, TEMPERATURE
-from ..prompts import PROMPT_VERSION, TEMPLATES, case_vocabulary, safe_context
+from ..prompts import TEMPLATES_BY_VERSION, case_vocabulary, safe_context
 from ...advisory.context_cache import CacheIdentity
 
 MAX_CLAIMS, MAX_LIST = 32, 16
@@ -117,7 +117,8 @@ class Run:
         ModelFailure when there is no model, no model budget, no time left of the task's deadline, or no valid output
         (the model record is kept). The call's timeout is the time left of the deadline, at most 30 s.
         """
-        ctx, template = self.ctx, TEMPLATES[name]
+        ctx = self.ctx
+        template = TEMPLATES_BY_VERSION[ctx.prompt_version][name]
         if "local_llm" not in ctx.allowed_tools:
             raise PolicyDenied("TOOL_NOT_ALLOWED")
         header, cells = self.vocabulary()
@@ -134,12 +135,12 @@ class Run:
         remaining = budget["deadline_ms"] / 1000 - (ctx.clock() - self.began)
         if remaining <= 0:
             raise ModelFailure("DEADLINE_EXCEEDED")
-        context_ref = self.put("llm_context", {"agent": ctx.agent_id, "prompt_version": PROMPT_VERSION,
+        context_ref = self.put("llm_context", {"agent": ctx.agent_id, "prompt_version": ctx.prompt_version,
                                                "template": name, "context": context})
         options = {}
         if ctx.cache is not None:
             options = {"cache": ctx.cache, "agent_id": ctx.agent_id,
-                       "identity": CacheIdentity(ctx.tenant_id, ctx.agent_id.lower(), PROMPT_VERSION,
+                       "identity": CacheIdentity(ctx.tenant_id, ctx.agent_id.lower(), ctx.prompt_version,
                                                  context_ref["sha256"])}
         asked = ctx.clock()
         answer = ctx.model.complete(template.system, template.user(context), schema, max_tokens=max_tokens,
@@ -162,7 +163,7 @@ class Run:
             raise ModelFailure(answer.error_code)
         if answer.tokens_in + answer.tokens_out > budget["max_tokens"]:
             raise ModelFailure("TOKEN_BUDGET_EXCEEDED")
-        ref = self.put("llm_suggestion", {"agent": ctx.agent_id, "prompt_version": PROMPT_VERSION,
+        ref = self.put("llm_suggestion", {"agent": ctx.agent_id, "prompt_version": ctx.prompt_version,
                                           "prompt_sha256": answer.prompt_sha256, "context": context_ref,
                                           "data": answer.data, **evidence})
         return answer.data, ref

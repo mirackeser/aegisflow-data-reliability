@@ -16,7 +16,7 @@ from ..contracts import ERROR_CODES, STATUSES, validate_result
 from ..prompts import VOCABULARY, hypothesis_schema
 from ..registry import ROLES
 from ._base import MAX_LIST, NeedsEvidence, bounded, executor
-from .orchestration import triage, unmapped
+from .orchestration import readings, triage, unmapped
 
 _HEX = re.compile(r"[0-9a-f]{64}")
 _RUN_ID = re.compile(r"(?:obs|hyp|prb|sig)-[0-9]{1,4}|(?:g|c|f|opt)[0-9]{1,3}|A(?:0[1-9]|[12][0-9]|3[0-6])")
@@ -43,11 +43,16 @@ def hypothesis_generator(run):
         raise NeedsEvidence("NO_OBSERVATIONS")
     ids = [o["id"] for o in observations]
     observations_ref = run.put("observations", {"observations": observations})
-    catalog = [{"mechanism": m, "explains": sorted({check for check, _ in CATALOG[m][1]})} for m in MECHANISMS]
-    data, suggestion = run.ask("a23", {"observations": observations, "catalog": catalog}, hypothesis_schema(ids),
-                               observations=ids)
+    if run.ctx.prompt_version == "2":
+        catalog = [{"mechanism": m, "explains": sorted({check for check, _ in CATALOG[m][1]})} for m in MECHANISMS]
+        context = {"observations": observations, "catalog": catalog}
+    else:  # version 3: each observation with its qualitative reading; the signatures are in the prompt
+        context = {"observations": [{**o, "reading": r} for o, r in zip(observations, readings(run.ctx))]}
+    data, suggestion = run.ask("a23", context, hypothesis_schema(ids), observations=ids)
     candidates = data["candidates"]
     proposed = [c["mechanism"] for c in candidates]
+    if run.ctx.prompt_version != "2":
+        proposed = list(dict.fromkeys(proposed))  # a mechanism the model repeats keeps its first place
     explained = sorted({i for c in candidates for i in c["explains"]}, key=ids.index)
     run.claim("a23.suggested", {"mechanisms": proposed, "explains": explained}, suggestion, observations_ref)
     run.advise("Model-suggested candidate mechanisms (advisory, to be tested, not a cause): "

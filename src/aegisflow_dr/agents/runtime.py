@@ -56,7 +56,7 @@ from .executors._base import Run
 from .executors.reasoning import judge
 from .executors.remediation import accepted_findings
 from .llm import LocalModel
-from .prompts import case_vocabulary
+from .prompts import PROMPT_VERSION, case_vocabulary
 from .registry import ROLES, role
 
 RECORD_VERSION, POLICY_VERSION, MAX_TOOL_CALLS = "1", "1", 8
@@ -89,6 +89,7 @@ class Case:
     second_payload: Any = None
     retriever: Any = None
     history: Any = None
+    prompt_version: str = PROMPT_VERSION  # the model prompts; an earlier version replays an earlier recording
 
 
 @dataclass(frozen=True)
@@ -239,7 +240,7 @@ class _Run:
         self.ctx = AgentContext(case.payload, case.tenant_id, case.case_id, baseline=case.baseline, as_of=case.as_of,
                                 second_payload=case.second_payload, retriever=case.retriever, history=case.history,
                                 model=model, cache=cache, clock=clock, started=self.started, hooks=self.hooks,
-                                limits=budget.limits())
+                                limits=budget.limits(), prompt_version=case.prompt_version)
         self.limits = budget.limits()
         self.results, self.tasks, self.attempts, self.waves_run = {}, {}, {}, []
         self.selection = {}

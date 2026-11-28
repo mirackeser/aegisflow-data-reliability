@@ -21,7 +21,8 @@ VERSION = "1"
 SPLITS = ("development", "validation", "heldout")
 EVALUATIONS = Path(__file__).resolve().parents[2] / "fixtures" / "evaluations"
 PLANT_CASES = EVALUATIONS / "plant-cases-v1.json"
-AGENTS_CASES = EVALUATIONS / "agents-cases-v1.json"
+AGENTS_CASES = EVALUATIONS / "agents-cases-v2.json"  # the latest agents evaluation (prompt version 3)
+AGENTS_V1_CASES = EVALUATIONS / "agents-cases-v1.json"  # the previous one (prompt version 2), kept for comparison
 HIGHER, LOWER = "higher", "lower"
 
 
@@ -74,7 +75,8 @@ def plant_card(report):
                                           for s, b in splits.items()}} for name in names])}
 
 
-def agents_card(report):
+def agents_card(report, ident="agents"):
+    """The agents evaluation; ``ident`` names the card ("agents" for the latest, "agents_v1" for the previous one)."""
     splits = report["splits"]
     modelled = [n for n in agents_eval.SCENARIOS if agents_eval.truth_of(n) is not None]
     unmodelled = list(hypotheses_eval.UNMODELLED)  # changes outside the catalog; A23 is not asked on a clean batch
@@ -83,7 +85,8 @@ def agents_card(report):
         return {s: pool(from_report(b["scenarios"][n]["rates"][key]) for n in names) for s, b in splits.items()}
 
     columns = ("a23_any", "a23_top1", "a23_echo", "loop_sole", "a23_misattributed", "loop_misattributed")
-    return {"id": "agents", "report": "docs/evaluation/agents.md", "available": True,
+    return {"id": ident, "family": "agents", "report": agents_eval.PROTOCOLS[report["version"]].report,
+            "available": True, "evaluation_version": report["version"],
             "model": report["recording"]["model"], "prompt_version": report["recording"]["prompt_version"],
             "units": {s: {"groups": b["groups"], "cases": b["runs"]["cases"]} for s, b in splits.items()},
             "metrics": [_metric("selection_exact", HIGHER, {s: from_report(b["selection"]["exact"])
@@ -164,6 +167,7 @@ def summary():
     return {"version": VERSION, "splits": list(SPLITS), "evaluations": [
         _saved(PLANT_CASES, plant_eval.summarise_collected, plant_card, "plant"),
         _saved(AGENTS_CASES, agents_eval.summarise_collected, agents_card, "agents"),
+        _saved(AGENTS_V1_CASES, agents_eval.summarise_collected, lambda r: agents_card(r, "agents_v1"), "agents_v1"),
         hypotheses_card(hypotheses_eval.evaluate(splits=SPLITS)),
         baseline_card(baseline_eval.evaluate(splits=SPLITS)),
         profiling_card(profiling_eval.evaluate()),

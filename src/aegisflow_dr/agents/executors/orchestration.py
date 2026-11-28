@@ -15,6 +15,7 @@ from ...coordination.routing import TaskGraph
 from ...hypotheses import observations_from
 from ...pipeline import EXPECTED_COLUMNS, InputRejected, diagnose_csv
 from ...profiling import profile_csv, read_table
+from ...readings import observation_readings
 from ..contracts import STATUSES
 from ..registry import ROLES, role
 from ._base import MAX_LIST, ModelFailure, Skip, bounded, executor
@@ -65,7 +66,9 @@ def _intake(ctx):
         found += [(f.check, f.column or None) for f in _call(ctx, "A01", "diagnose_csv", diagnose_csv,
                                                              ctx.payload).findings]
     signals = sorted(set(found), key=lambda item: (item[0], item[1] or ""))
-    observations = observations_from(comparison or {"source_sha256": profile["source_sha256"], "findings": []}, profile)
+    compared = comparison or {"source_sha256": profile["source_sha256"], "findings": []}
+    observations = observations_from(compared, profile)
+    ctx.remember("aggregates", lambda: (compared, profile))  # for the readings; not part of the intake record
     return {
         "records": profile["records"],
         "columns": [{"name": c["name"], "role": c["role"]} for c in profile["columns"]],
@@ -83,6 +86,12 @@ def _intake(ctx):
 def triage(ctx):
     """The case intake (memoised per case). Raises InputRejected for an unreadable payload or a tampered baseline."""
     return ctx.remember("triage", lambda: _intake(ctx))
+
+
+def readings(ctx):
+    """The qualitative reading of each intake observation, in the same order (memoised per case)."""
+    triage(ctx)
+    return ctx.remember("readings", lambda: observation_readings(*ctx.memo["aggregates"], ctx.payload))
 
 
 # agent -> (trigger over the intake, reason when met, reason when not met); see the binding role table.

@@ -5,7 +5,9 @@ import unittest
 from jsonschema import Draft202012Validator
 
 from aegisflow_dr.agents import prompts
-from aegisflow_dr.agents.prompts import (FREE_TEXT_KEYS, PROMPT_VERSION, TEMPLATES, VOCABULARY, case_vocabulary,
+from aegisflow_dr.readings import WORDS as READING_WORDS
+from aegisflow_dr.agents.prompts import (FREE_TEXT_KEYS, PROMPT_VERSION, PROMPT_VERSIONS, TEMPLATES, TEMPLATES_BY_VERSION,
+                                         VOCABULARY, case_vocabulary,
                                          free_text_ok, safe_context)
 from aegisflow_dr.hypotheses import MECHANISMS
 from aegisflow_dr.pipeline import InputRejected
@@ -23,8 +25,15 @@ class Vocabulary(unittest.TestCase):
     def test_vocabulary_has_checks_mechanisms_and_no_free_text(self):
         self.assertTrue(set(MECHANISMS) <= VOCABULARY)
         self.assertTrue({"duplicate_rows", "volume_change", "not_null", "flatline"} <= VOCABULARY)
-        self.assertEqual(PROMPT_VERSION, "2")
+        self.assertEqual((PROMPT_VERSION, PROMPT_VERSIONS), ("3", ("2", "3")))
         self.assertEqual(set(TEMPLATES), {"a02", "a22", "a23", "a29", "a30"})
+        self.assertIs(TEMPLATES, TEMPLATES_BY_VERSION[PROMPT_VERSION])
+        # Version 3 changes A23 only; version 2 stays byte for byte, so earlier recordings still replay.
+        v2, v3 = TEMPLATES_BY_VERSION["2"], TEMPLATES_BY_VERSION["3"]
+        self.assertEqual({k for k in v2 if v2[k] != v3[k]}, {"a23"})
+        self.assertTrue(v2["a23"].system.startswith("You propose up to three candidate mechanisms from the given catalog"))
+        self.assertIn("ordered from the best fit to the worst", v3["a23"].system)
+        self.assertTrue(set(READING_WORDS) <= VOCABULARY)
         self.assertEqual(FREE_TEXT_KEYS, {"passage", "kb_source", "option_title", "option_rollback"})
 
 

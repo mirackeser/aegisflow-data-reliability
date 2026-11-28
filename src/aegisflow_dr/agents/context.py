@@ -29,6 +29,7 @@ from typing import Any, Callable
 from ..advisory.context_cache import ContextCache
 from ..pipeline import InputRejected
 from .llm import LocalModel
+from .prompts import PROMPT_VERSION, PROMPT_VERSIONS
 from .registry import role
 
 MAX_EVIDENCE_ITEMS, MAX_EVIDENCE_BYTES = 4096, 32_000_000
@@ -215,6 +216,7 @@ class AgentContext:
     memo: dict = field(default_factory=dict, repr=False, compare=False)
     hooks: Any = field(default=None, repr=False, compare=False)
     limits: Any = None
+    prompt_version: str = PROMPT_VERSION
 
     def __post_init__(self):
         if (not _payload_ok(self.payload, True) or not _payload_ok(self.second_payload, False)
@@ -230,7 +232,8 @@ class AgentContext:
                 or type(self.prior) is not dict or not callable(self.clock)
                 or (self.hooks is not None and not (callable(getattr(self.hooks, "call_tool", None))
                                                     and callable(getattr(self.hooks, "event", None))))
-                or (self.limits is not None and type(self.limits) is not dict)):
+                or (self.limits is not None and type(self.limits) is not dict)
+                or self.prompt_version not in PROMPT_VERSIONS):
             raise InputRejected("Invalid agent context")
         if self.started is None:
             object.__setattr__(self, "started", self.clock())

@@ -10,6 +10,7 @@ from test_agents_executors import assert_bound, completed
 from aegisflow_dr.agents.executors.reasoning import judge
 from aegisflow_dr.baseline import build_baseline
 from aegisflow_dr.hypotheses import trace_digest
+from aegisflow_dr.pipeline import InputRejected
 
 NAMES = frozenset({"order_id", "created_at", "total"})
 
@@ -44,7 +45,7 @@ class Hypotheses(unittest.TestCase):
         suggestion = result["claims"][0]["evidence_refs"][0]
         self.assertEqual(ctx.evidence.kind(suggestion), "llm_suggestion")
         stored = ctx.evidence.get(suggestion)
-        self.assertEqual((stored["agent"], stored["observations"], stored["prompt_version"]), ("A23", ["obs-1"], "2"))
+        self.assertEqual((stored["agent"], stored["observations"], stored["prompt_version"]), ("A23", ["obs-1"], "3"))
         self.assertEqual(result["llm"], {"provider": "ollama", "model": "qwen3:4b",
                                          "prompt_sha256": stored["prompt_sha256"], "temperature": 0, "seed": 7})
         self.assertEqual((result["usage"]["tokens_in"], result["usage"]["tokens_out"]), (40, 12))
@@ -54,6 +55,37 @@ class Hypotheses(unittest.TestCase):
         self.assertEqual(request["options"], {"temperature": 0, "seed": 7, "num_predict": 256})
         enum = request["format"]["properties"]["candidates"]["items"]["properties"]["mechanism"]["enum"]
         self.assertEqual(len(enum), 12)
+
+    def test_a23_prompt_versions_send_different_contexts(self):
+        """Version 3 sends each observation with its reading and no catalog; version 2 is unchanged (catalog list)."""
+        sent = {}
+        for version in ("2", "3"):
+            local, transport = model()
+            ctx = observed(model=local, prompt_version=version)
+            run("A23", ctx)
+            stored = ctx.evidence.get(next(r for r in ctx.evidence.refs() if ctx.evidence.kind(r) == "llm_context"))
+            sent[version] = (stored["prompt_version"], stored["context"], transport.calls[0]["messages"][0]["content"])
+        self.assertEqual(sent["2"][0], "2")
+        self.assertIn("catalog", sent["2"][1])
+        self.assertTrue(all("reading" not in o for o in sent["2"][1]["observations"]))
+        self.assertEqual(sent["3"][0], "3")
+        self.assertNotIn("catalog", sent["3"][1])
+        self.assertEqual(sent["3"][1]["observations"][0]["reading"], {"rows": "increase"})
+        self.assertIn("Signatures:", sent["3"][2])
+        self.assertNotIn("Signatures:", sent["2"][2])
+
+    def test_a23_v3_keeps_a_repeated_mechanism_once(self):
+        answer = {"candidates": [{"mechanism": "duplicate_delivery", "explains": ["obs-1"]},
+                                 {"mechanism": "duplicate_delivery", "explains": ["obs-1"]}]}
+        for version, expected in (("3", ["duplicate_delivery"]), ("2", ["duplicate_delivery", "duplicate_delivery"])):
+            local, _ = model(answer)
+            result = run("A23", observed(model=local, prompt_version=version))
+            with self.subTest(version=version):
+                self.assertEqual(params(result, "a23.suggested")[0]["mechanisms"], expected)
+
+    def test_an_unknown_prompt_version_is_refused(self):
+        with self.assertRaises(InputRejected):
+            observed(prompt_version="9")
 
     def test_a23_model_failures_are_needs_evidence_with_the_model_record(self):
         for override, code in ((envelope({"candidates": [{"mechanism": "root_cause", "explains": ["obs-1"]}]}),

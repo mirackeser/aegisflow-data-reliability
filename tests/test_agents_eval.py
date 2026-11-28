@@ -17,11 +17,11 @@ from aegisflow_dr import baseline_eval as be, hypotheses_eval as he
 from aegisflow_dr.agents import agents_eval as ae
 from aegisflow_dr.agents.executors.orchestration import SPECIALISTS, TRIGGERS, is_order_extract, route
 from aegisflow_dr.agents.llm import INVALID_OUTPUT, MODEL_UNAVAILABLE, TIMEOUT, LocalModel, prompt_sha256
-from aegisflow_dr.agents.prompts import PROMPT_VERSION
 from aegisflow_dr.agents.runtime import AGENT_IDS
 from aegisflow_dr.profiling import read_table
 
 DEV, VAL = 120, 122  # the first development and the first validation group
+PROMPT_VERSION = ae.V1.prompt_version  # these unit tests use the v1 protocol
 SMALL = ("unit_change", "stuck_sensor", "clean", "unmodelled_sign_flip")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["x"], "properties": {"x": {"type": "integer"}}}
 
@@ -269,7 +269,7 @@ class ScoringTests(unittest.TestCase):
     def test_render_shows_n_a_for_an_empty_split(self):
         bucket = ae._empty_bucket()
         ae._finalize(bucket)
-        report = {"version": ae.VERSION, "scope": ae.SCOPE, "groups": len(ae.GROUPS), "splits": {"heldout": bucket},
+        report = {"version": ae.V1.version, "scope": ae.SCOPE, "groups": len(ae.GROUPS), "splits": {"heldout": bucket},
                   "recording": {"model": ae.MODEL, "prompt_version": PROMPT_VERSION, "created": "2026-11-25",
                                 "calls": 0, "runs": 0}}
         text = ae.render_markdown(report)
@@ -295,8 +295,12 @@ class RecordingTests(unittest.TestCase):
         for item in bad:
             with self.assertRaisesRegex(ValueError, "Invalid model recording"):
                 ae.check_recording(item)
-        with self.assertRaisesRegex(ValueError, "prompt version '1'; the code has"):
+        with self.assertRaisesRegex(ValueError, "prompt version '1'; protocol v1 uses '2'"):
             ae.check_recording({**good, "prompt_version": "1"})
+        v2 = {**good, "version": "2", "prompt_version": "3"}
+        self.assertIs(ae.check_recording(v2), v2)
+        with self.assertRaisesRegex(ValueError, "protocol v2 uses '3'"):
+            ae.check_recording({**v2, "prompt_version": "2"})
 
     def test_new_recording_and_round_trip(self):
         self.assertEqual(len(ae.new_recording()["created"]), 10)
@@ -452,23 +456,30 @@ class SmallRecordingTests(unittest.TestCase):
 
 
 class MainTests(unittest.TestCase):
-    def test_default_replays_the_committed_recording_without_heldout(self):
-        with mock.patch.object(ae, "load_recording", return_value="rec") as load, \
+    def test_default_replays_the_latest_committed_recording_without_heldout(self):
+        rec = {"version": ae.LATEST.version}
+        with mock.patch.object(ae, "load_recording", return_value=rec) as load, \
                 mock.patch.object(ae, "collect", return_value="facts") as collect, \
                 mock.patch.object(ae, "summarise_collected", return_value="report") as summarise, \
                 mock.patch.object(ae, "render_markdown", return_value="text") as render, \
                 mock.patch.object(Path, "exists", return_value=True):
             self.assertEqual(ae.main(), "text")
-            load.assert_called_once_with(ae.RECORDING)
-            collect.assert_called_once_with("rec", ("development", "validation"))
+            load.assert_called_once_with(ae.LATEST.recording)
+            collect.assert_called_once_with(rec, ("development", "validation"))
             summarise.assert_called_once_with("facts")
             render.assert_called_once_with("report")
             ae.main(["--include-heldout"])
-            collect.assert_called_with("rec", ("development", "validation", "heldout"))
+            collect.assert_called_with(rec, ("development", "validation", "heldout"))
+            load.return_value = {"version": "1"}
+            ae.main(["--protocol", "1"])
+            load.assert_called_with(ae.V1.recording)
+            with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                ae.main(["--protocol", "2"])  # a v1 recording is never scored as v2
 
     def test_case_facts_are_saved_and_rendered_without_replay(self):
         collected = {"version": "1", "splits": {}}
-        with tempfile.TemporaryDirectory() as folder, mock.patch.object(ae, "load_recording", return_value="rec"), \
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(ae, "load_recording", return_value={"version": ae.LATEST.version}), \
                 mock.patch.object(ae, "collect", return_value=collected), \
                 mock.patch.object(ae, "summarise_collected", return_value="report") as summarise, \
                 mock.patch.object(ae, "render_markdown", return_value="text"), \
@@ -533,36 +544,43 @@ class CommittedRecordingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.recording = ae.load_recording(ae.RECORDING)
+        cls.recordings = [(p, ae.load_recording(p.recording)) for p in ae.PROTOCOLS.values() if p.recording.exists()]
 
     def test_recording_metadata(self):
-        self.assertEqual((self.recording["model"], self.recording["prompt_version"]), (ae.MODEL, PROMPT_VERSION))
-        cases = {r["case_id"] for r in self.recording["runs"]}
-        self.assertEqual(len(cases), len(self.recording["runs"]))
-        self.assertTrue({c["case_id"] for c in self.recording["calls"]} <= cases)
-        for run in self.recording["runs"]:
-            group, name = run["case_id"][1:].split(".", 1)
-            self.assertIn(name, ae.SCENARIOS)
-            self.assertEqual(run["split"], ae.split_of(int(group)))
-        recorded = {r["split"] for r in self.recording["runs"]}
-        self.assertTrue({"development", "validation"} <= recorded)
+        for protocol, recording in self.recordings:
+            with self.subTest(protocol=protocol.version):
+                self.assertEqual((recording["model"], recording["version"], recording["prompt_version"]),
+                                 (ae.MODEL, protocol.version, protocol.prompt_version))
+                cases = {r["case_id"] for r in recording["runs"]}
+                self.assertEqual(len(cases), len(recording["runs"]))
+                self.assertTrue({c["case_id"] for c in recording["calls"]} <= cases)
+                for run in recording["runs"]:
+                    group, name = run["case_id"][1:].split(".", 1)
+                    self.assertIn(name, ae.SCENARIOS)
+                    self.assertEqual(run["split"], protocol.split_of(int(group)))
+                recorded = {r["split"] for r in recording["runs"]}
+                self.assertTrue({"development", "validation"} <= recorded)
 
     def test_recording_contains_no_cell_value(self):
         """Model outputs over aggregate contexts only: no cell value of any generated payload appears in them."""
-        texts = {}
-        for call in self.recording["calls"]:
-            texts.setdefault(call["case_id"], []).append(call["response_json"] or "")
-        def cells(payloads):
-            return {value.strip() for payload in payloads for row in read_table(payload)[1] for value in row
-                    if value.strip()}
+        for protocol, recording in self.recordings:
+            texts = {}
+            for call in recording["calls"]:
+                texts.setdefault(call["case_id"], []).append(call["response_json"] or "")
 
-        reference_cells = {}
-        for identifier, outputs in texts.items():
-            group, name = identifier[1:].split(".", 1)
-            references, current, _, _ = he.scenario(int(group), name)
-            if group not in reference_cells:  # every scenario of a group shares its reference batches
-                reference_cells[group] = cells(references)
-            text = "\n".join(outputs)
-            self.assertEqual([c for c in reference_cells[group] | cells([current]) if c in text], [], identifier)
+            def cells(payloads):
+                return {value.strip() for payload in payloads for row in read_table(payload)[1] for value in row
+                        if value.strip()}
+
+            reference_cells = {}
+            for identifier, outputs in texts.items():
+                group, name = identifier[1:].split(".", 1)
+                references, current, _, _ = he.scenario(int(group), name)
+                if group not in reference_cells:  # every scenario of a group shares its reference batches
+                    reference_cells[group] = cells(references)
+                text = "\n".join(outputs)
+                self.assertEqual([c for c in reference_cells[group] | cells([current]) if c in text], [],
+                                 (protocol.version, identifier))
 
     def test_replay_of_a_sample_reproduces_the_live_runs(self):
         report = ae.evaluate(self.recording, groups=(DEV, VAL))
@@ -572,34 +590,49 @@ class CommittedRecordingTests(unittest.TestCase):
                              (len(ae.SCENARIOS),) * 3 + (0,), split)
 
 
-REPORT = Path(__file__).resolve().parents[1] / "docs" / "evaluation" / "agents.md"
+ROOT = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(ae.CASES.exists() and ae.RECORDING.exists(), "no committed case facts")
 class CommittedReportTests(unittest.TestCase):
-    """The committed report is rendered from the saved case facts, and those facts are what the code measures."""
+    """Each protocol's committed report is rendered from its saved case facts, and those facts are what the code
+    measures: the first case of each split is replayed from the recording and must give the same facts."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.collected = json.loads(ae.CASES.read_text("utf-8"))
+    def each(self):
+        for protocol in ae.PROTOCOLS.values():
+            if protocol.cases.exists() and protocol.recording.exists():
+                with self.subTest(protocol=protocol.version):
+                    yield protocol, json.loads(protocol.cases.read_text("utf-8")), ae.load_recording(protocol.recording)
 
-    def test_committed_report_is_rendered_from_the_saved_facts(self):
-        self.assertEqual(ae.render_markdown(ae.summarise_collected(self.collected)) + "\n", REPORT.read_text("utf-8"))
+    def test_committed_reports_are_rendered_from_the_saved_facts(self):
+        for protocol, collected, _ in self.each():
+            self.assertEqual(collected["version"], protocol.version)
+            self.assertEqual(ae.render_markdown(ae.summarise_collected(collected)) + "\n",
+                             (ROOT / protocol.report).read_text("utf-8"))
 
     def test_saved_facts_cover_every_recorded_run_once(self):
-        recording = ae.load_recording(ae.RECORDING)
-        saved = [c["case_id"] for split in self.collected["splits"].values() for c in split["cases"]]
-        self.assertEqual(sorted(saved), sorted(r["case_id"] for r in recording["runs"]))
-        self.assertEqual(list(self.collected["splits"]), list(ae.SPLITS))  # held-out included, scored once
-        self.assertEqual(self.collected["recording"]["runs"], len(recording["runs"]))
+        for protocol, collected, recording in self.each():
+            saved = [c["case_id"] for split in collected["splits"].values() for c in split["cases"]]
+            self.assertEqual(sorted(saved), sorted(r["case_id"] for r in recording["runs"]))
+            self.assertEqual(list(collected["splits"]), list(ae.SPLITS))  # held-out included, scored once
+            self.assertEqual((collected["recording"]["runs"], recording["version"], recording["prompt_version"]),
+                             (len(recording["runs"]), protocol.version, protocol.prompt_version))
+            self.assertTrue(all(protocol.split_of(int(c[1:].split(".")[0])) in ae.SPLITS for c in saved))
+            self.assertTrue(all(int(c[1:].split(".")[0]) in protocol.groups for c in saved))
 
     def test_first_case_of_each_split_replays_to_the_saved_facts(self):
-        recording = ae.load_recording(ae.RECORDING)
-        for split, data in self.collected["splits"].items():
-            saved = data["cases"][0]
-            group, name = saved["case_id"][1:].split(".", 1)
-            again = ae.collect(recording, (split,), scenarios=(name,), groups=(int(group),))
-            self.assertEqual(json.loads(json.dumps(again["splits"][split]["cases"][0])), saved, split)
+        for protocol, collected, recording in self.each():
+            for split, data in collected["splits"].items():
+                saved = data["cases"][0]
+                group, name = saved["case_id"][1:].split(".", 1)
+                again = ae.collect(recording, (split,), scenarios=(name,), groups=(int(group),))
+                self.assertEqual(json.loads(json.dumps(again["splits"][split]["cases"][0])), saved, split)
+
+    def test_protocols_use_disjoint_groups_and_their_own_prompts(self):
+        self.assertFalse(set(ae.V1.groups) & set(ae.LATEST.groups))
+        self.assertEqual((ae.V1.prompt_version, ae.LATEST.prompt_version), ("2", "3"))
+        self.assertNotEqual([ae.V1.split_of(g) for g in ae.LATEST.groups],
+                            [ae.LATEST.split_of(g) for g in ae.LATEST.groups])
+        self.assertEqual(ae.LATEST.recording_name, "fixtures/evaluations/agents-llm-recording-v2.json")
 
 
 if __name__ == "__main__":
