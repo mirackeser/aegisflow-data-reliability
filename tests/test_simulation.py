@@ -280,7 +280,9 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(sim.EvidenceNotReady) as caught:
             p.evidence("INC-0001")
         self.assertEqual(caught.exception.evidence["state"], sim.COLLECTING)
+        collecting = p.incident_view("INC-0001")["series"]["t"]  # from the live buffer while collecting
         evidence = self.ready(p, "INC-0001")
+        self.assertEqual(p.incident_view("INC-0001")["series"]["t"][0], collecting[0])
         self.assertEqual((evidence["first_t"], evidence["as_of_t"]),
                          (fault["started_t"], fault["started_t"] + sim.WINDOW_SECONDS - 1))
         payload, as_of = p.evidence("INC-0001")
@@ -301,6 +303,13 @@ class EvidenceTests(unittest.TestCase):
             p.incident_view("INC-0404")
         self.assertEqual(p.incident("INC-0001")["evidence"], evidence)  # frozen
         self.assertEqual(p.snapshot()["incidents"][0]["evidence"]["collected_s"], sim.WINDOW_SECONDS)
+        # Long after the change has left the live buffer, the chart still starts where it did.
+        first = view["series"]["t"][0]
+        p.advance(sim.MAX_READINGS + sim.WINDOW_SECONDS)
+        self.assertGreater(p.readings[0]["t"], first + sim.INCIDENT_READINGS)
+        late = p.incident_view("INC-0001")["series"]
+        self.assertEqual((late["t"][0], late["t"]), (first, sorted(late["t"])))
+        self.assertLessEqual(late["t"][-1], p.readings[0]["t"])  # no jump across readings no longer held
 
     def test_seasonal_sensor_offset_onset_is_found(self):
         p = plant()
