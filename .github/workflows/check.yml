@@ -29,7 +29,7 @@ jobs:
       - name: Verify observed dashboard summaries
         run: node apps/local/test_presentation.cjs
       - name: Verify workspace helpers and bilingual strings
-        run: node apps/local/test_workspace.cjs && node apps/local/test_strings.cjs && node apps/local/test_flow.cjs && node apps/local/test_command.cjs && node apps/local/test_incident.cjs && node apps/local/test_report.cjs
+        run: node apps/local/test_workspace.cjs && node apps/local/test_strings.cjs && node apps/local/test_flow.cjs && node apps/local/test_command.cjs && node apps/local/test_incident.cjs && node apps/local/test_report.cjs && node apps/local/test_quality.cjs
       - name: Enforce coordination/workflow coverage and report application coverage
         env:
           COVERAGE_FILE: ${{ runner.temp }}/application.coverage

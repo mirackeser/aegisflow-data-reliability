@@ -1,6 +1,6 @@
 # AegisFlow implementation inventory and complete target roadmap
 
-Current delivery overlay: [increment 45](increment-45.md) joins retained multi-case evaluation, raw-versus-accepted scoring, campaign budgets/latency and signed gateway qualification. The public CLI produces inspectable retained output with zero live model calls; independent quality acceptance remains blocked. The larger next packages are provider/usage evaluation, read-only real integration, retrieval/cache, supported specialists, and operational/API readiness before UI. Historical item counts below are not a completion percentage.
+Current delivery overlay: increment 68 (see [status](status.md)). The local workbench runs the 36-role agent runtime with a local model (`qwen3:4b`, advisory and Judge-gated) on a simulated plant: change-point evidence, a verifiable case file, a recorded human decision, a print-ready report and a measured quality page. Real sensor data, a production connection and model acceptance on real incidents remain open. [Increment 45](increment-45.md) remains the record of the retained evaluation campaigns. Historical item counts below are not a completion percentage.
 
 Review date: 2026-11-11. Executable baseline: `c3205510e253172941521da0f50009e5f754b53a` ([commit](https://github.com/mirackeser/aegisflow-data-reliability/commit/c3205510e253172941521da0f50009e5f754b53a)).
 

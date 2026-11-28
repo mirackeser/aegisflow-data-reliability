@@ -61,3 +61,23 @@ were written by the same authors, so modelled-scenario success measures internal
 unmodelled scenarios measure misattribution on two hand-picked changes only. A `resolved` stop does not mean correct, and
 no result here is a root cause.
 
+
+## Agent runtime evaluation (live local model)
+
+`python -m aegisflow_dr.agents.agents_eval [--include-heldout]` runs the 36-role runtime on the fourteen scenarios of the
+hypothesis loop evaluation, on fresh groups 120 to 159, with the local model `qwen3:4b` (temperature 0, JSON-schema
+constrained, advisory and Judge-gated). `--live` records every model reply by the SHA-256 of its exact request into
+`fixtures/evaluations/agents-llm-recording-v1.json`. The report always replays that recording, so CI regenerates it without
+a model. The prompt (version 2), the role table and the expected specialist sets were fixed before development was scored.
+The held-out split (10 groups, 140 cases) was recorded live once and scored once. `agents.md` is the committed report. It
+is rendered from the per-case facts in `fixtures/evaluations/agents-cases-v1.json` (`--save-cases` / `--from-cases`). A
+test keeps both in sync and replays the first case of each split to show the saved facts match the code. The report
+states the model's weakness plainly: its suggestion often repeats the catalog order of the explaining mechanisms instead
+of telling them apart. Agreement with an injected label on simulated cases is not diagnostic accuracy on real data.
+
+## Measured quality page
+
+The workbench's `/quality` page shows every evaluation above through `aegisflow_dr.quality.summary()` (`GET /api/quality`).
+It reads each report's own numbers and normalises its rates to counts with a 95% Wilson interval, and it adds no
+measurement of its own. Headline rates pool the cases of a split across scenarios. Cases of one group or seed share data,
+so a pooled interval is optimistic, and the per-scenario tables are the conservative reading.
