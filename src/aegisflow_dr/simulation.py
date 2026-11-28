@@ -169,7 +169,7 @@ class Plant:
         self._rng = Random("aegisflow-plant:%d" % self.seed)
         self.now, self.readings, self.emitted, self.checks, self.detected = 0, [], 0, 0, 0
         self.faults, self.incidents, self.detections, self.last_check = [], [], [], None
-        self._evidence, self._next_fault, self._next_incident = {}, 1, 1
+        self._evidence, self._around, self._next_fault, self._next_incident = {}, {}, 1, 1
         commissioning = WINDOW_SECONDS * REFERENCE_WINDOWS
         self.advance(commissioning, monitor=False)
         rows = self.readings[-commissioning:]
@@ -290,6 +290,7 @@ class Plant:
         self.incidents = [i for i in self.incidents if i["id"] not in drop]
         for key in drop:
             self._evidence.pop(key, None)
+            self._around.pop(key, None)
         return findings
 
     # -- evidence -----------------------------------------------------------------------------------------------------
@@ -344,6 +345,9 @@ class Plant:
             payload = to_csv(rows)
             incident["evidence"].update(state=READY, records=len(rows), sha256=hashlib.sha256(payload).hexdigest())
             self._evidence[incident["id"]] = (payload, incident["evidence"]["as_of"])
+            # The readings around the change are kept with the evidence: the live buffer holds only MAX_READINGS
+            # seconds, so at high speed the change would otherwise leave the incident's chart.
+            self._around[incident["id"]] = self._rows_around(incident)
 
     def evidence(self, incident_id):
         """(CSV bytes, as_of) of the incident's frozen evidence window.
@@ -404,13 +408,26 @@ class Plant:
         return dict(incident, findings=[dict(f) for f in incident["findings"]], evidence=self._evidence_view(incident),
                     truth=self._truth(incident))
 
-    def incident_view(self, incident_id):
-        """One incident with the readings around its change: from ``INCIDENT_LEAD`` s before the earlier of the
-        evidence start and the detection window, at most ``INCIDENT_READINGS`` readings. KeyError when unknown."""
-        incident = self._incident_view(self.incident(incident_id))
-        starts = [incident["opened_t"] - WINDOW_SECONDS, incident["evidence"]["first_t"]]
+    def _rows_around(self, incident):
+        """Readings from ``INCIDENT_LEAD`` s before the earlier of the evidence start and the detection window."""
+        starts = [incident["opened_t"] - WINDOW_SECONDS, (incident.get("evidence") or {}).get("first_t")]
         low = min(t for t in starts if t is not None) - INCIDENT_LEAD
-        rows = [r for r in self.readings if r["t"] >= low][:INCIDENT_READINGS]
+        return [r for r in self.readings if r["t"] >= low][:INCIDENT_READINGS]
+
+    def incident_view(self, incident_id):
+        """One incident with the readings around its change (see ``_rows_around``), at most ``INCIDENT_READINGS``.
+
+        Once the evidence is frozen, the readings kept with it are the start of the series; live readings continue it
+        only while the buffer still joins on to them, so the chart never jumps across readings it no longer holds.
+        KeyError when unknown."""
+        incident = self._incident_view(self.incident(incident_id))
+        kept = self._around.get(incident_id)
+        if kept is None:
+            rows = self._rows_around(incident)
+        elif self.readings[0]["t"] <= kept[-1]["t"] + 1:
+            rows = (kept + [r for r in self.readings if r["t"] > kept[-1]["t"]])[:INCIDENT_READINGS]
+        else:
+            rows = kept
         return {"simulation": True, "incident": incident, "now_t": self.now, "live_start_t": self.live_start,
                 "units": dict(UNITS), "bands": self.bands(), "baseline_digest": self.baseline["digest"],
                 "seasonality": {s: dict(v) for s, v in self.seasonality.items()},

@@ -85,5 +85,20 @@ const [maxDefault,maxLimit]=engine.match(/^MAX_PROBES_DEFAULT, MAX_PROBES_LIMIT 
 for(const text of STRINGS['hy.list.x'])assert.deepEqual(text.match(/\d+/g),[maxDefault],`hy.list.x must name the default budget ${maxDefault}: ${text}`);
 for(const text of STRINGS['role.A25.limit'])assert.deepEqual(text.match(/\d+/g),[maxLimit,maxDefault],`role.A25.limit must name the budget limit and default: ${text}`);
 for(const role of ['A24','A25','A28'])assert.ok(/simulated mechanisms, deterministic probes with fixed thresholds, no model/.test(STRINGS['role.'+role+'.limit'][0]),`role.${role}.limit must state its limits`);
-assert.ok(/fixed catalog of candidate mechanisms exists \(F04\), but naming a root cause needs a model and real labelled data/.test(STRINGS['role.A23.limit'][0]),'role.A23.limit must keep root cause out of reach');
+assert.ok(/its output is advisory, checked by the Judge, and the fixed probes \(A24, A25\) decide what is supported\. Naming a root cause would need real labelled data/.test(STRINGS['role.A23.limit'][0]),'role.A23.limit must keep the model advisory and root cause out of reach');
 console.log(`${checked} UI strings verified: both languages present, placeholders consistent, no missing keys.`);
+// A count of one uses the ".one" variant; every variant has a base key with the same placeholders.
+{
+ const vm=require('node:vm'),ctx={language:'en',module:undefined};vm.createContext(ctx);
+ vm.runInContext(fs.readFileSync(__dirname+'/strings.js','utf8')+';this.t=t;',ctx);
+ assert.equal(ctx.t('cc.inc.meta',{at:'T+1',n:'1',records:'200'}),'Opened T+1 · 1 finding · window of 200 readings');
+ assert.equal(ctx.t('cc.inc.meta',{at:'T+1',n:'2',records:'200'}),'Opened T+1 · 2 findings · window of 200 readings');
+ assert.equal(ctx.t('qua.of',{n:'1',d:'2'}),'1 of 2','no variant: the base text');
+ for(const key of Object.keys(STRINGS).filter(k=>k.endsWith('.one'))){
+  const base=key.slice(0,-4);
+  assert.ok(STRINGS[base],`${key}: no base key`);
+  assert.equal(placeholders(STRINGS[key][0]),placeholders(STRINGS[base][0]),`${key}: placeholders differ from ${base}`);
+  assert.ok(placeholders(STRINGS[base][0]).split(',').includes('n'),`${base}: a singular form needs {n}`);
+ }
+ console.log('singular forms verified.');
+}

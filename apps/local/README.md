@@ -1,6 +1,18 @@
 # Local investigation workbench
 
-Zero external spending. This local pilot connects a disposable PostgreSQL source, existing retained deterministic investigations, lexical source retrieval, revision-bound references and an authenticated loopback observation screen. No paid API, model download, inference, production exposure or source repair is enabled.
+Zero external spending. This local pilot connects a disposable PostgreSQL source, existing retained deterministic investigations, lexical source retrieval, revision-bound references and an authenticated loopback observation screen. No paid API, production exposure or source repair is enabled. The only model is an optional local one (Ollama `qwen3:4b` on 127.0.0.1). It is advisory and checked by the Judge; without it the agents still run and report the model as unavailable.
+
+## Pages
+
+| Page | What it shows |
+|---|---|
+| Command Center (`/overview`) | The simulated plant: live sensor charts, window checks, fault injection (simulation only), incidents and agent KPIs. |
+| Agent flow (`/flow`) | One agent run of the 36-role runtime, drawn from its events and its sealed record, with replay at a readable speed. |
+| Incident (`/incident?id=…`) | One incident from detection to human decision: change point, frozen evidence, probe results, agent operations, the recorded decision and the verified evidence chain. |
+| Report (`/report?incident=…`) | A print-ready A4 incident report in the page language ("Save as PDF"). |
+| Measured quality (`/quality`) | Every committed evaluation on development, validation and held-out splits, with counts, Wilson intervals and limits. `/evidence` is kept as an alias. |
+| Investigations, Data sources, Execution flow, Reports, Evidence references | The order-data CSV workflow described below: deterministic checks on files you choose. |
+
 
 From the repository root with the package installed:
 
@@ -12,7 +24,7 @@ Open the printed loopback address. Read `access-token` from the private state di
 
 Run investigation creates a separate temporary PostgreSQL cluster, never accesses existing servers, and checks clean/missing/duplicate data through the existing evidence engine. Database writes are limited to fixture setup using the fixture owner; the inspected reader has SELECT only and three denied write operations are verified. Temporary server shutdown is attempted in finally. Unexpected process termination may require manual cleanup of a leftover temporary cluster; no automatic uncertain worker restart is permitted.
 
-The four displayed roles are narrow deterministic capability slices, not full autonomous specialist agents. A10 completion reflects the quality checks executed inside source qualification. Events represent actual execution boundaries, not simulated LLM progress. Knowledge retrieval is lexical, not vector/semantic RAG. Its text is untrusted reference material and never grants tool access. Cache entries are bound to tenant, grants, query and document revision; replacement/deletion invalidates entries. No local LLM is installed/configured, and the screen reports that explicitly. Model inference and calibrated quality, vector retrieval, full specialist orchestration and production operations remain separate acceptance work.
+The four displayed roles are narrow deterministic capability slices, not full autonomous specialist agents. A10 completion reflects the quality checks executed inside source qualification. Events represent actual execution boundaries, not simulated LLM progress. Knowledge retrieval is lexical, not vector/semantic RAG. Its text is untrusted reference material and never grants tool access. Cache entries are bound to tenant, grants, query and document revision; replacement/deletion invalidates entries. This CSV workflow makes no model call; the agent runtime with the optional local model is on the Agent flow and Incident pages. Calibrated model quality on real data, vector retrieval and production operations remain separate acceptance work.
 
 The workbench retains sanitized results and events for the current run and up to 20 prior runs, not a full enterprise audit archive. An interrupted state is reported after restart without automatic rerun. Existing core evidence, campaign and accounting APIs remain unchanged. PostgreSQL qualification creates temporary evidence that is removed with its fixture; the screen retains summaries and reference digests, not source evidence files. Do not treat these pilot summaries as enterprise audit retention.
 
@@ -74,9 +86,9 @@ Computation lives in `src/aegisflow_dr/analysis.py` (deterministic, bounded, 100
 
 The Execution flow page adds a timeline drawn from the real timestamps of the run's events: bar widths are measured spans, a step with a single recorded event is shown as a marker, and nothing is estimated. The capability graph gained stage headers and animated edges for steps that actually completed (disabled when the person prefers reduced motion). Role IDs still name design-catalog capabilities; no autonomous agent or model call is shown because none runs.
 
-## Check accuracy page
+## Measured quality page
 
-`/evidence` (authenticated `GET /api/evaluation`, computed once per process on your machine) shows the record-level evaluation from `docs/evaluation/`: labelled corpus size, split sizes, leakage status, corpus fingerprint, and per-check recall and precision for `diagnose_csv` and `record_issues` across development, validation and held-out splits, each with exact counts and the lower bound of a 95% Wilson interval (an undefined rate is shown as n/a, never 100%). The page states what is not measured: real data, fault kinds nobody injected, and any language model.
+`/quality` (authenticated `GET /api/quality`, computed once per process and warmed at start) shows every committed evaluation from `docs/evaluation/`: the plant incidents, the agents with the live local model, the hypothesis loop, the baseline comparison, profiling and the CSV checks. A split selector chooses development, validation or held-out. Each rate shows its exact counts and a 95% Wilson interval, and an undefined rate is n/a, never 100%. The plant and agent sections have per-scenario tables, and the agents section states the model's weakness from its own numbers. The CSV checks keep their per-check breakdown (`GET /api/evaluation`), and the retrieval and passage measurements follow at the bottom. Every section states what it does not measure.
 
 ## Capability map
 
@@ -92,10 +104,10 @@ The state snapshot also carries `similar` from `similar.py` (the A22 role, parti
 
 `GET /api/platform` serves `platform_map.py`: the ten committed platform components (MCP, A2A, LLM, RAG, CAG, contracts, certificates, TAG, connections, Judge), each with a status, the code that backs it and the tests that exercise it. A test imports every anchor and checks that no component is marked live or fully built. The Agents page shows it above the role catalog. Today 9 are partly built, 1 (CAG) is not built, and none talks to a live external service.
 
-`GET /api/retrieval` serves `retrieval_eval.py`: recall@1, recall@3 and mean reciprocal rank of the lexical reference retrieval on 32 labelled queries (same wording, paraphrase, no relevant document), with 95% Wilson intervals, shown on the Evidence page. The queries were written with the six documents in view, so it is a regression guard and a picture of lexical matching, not an independent benchmark. Retrieval only; no model is involved. The published report is `docs/evaluation/retrieval.md` and a test keeps it equal to what the code produces.
+`GET /api/retrieval` serves `retrieval_eval.py`: recall@1, recall@3 and mean reciprocal rank of the lexical reference retrieval on 32 labelled queries (same wording, paraphrase, no relevant document), with 95% Wilson intervals, shown on the Measured quality page. The queries were written with the six documents in view, so it is a regression guard and a picture of lexical matching, not an independent benchmark. Retrieval only; no model is involved. The published report is `docs/evaluation/retrieval.md` and a test keeps it equal to what the code produces.
 
 The platform map now lists all ten components as partly built (CAG through `advisory/context_cache.py`); none is live.
 
 The Knowledge page also hosts a knowledge base (`knowledge_base.py`): you can add text documents (name up to 80 characters, text up to 16 KB, 50 documents), each stored in `knowledge.json` (mode 0600) with its content hash as revision and an added-at time. `GET /api/knowledge` lists built-in and added documents; `POST /api/knowledge/add|remove|search` change and query them. Added text is untrusted reference data: it is never an instruction or a grant, control characters are rejected, built-in names are reserved, an edit makes a new revision so old citations stop verifying, and the stored file is re-validated on load. Search is lexical with verified citations. No file parsing, chunking or embeddings exist.
 
-Documents are split into passages by `chunking.py` (paragraph-aware, at most 800 bytes, cut at sentence ends when possible, every chunk exactly `text[start:end]`, no overlap, full coverage of non-space characters; property-tested on 250 random documents). `Knowledge.retrieve_passages` ranks passages and returns the exact span and a passage-level citation hash; knowledge-base search uses it, and an edit invalidates old passage citations. `GET /api/passages` serves `passage_eval.py`, a seeded synthetic comparison of whole-document and passage retrieval shown on the Evidence page; the published report is `docs/evaluation/passages.md` and a test keeps it equal to the code. Built-in documents are single passages, so their behaviour did not change.
+Documents are split into passages by `chunking.py` (paragraph-aware, at most 800 bytes, cut at sentence ends when possible, every chunk exactly `text[start:end]`, no overlap, full coverage of non-space characters; property-tested on 250 random documents). `Knowledge.retrieve_passages` ranks passages and returns the exact span and a passage-level citation hash; knowledge-base search uses it, and an edit invalidates old passage citations. `GET /api/passages` serves `passage_eval.py`, a seeded synthetic comparison of whole-document and passage retrieval shown on the Measured quality page; the published report is `docs/evaluation/passages.md` and a test keeps it equal to the code. Built-in documents are single passages, so their behaviour did not change.

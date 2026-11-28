@@ -103,7 +103,7 @@ function formatAmount(value,locale='en'){
 function percent(ratio,locale='en'){
  if(ratio===null||ratio===undefined)return '—';
  const text=(Math.floor(ratio*1000)/10).toFixed(1);   // never round 99.96% up to 100%
- return (locale==='tr'?text.replace('.',','):text)+'%';
+ return locale==='tr'?'%'+text.replace('.',','):text+'%';   // Turkish writes the sign first: %90,4
 }
 function runLabel(run){
  const input=run?.result?.input||run?.meta;

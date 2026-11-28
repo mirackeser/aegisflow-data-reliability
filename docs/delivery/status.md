@@ -399,3 +399,22 @@ The model's suggestion (A23) is weak, and the report and the page say so. It lis
 `agents_eval` now scores saved per-case facts (`fixtures/evaluations/agents-cases-v1.json`), so the report renders in a fraction of a second. A test keeps `docs/evaluation/agents.md` in sync with those facts. Another test replays the first case of each split to show the facts match the code. The refactor was checked by rendering the full report through the old and the new path: the two were byte-identical.
 
 The new `/quality` page ("Measured quality") replaces "Check accuracy"; the old `/evidence` address still opens it. It shows the plant, agents, hypothesis-loop, baseline, profiling and CSV-check evaluations from `GET /api/quality` (`aegisflow_dr.quality`). It has a split selector, held-out headline tiles, per-scenario tables and a model-weakness note computed from the API's own numbers. Each rate shows its counts and a Wilson interval, drawn as a bar. The page lists the limits of every evaluation, works in EN and TR, and works at 375 px.
+
+## Increment 69 — polish: mobile, TR/EN, a demo GIF and stale claims corrected
+
+An audit of every page at 375 px in both languages and a full end-to-end run in the browser found and fixed these issues:
+
+- **Incident chart.** On a long or fast run (20×), the readings around the change point dropped out of the plant's 1,200-reading buffer, so the onset fell outside the chart. The readings around the change are now kept when the evidence is frozen, and live readings continue the series only while they still join on. A regression test covers it.
+- **Command Center at 375 px.** It scrolled sideways because a screen-reader-only table cannot shrink to 1 px. That table is now inside a clipped box.
+- **Turkish percentages.** They now put the sign first (`%87,4`).
+- **Singular counts.** A count of one now reads in the singular: "1 finding", not "1 findings" or "finding(s)". The rule (`key.one`) is tested.
+- **Turkish terminology.** The Judge is called "Hakem" everywhere in Turkish; some strings used the English "Judge" or "Yargıç".
+- **Smaller fixes.** The incident header no longer leaves an empty band. The report summary no longer nests parentheses. The Agent flow title fits plant incidents as well as files.
+
+Statements that were no longer true are corrected:
+- the footer;
+- the platform panel's "no model has ever been run";
+- the Capability map's "no model is configured" for A23. It now says the map covers the CSV workflow, while the agent runtime runs all 36 roles.
+- the opening of the README and of the workbench README.
+
+The README opens with a captioned 12-frame demo GIF (`docs/media/aegisflow-demo.gif`, 1.1 MB). It was made from browser screenshots of one real run, assembled with the local Pillow and no new dependency. The run covers fault injection, detection, the frozen evidence, 36 agents, probes, a recorded decision, the verified chain, the report and measured quality.

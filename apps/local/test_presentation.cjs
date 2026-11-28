@@ -48,7 +48,7 @@ assert.ok(full.includes('More records affected')&&full.includes('Changed for the
 assert.ok(full.includes('No language model was used'));
 assert.ok(!full.includes('<script>')&&full.includes('@page'));
 const turkish=readableReport(withAnalysis,x=>`«${x}»`,'tr');
-assert.ok(turkish.includes('1.234,50')&&turkish.includes('91,6%'));
+assert.ok(turkish.includes('1.234,50')&&turkish.includes('%91,6'));
 assert.ok(!readableReport(run).includes('Executive summary'),'no summary without a retained analysis');
 const clean=readableReport({...withAnalysis,result:{...withAnalysis.result,cases:[{...withAnalysis.result.cases[0],analysis:{...analysis,status:'PASS',heatmap:[],actions:[]}}]}});
 assert.ok(clean.includes('No findings in the checked rows')&&!clean.includes('Where to look first')&&!clean.includes('Review decisions')&&!clean.includes('Change since'));

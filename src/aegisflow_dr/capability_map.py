@@ -3,7 +3,8 @@
 
 The catalog is a design catalog: every role there is ``planned``. This map states, per role, how much of
 it a deterministic capability in this repository covers, and names the code that does it so a test can
-confirm the code is there. Nothing here is an autonomous agent or a model call.
+confirm the code is there. Nothing here is an autonomous agent or a model call. It describes the deterministic CSV
+inspection workflow; the agent runtime (``aegisflow_dr.agents``) runs every role as a contract-bound executor.
 """
 from __future__ import annotations
 

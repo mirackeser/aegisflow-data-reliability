@@ -477,7 +477,7 @@ svg.fl-icon{width:14px;height:14px;flex:0 0 auto}.fl-icon .fl-solid{fill:current
 .inc-head{display:grid;gap:10px;border-left:3px solid var(--info)}
 .inc-head-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
 .inc-back{font-weight:700;min-height:44px;display:inline-flex;align-items:center}
-.inc-head-main{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.inc-head-main{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px}
 .inc-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .inc-id{font-size:1.45rem;letter-spacing:.04em;font-variant-numeric:tabular-nums}.inc-sensor{font-size:1.05rem;color:#d3deee;font-weight:600}
 .inc-facts{display:grid;grid-template-columns:repeat(4,minmax(0,auto));gap:4px 22px;margin:0}
