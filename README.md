@@ -2,7 +2,36 @@
 
 Evidence-led investigation of batch data pipelines, with bounded tools and human-reviewed remediation as the target architecture.
 
-## Current increment
+## What it does now
+
+![AegisFlow demo: a fault is injected into the simulated plant, an incident opens, 36 agents investigate the frozen evidence, a person records a decision, and the case file, report and measured quality follow](docs/media/aegisflow-demo.gif)
+
+The [local workbench](apps/local/README.md) runs an end-to-end incident workflow on a **simulated plant** (generated sensor data, not a real plant):
+
+1. **Detection.** Three sensor streams are checked against a commissioning baseline every 15 simulated seconds. A fault you inject (calibration offset, unit change, stuck sensor, noise, sampling slowdown, ingestion pause, duplicate burst) opens an incident.
+2. **Evidence.** The change point is estimated from the data alone. The first full 200 s window after it is frozen with its SHA-256.
+3. **Investigation.** The 36-role agent runtime investigates the frozen evidence. Fixed probes test catalog mechanisms and report measured values. A local model (`qwen3:4b`, loopback only) suggests mechanisms, but its output is advisory and checked by the Judge (A27).
+4. **Decision.** A person records a decision; it is recorded, never executed. Accepting a candidate is only possible for one the probes support.
+5. **Case file.** A five-link hash chain covers the baseline, evidence, probes, agent run and decision, and every link is re-verified from its source. A print-ready A4 report is produced through "Save as PDF".
+6. **Measured quality.** A page shows every evaluation on development, validation and held-out splits, each with counts and Wilson intervals.
+
+Held-out results, each scored once (simulated or synthetic data only):
+
+- **Plant:** the injected mechanism is the only one supported in 258/295 detected faults. A wrong mechanism is supported in 0/295. There was 1 false alarm in 20 simulated hours.
+- **Agents with the live model:** exact specialist sets in 140/140 cases and schema-valid replies in 400/400.
+- **The model's weak point:** it names the injected mechanism first in only 40/110 cases. The deterministic loop, not the model, decides which candidates are supported.
+
+Details: [measured quality](docs/evaluation/README.md) and [status](docs/delivery/status.md).
+
+**Not claimed:**
+- no root-cause inference;
+- no accuracy on real data;
+- no live agents in production;
+- no production connection.
+
+Real sensor data, a production connection and model acceptance on real incidents remain open. The 36-role catalog is a design catalog. Every role is a contract-bound executor, and most of them wrap deterministic modules.
+
+## Earlier increments (history)
 
 The [local operations workspace](apps/local/README.md) explains the order-data inspection workflow, separates user-file and explicitly labeled example modes, and supports Turkish/English across overview, source, investigation, activity and report screens. Authenticated UTF-8 order CSV inspection produces grouped findings with record numbers and review guidance. Actual source findings, logical record numbers, independently checked retained evidence and JSON report download are available with zero external spending. This local profile uses deterministic checks and lexical references; model inference and production hosting remain open.
 

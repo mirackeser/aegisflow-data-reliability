@@ -27,7 +27,7 @@ assert.equal(P.stepState(review,P.reviewProgress(actions,{'ACT-01':{},'ACT-02':{
 assert.equal(P.laneOf({status:'unavailable'}),'unavailable');assert.equal(P.laneOf({status:'disabled'}),'unavailable');
 assert.equal(P.laneOf({status:'skipped'}),'skipped');assert.equal(P.laneOf({status:'rejected'}),'skipped');
 // number formatting never rounds a near-miss up to 100% and keeps exact decimals
-assert.equal(P.percent(0.9996),'99.9%');assert.equal(P.percent(1),'100.0%');assert.equal(P.percent(null),'—');assert.equal(P.percent(0.9048,'tr'),'90,4%');
+assert.equal(P.percent(0.9996),'99.9%');assert.equal(P.percent(1),'100.0%');assert.equal(P.percent(null),'—');assert.equal(P.percent(0.9048,'tr'),'%90,4');
 assert.equal(P.formatAmount('1234567.5'),'1,234,567.50');assert.equal(P.formatAmount('1234567.50','tr'),'1.234.567,50');assert.equal(P.formatAmount(null),'—');
 // source classes
 assert.equal(P.summarizeResult({source:'synthetic-sample',cases:[]}).source,'sample');

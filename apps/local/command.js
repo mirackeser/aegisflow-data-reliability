@@ -560,8 +560,8 @@ function ccUpdateAgents(d,s){
     h('div',{class:'cc-bar'},b.segments.map(sg=>{const n=h('span',{class:'cc-seg '+sg.status,title:`${t('cc.outcome.'+sg.status)}: ${sg.count}`});n.style.width=(sg.share*100).toFixed(2)+'%';return n;})),
     h('span',{class:'cc-bar-n',text:N(b.total)})))):h('p',{class:'hint',text:t('cc.agents.layers.none')}),
    any?h('ul',{class:'cc-legend outcomes','aria-hidden':'true'},CC_OUTCOMES.map(o=>h('li',{},h('span',{class:'cc-key seg '+o}),t('cc.outcome.'+o)))):null,
-   any?h('table',{class:'sr-only'},h('caption',{text:t('cc.agents.layers')}),h('thead',{},h('tr',{},h('th',{scope:'col',text:t('cc.col.layer')}),...CC_OUTCOMES.map(o=>h('th',{scope:'col',text:t('cc.outcome.'+o)})))),
-    h('tbody',{},bars.map(b=>h('tr',{},h('th',{scope:'row',text:t('flow.layer.'+b.layer)}),...CC_OUTCOMES.map(o=>h('td',{text:N(b.segments.find(x=>x.status===o)?.count||0)})))))):null].filter(Boolean));
+   any?h('div',{class:'sr-only'},h('table',{},h('caption',{text:t('cc.agents.layers')}),h('thead',{},h('tr',{},h('th',{scope:'col',text:t('cc.col.layer')}),...CC_OUTCOMES.map(o=>h('th',{scope:'col',text:t('cc.outcome.'+o)})))),
+    h('tbody',{},bars.map(b=>h('tr',{},h('th',{scope:'row',text:t('flow.layer.'+b.layer)}),...CC_OUTCOMES.map(o=>h('td',{text:N(b.segments.find(x=>x.status===o)?.count||0)}))))))):null].filter(Boolean));
  }
  ccText(d.recentTitle,t('cc.recent'));
  d.recentEmpty.hidden=a.recent.length>0;
